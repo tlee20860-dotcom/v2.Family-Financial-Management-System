@@ -1,11 +1,11 @@
 // ============================================
-// column-settings.js — 表格欄位設定 SSOT（v101.6 🆕）
+// column-settings.js — 表格欄位設定 SSOT（v101.6.1）
 // 位置：js/shared/column-settings.js
 // ============================================
-// 職責：
-//   1. 管理表格欄位的顯示 / 隱藏 / 排序 / 寬度
-//   2. 儲存至 localStorage
-//   3. 提供設定面板（勾選 / 拖曳 / 寬度）
+// v101.6.1 修正：
+//   ✅ 移除 HTML5 拖拽（手機版不支援）
+//   ✅ 改為「上移 / 下移」按鈕（手機 + 桌面通用）
+//   ✅ 保留勾選顯示 / 寬度調整
 //
 // 儲存格式：
 //   localStorage['fin_ui_columns_{tableId}'] = JSON.stringify({
@@ -22,14 +22,6 @@ import { escapeHtml } from '../core/utils.js';
    主函式
    ============================================ */
 
-/**
- * 初始化欄位設定
- * @param {Object} options
- * @param {string} options.tableId - 表格 ID（用於持久化）
- * @param {Array} options.columns - 所有可用欄位 [{ id, label, defaultVisible?, defaultWidth? }]
- * @param {string[]} [options.defaultVisible] - 預設可見欄位（若未提供，用 columns 的 defaultVisible）
- * @returns {Object} 設定 API
- */
 export function initColumnSettings(options) {
   const {
     tableId,
@@ -74,7 +66,6 @@ export function initColumnSettings(options) {
       }
       if (Array.isArray(data.order)) {
         const validOrder = data.order.filter((id) => columns.some((c) => c.id === id));
-        // 補齊未包含的欄位
         columns.forEach((c) => {
           if (!validOrder.includes(c.id)) validOrder.push(c.id);
         });
@@ -104,10 +95,6 @@ export function initColumnSettings(options) {
      對外 API
      ============================================ */
 
-  /**
-   * 取得目前可見的欄位（依 _order 排序）
-   * @returns {Array}
-   */
   function getVisibleColumns() {
     return _order
       .filter((id) => _visible.includes(id))
@@ -115,10 +102,6 @@ export function initColumnSettings(options) {
       .filter(Boolean);
   }
 
-  /**
-   * 取得所有欄位（依 _order 排序，含可見狀態）
-   * @returns {Array}
-   */
   function getAllColumns() {
     return _order
       .map((id) => columns.find((c) => c.id === id))
@@ -130,40 +113,26 @@ export function initColumnSettings(options) {
       }));
   }
 
-  /**
-   * 取得欄位寬度
-   */
   function getWidth(columnId) {
     return _widths[columnId] ?? null;
   }
 
-  /**
-   * 設定可見欄位
-   */
   function setVisible(ids) {
     _visible = ids.filter((id) => columns.some((c) => c.id === id));
-    // 至少保留一個
     if (_visible.length === 0) {
       _visible = [_defaultOrder[0]];
     }
     _saveToStorage();
   }
 
-  /**
-   * 設定欄位順序
-   */
   function setOrder(ids) {
     _order = ids.filter((id) => columns.some((c) => c.id === id));
-    // 補齊未包含的
     columns.forEach((c) => {
       if (!_order.includes(c.id)) _order.push(c.id);
     });
     _saveToStorage();
   }
 
-  /**
-   * 設定欄位寬度
-   */
   function setWidth(columnId, width) {
     if (width == null || width <= 0) {
       delete _widths[columnId];
@@ -173,9 +142,6 @@ export function initColumnSettings(options) {
     _saveToStorage();
   }
 
-  /**
-   * 重置為預設
-   */
   function reset() {
     _visible = [..._defaultVisible];
     _order = [..._defaultOrder];
@@ -183,11 +149,6 @@ export function initColumnSettings(options) {
     _saveToStorage();
   }
 
-  /**
-   * 開啟設定面板
-   * @param {Object} [options]
-   * @param {Function} [options.onChange] - 變更回呼
-   */
   function openPanel(options = {}) {
     _renderPanel(options.onChange);
   }
@@ -208,7 +169,7 @@ export function initColumnSettings(options) {
       <div class="modal" style="max-width:480px; max-height:90vh; overflow-y:auto;">
         <h2 class="modal-title">欄位設定</h2>
         <p style="font-size:12px; color:var(--text-muted); margin-bottom:16px;">
-          勾選顯示、拖曳調整順序、輸入寬度（px）
+          勾選顯示、用 ↑↓ 調整順序、輸入寬度（px）
         </p>
         <div id="${MODAL_ID}-list"></div>
         <div class="modal-actions" style="margin-top:20px;">
@@ -222,27 +183,47 @@ export function initColumnSettings(options) {
     `;
     document.body.appendChild(overlay);
 
-    // 渲染欄位清單
     const listEl = overlay.querySelector(`#${MODAL_ID}-list`);
     const tempState = getAllColumns().map((c) => ({ ...c }));
 
     function renderList() {
-      listEl.innerHTML = tempState.map((c, i) => `
-        <div class="column-settings-row" data-id="${escapeHtml(c.id)}" data-index="${i}"
-             style="display:flex; align-items:center; gap:10px; padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.05);"
-             draggable="true">
-          <i data-lucide="grip-vertical" style="width:16px;height:16px;color:var(--text-muted);cursor:grab;"></i>
-          <label style="display:flex; align-items:center; gap:8px; flex:1; cursor:pointer;">
-            <input type="checkbox" data-role="visible" ${c.visible ? 'checked' : ''}
-                   style="width:auto; cursor:pointer;">
-            <span style="font-size:13px;">${escapeHtml(c.label)}</span>
-          </label>
-          <input type="number" data-role="width" value="${c.width ?? ''}"
-                 placeholder="自動" min="40" max="500" step="10"
-                 style="width:80px; padding:4px 8px; font-size:12px; background:rgba(8,11,17,0.6); border:1px solid var(--glass-border); border-radius:var(--radius-sm); color:var(--text-primary);">
-          <span style="font-size:11px; color:var(--text-muted);">px</span>
-        </div>
-      `).join('');
+      listEl.innerHTML = tempState.map((c, i) => {
+        const isFirst = i === 0;
+        const isLast = i === tempState.length - 1;
+
+        return `
+          <div class="column-settings-row" data-id="${escapeHtml(c.id)}" data-index="${i}"
+               style="display:flex; align-items:center; gap:8px; padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.05);">
+
+            <!-- 上下移動按鈕（v101.6.1） -->
+            <div style="display:flex; flex-direction:column; gap:2px; flex-shrink:0;">
+              <button type="button" class="btn btn-sm btn-ghost" data-role="move-up"
+                      ${isFirst ? 'disabled' : ''}
+                      style="padding:2px 6px; line-height:1; min-width:auto;">
+                <i data-lucide="chevron-up" style="width:14px;height:14px;"></i>
+              </button>
+              <button type="button" class="btn btn-sm btn-ghost" data-role="move-down"
+                      ${isLast ? 'disabled' : ''}
+                      style="padding:2px 6px; line-height:1; min-width:auto;">
+                <i data-lucide="chevron-down" style="width:14px;height:14px;"></i>
+              </button>
+            </div>
+
+            <!-- 勾選可見 + 標籤 -->
+            <label style="display:flex; align-items:center; gap:8px; flex:1; cursor:pointer; min-width:0;">
+              <input type="checkbox" data-role="visible" ${c.visible ? 'checked' : ''}
+                     style="width:auto; cursor:pointer; flex-shrink:0;">
+              <span style="font-size:13px; word-break:break-word;">${escapeHtml(c.label)}</span>
+            </label>
+
+            <!-- 寬度輸入 -->
+            <input type="number" data-role="width" value="${c.width ?? ''}"
+                   placeholder="自動" min="40" max="500" step="10"
+                   style="width:70px; padding:4px 8px; font-size:12px; background:rgba(8,11,17,0.6); border:1px solid var(--glass-border); border-radius:var(--radius-sm); color:var(--text-primary); flex-shrink:0;">
+            <span style="font-size:11px; color:var(--text-muted); flex-shrink:0;">px</span>
+          </div>
+        `;
+      }).join('');
 
       if (window.lucide) window.lucide.createIcons();
     }
@@ -250,7 +231,7 @@ export function initColumnSettings(options) {
     renderList();
 
     /* ============================================
-       事件：勾選可見
+       事件：勾選 / 寬度
        ============================================ */
     listEl.addEventListener('change', (e) => {
       const checkbox = e.target.closest('input[data-role="visible"]');
@@ -272,53 +253,33 @@ export function initColumnSettings(options) {
     });
 
     /* ============================================
-       事件：拖曳排序
+       事件：上移 / 下移（v101.6.1）
        ============================================ */
-    let _dragIndex = null;
+    listEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-role]');
+      if (!btn) return;
 
-    listEl.addEventListener('dragstart', (e) => {
-      const row = e.target.closest('.column-settings-row');
+      const role = btn.dataset.role;
+      const row = btn.closest('.column-settings-row');
       if (!row) return;
-      _dragIndex = Number(row.dataset.index);
-      row.style.opacity = '0.4';
-    });
 
-    listEl.addEventListener('dragend', (e) => {
-      const row = e.target.closest('.column-settings-row');
-      if (row) row.style.opacity = '1';
-    });
+      const index = Number(row.dataset.index);
+      if (isNaN(index)) return;
 
-    listEl.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      const row = e.target.closest('.column-settings-row');
-      if (!row) return;
-      row.style.borderTop = '2px solid var(--neon-cyan)';
-    });
-
-    listEl.addEventListener('dragleave', (e) => {
-      const row = e.target.closest('.column-settings-row');
-      if (row) row.style.borderTop = '';
-    });
-
-    listEl.addEventListener('drop', (e) => {
-      e.preventDefault();
-      const row = e.target.closest('.column-settings-row');
-      if (!row) return;
-      row.style.borderTop = '';
-      const dropIndex = Number(row.dataset.index);
-      if (_dragIndex == null || _dragIndex === dropIndex) return;
-
-      const [moved] = tempState.splice(_dragIndex, 1);
-      tempState.splice(dropIndex, 0, moved);
-      _dragIndex = null;
-      renderList();
+      if (role === 'move-up' && index > 0) {
+        [tempState[index - 1], tempState[index]] = [tempState[index], tempState[index - 1]];
+        renderList();
+      } else if (role === 'move-down' && index < tempState.length - 1) {
+        [tempState[index], tempState[index + 1]] = [tempState[index + 1], tempState[index]];
+        renderList();
+      }
     });
 
     /* ============================================
        事件：按鈕
        ============================================ */
     overlay.addEventListener('click', (e) => {
-      const btn = e.target.closest('button[data-action]');
+      const btn = e.target.closest('.modal-actions button[data-action]');
       if (btn) {
         const action = btn.dataset.action;
 
@@ -352,9 +313,6 @@ export function initColumnSettings(options) {
     });
   }
 
-  /* ============================================
-     回傳 API
-     ============================================ */
   return {
     getVisibleColumns,
     getAllColumns,
