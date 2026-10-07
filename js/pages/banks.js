@@ -1,18 +1,14 @@
 // ============================================
-// banks.js — 銀行管理明細（v101 只讀化）
+// banks.js — 銀行管理明細（v101.2 只讀化）
 // 位置：js/pages/banks.js
 // ============================================
-// v101 改動：
-//   ✅ 移除新增 / 編輯 / 刪除（移至綜合輸入中心 / 基礎資料庫）
-//   ✅ 保留卡片 / 表格雙模式
-//   ✅ 保留單月 / 全年切換
+// v101.2 修正：
+//   ✅ 移除未使用的 getBankBalancesOnceForYear import（致命 Bug）
 //   ✅ 統一由 AppState ym-change 載入
-//   ✅ 加「前往輸入中心」按鈕
-//   ✅ 底部快速摘要（資產配置）
 // ============================================
 
 import {
-  listenBanks, getBankBalancesOnce, getBankBalancesOnceForYear,
+  listenBanks, getBankBalancesOnce,
 } from '../core/db.js';
 import { AppState } from '../core/state.js';
 import { escapeHtml, formatHKD } from '../core/utils.js';
@@ -172,6 +168,12 @@ async function _loadMonthly(year, month) {
   const monthLabel = document.getElementById('banks-month');
   if (monthLabel) monthLabel.textContent = `${year} 年 ${month} 月 結餘`;
 
+  // 顯示單月檢視
+  const summaryView = document.getElementById('banks-summary-view');
+  const annualView = document.getElementById('banks-annual-view');
+  if (summaryView) summaryView.style.display = 'block';
+  if (annualView) annualView.style.display = 'none';
+
   try {
     const [balances, prevBalances] = await Promise.all([
       getBankBalancesOnce(year, month),
@@ -205,6 +207,12 @@ async function _getPrevMonthBalances(year, month) {
 async function _loadAnnual(year) {
   const monthLabel = document.getElementById('banks-month');
   if (monthLabel) monthLabel.textContent = `${year} 年度總覽`;
+
+  // 顯示全年檢視
+  const summaryView = document.getElementById('banks-summary-view');
+  const annualView = document.getElementById('banks-annual-view');
+  if (summaryView) summaryView.style.display = 'none';
+  if (annualView) annualView.style.display = 'block';
 
   try {
     const monthlyBalances = [];
@@ -243,7 +251,7 @@ function _render() {
   const totalEl = document.getElementById('bank-total');
   if (totalEl) totalEl.textContent = formatHKD(total);
 
-  // 可用金額
+  // 可用金額（上月結餘）
   const prevTotal = Object.values(_prevBalances).reduce((s, b) => s + (Number(b.amount) || 0), 0);
   const availEl = document.getElementById('bank-available');
   if (availEl) availEl.textContent = formatHKD(prevTotal);
@@ -276,7 +284,6 @@ function _render() {
     _renderTable(filteredBanks, tableEl);
   }
 
-  // 快速摘要
   _renderQuickSummary(filteredBanks);
 
   if (window.lucide) window.lucide.createIcons();
@@ -379,14 +386,6 @@ function _renderTable(list, container) {
    全年模式渲染
    ============================================ */
 function _renderAnnual(year, monthlyBalances) {
-  const cardEl = document.getElementById('banks-card-view');
-  const tableEl = document.getElementById('banks-table-view');
-  const summaryView = document.getElementById('banks-summary-view');
-  const annualView = document.getElementById('banks-annual-view');
-
-  if (summaryView) summaryView.style.display = 'none';
-  if (annualView) annualView.style.display = 'block';
-
   const container = document.getElementById('annual-monthly-cards');
   if (!container) return;
 
@@ -434,7 +433,6 @@ function _renderAnnual(year, monthlyBalances) {
     });
   });
 
-  // 快速摘要
   _renderQuickSummary(filteredBanks);
 
   if (window.lucide) window.lucide.createIcons();
