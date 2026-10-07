@@ -1,10 +1,12 @@
 // ============================================
-// recent-list.js — 輸入中心：最近 20 筆（v101.6.2）
+// recent-list.js — 輸入中心：最近 20 筆（v101.6.3）
 // 位置：js/pages/input-center/recent-list.js
 // ============================================
-// v101.6.2 修正：
-//   ✅ 移除 mobile-cards（不再卡片化）
-//   ✅ 改為橫向滾動表格（min-width 600px）
+// v101.6.3 修正：
+//   ✅ 表格改為固定佈局（table-layout: fixed）
+//   ✅ 每列精確 px 寬度（參考 policy-table）
+//   ✅ 總寬度 800px，手機橫向滾動
+//   ✅ 文字 nowrap + ellipsis（避免換行）
 // ============================================
 
 import {
@@ -91,17 +93,17 @@ function _render(root) {
       <div class="text-muted" style="font-size:12px; margin-bottom:10px;">
         共 ${items.length} 筆，顯示最近 ${limited.length} 筆
       </div>
-      <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
-        <table class="data-table" style="min-width:640px;">
+      <div class="recent-table-wrapper" style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
+        <table class="recent-table">
           <thead>
             <tr>
               <th style="width:70px;">類型</th>
-              <th style="width:90px;">年月</th>
-              <th style="width:80px;">成員</th>
-              <th>項目</th>
-              <th class="num" style="width:110px;">金額</th>
-              <th style="width:90px;">日期</th>
-              <th style="width:140px;">操作</th>
+              <th style="width:95px;">年月</th>
+              <th style="width:90px;">成員</th>
+              <th style="width:200px;">項目</th>
+              <th style="width:110px;" class="num">金額</th>
+              <th style="width:100px;">日期</th>
+              <th style="width:150px;">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -176,7 +178,7 @@ function _renderRow(it) {
         ${escapeHtml(it.year)}-${escapeHtml(it.month)}
       </td>
       <td style="font-size:12px;">${escapeHtml(memberName)}</td>
-      <td>${escapeHtml(it.name)}</td>
+      <td title="${escapeHtml(it.name)}">${escapeHtml(it.name)}</td>
       <td class="num ${it.type === 'income' ? 'text-emerald' : 'text-red'}">
         ${formatHKD(it.amount)}
       </td>

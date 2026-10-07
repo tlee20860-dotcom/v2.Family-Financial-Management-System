@@ -1009,3 +1009,48 @@
     padding-top: 14px;
   }
 }
+/* ============================================
+   recent-table — 輸入中心「最近新增」表格
+   （v101.6.3：與 policy-table 同樣的固定佈局）
+   ============================================ */
+.recent-table {
+  width: 100%;
+  min-width: 800px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.recent-table thead th {
+  padding: 10px 8px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--glass-border);
+  background: rgba(0, 240, 255, 0.03);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.recent-table tbody tr:hover td {
+  background: rgba(0, 240, 255, 0.03);
+}
+
+.recent-table .num {
+  text-align: right;
+  font-family: var(--font-mono);
+}
