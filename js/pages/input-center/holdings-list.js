@@ -3,8 +3,11 @@
 // 位置：js/pages/input-center/holdings-list.js
 // ============================================
 // v101.6.4 修正：
-//   ✅ 表格外層加 .input-center-table-wrapper（可橫向滑動）
-//   ✅ 長文字不再被截斷（移除 overflow: hidden）
+//   ✅ 支援 types 參數：只渲染指定類型的表格
+//     types = ['policy'] → 只顯示保單
+//     types = ['fund']   → 只顯示基金
+//     types = ['bank']   → 只顯示銀行
+//     types = undefined  → 顯示全部（向後相容）
 // ============================================
 
 import {
@@ -29,29 +32,37 @@ export function initHoldingsList(containerId, options = {}) {
     return null;
   }
 
+  const types = options.types || ['policy', 'fund', 'bank'];
   const listenerGroup = createListenerGroup();
+
   root.innerHTML = '<div class="empty-state">載入中…</div>';
 
-  listenerGroup.add(listenInsurancePolicies((list) => {
-    _policies = list || [];
-    _render(root);
-  }));
+  if (types.includes('policy')) {
+    listenerGroup.add(listenInsurancePolicies((list) => {
+      _policies = list || [];
+      _render(root, types);
+    }));
+  }
 
-  listenerGroup.add(listenFunds((list) => {
-    _funds = list || [];
-    _render(root);
-  }));
+  if (types.includes('fund')) {
+    listenerGroup.add(listenFunds((list) => {
+      _funds = list || [];
+      _render(root, types);
+    }));
+  }
 
-  listenerGroup.add(listenBanks((list) => {
-    _banks = list || [];
-    _render(root);
-  }));
+  if (types.includes('bank')) {
+    listenerGroup.add(listenBanks((list) => {
+      _banks = list || [];
+      _render(root, types);
+    }));
+  }
 
   const clickHandler = (e) => _handleClick(e, root);
   root.addEventListener('click', clickHandler);
 
   return {
-    refresh: () => _render(root),
+    refresh: () => _render(root, types),
     destroy: () => {
       listenerGroup.destroy();
       root.removeEventListener('click', clickHandler);
@@ -60,53 +71,59 @@ export function initHoldingsList(containerId, options = {}) {
   };
 }
 
-function _render(root) {
+function _render(root, types) {
   if (!root) return;
 
   const sections = [];
 
-  sections.push(_renderSection({
-    key: 'policy',
-    title: '保單',
-    icon: 'shield',
-    rows: _policies,
-    columns: [
-      { key: 'name', label: '保單名稱' },
-      { key: 'company', label: '保險公司' },
-    ],
-    amountFn: (p) => {
-      const cur = (p.periods || {})[String(p.currentPeriodIndex || 1)];
-      return cur ? cur.annualPremium : 0;
-    },
-    amountLabel: '本期年繳',
-  }));
+  if (types.includes('policy')) {
+    sections.push(_renderSection({
+      key: 'policy',
+      title: '保單',
+      icon: 'shield',
+      rows: _policies,
+      columns: [
+        { key: 'name', label: '保單名稱' },
+        { key: 'company', label: '保險公司' },
+      ],
+      amountFn: (p) => {
+        const cur = (p.periods || {})[String(p.currentPeriodIndex || 1)];
+        return cur ? cur.annualPremium : 0;
+      },
+      amountLabel: '本期年繳',
+    }));
+  }
 
-  sections.push(_renderSection({
-    key: 'fund',
-    title: '基金',
-    icon: 'line-chart',
-    rows: _funds,
-    columns: [
-      { key: 'name', label: '基金名稱' },
-      { key: 'units', label: '單位數' },
-    ],
-    amountFn: (f) => f.currentValue,
-    amountLabel: '現值',
-  }));
+  if (types.includes('fund')) {
+    sections.push(_renderSection({
+      key: 'fund',
+      title: '基金',
+      icon: 'line-chart',
+      rows: _funds,
+      columns: [
+        { key: 'name', label: '基金名稱' },
+        { key: 'units', label: '單位數' },
+      ],
+      amountFn: (f) => f.currentValue,
+      amountLabel: '現值',
+    }));
+  }
 
-  sections.push(_renderSection({
-    key: 'bank',
-    title: '銀行',
-    icon: 'landmark',
-    rows: _banks,
-    columns: [
-      { key: 'name', label: '銀行名稱' },
-    ],
-    amountFn: null,
-    amountLabel: '',
-  }));
+  if (types.includes('bank')) {
+    sections.push(_renderSection({
+      key: 'bank',
+      title: '銀行',
+      icon: 'landmark',
+      rows: _banks,
+      columns: [
+        { key: 'name', label: '銀行名稱' },
+      ],
+      amountFn: null,
+      amountLabel: '',
+    }));
+  }
 
-  root.innerHTML = `<div style="padding:0 20px 20px;">${sections.join('')}</div>`;
+  root.innerHTML = `<div style="padding:0 0 20px;">${sections.join('')}</div>`;
 
   if (window.lucide) window.lucide.createIcons();
 }
