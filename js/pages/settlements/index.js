@@ -1,16 +1,15 @@
 // ============================================
-// index.js — 結算清單入口（v101.2 重構）
+// index.js — 結算清單入口（v101.3）
 // 位置：js/pages/settlements/index.js
 // ============================================
-// v101.2 修正 + 重構：
-//   ✅ 修復 import 寫在檔案底部的致命 Bug
-//   ✅ 保險部分改為「整年度所有月份」都列出（含未扣款）
-//   ✅ 個人支出 / 固定支出 → 讀取整年 12 個月
-//   ✅ 支援改狀態連動
+// v101.3 修正：
+//   ✅ 加入 listenMembers 監聽 + setMembersCache
+//     → render.js 的 _getMemberName 可取得真實成員名稱
 // ============================================
 
 import { AppState } from '../../core/state.js';
 import {
+  listenMembers,
   listenAllMemberExpenses,
   getFixedExpensesOnce,
   getInsurancePoliciesOnce,
@@ -25,6 +24,7 @@ import {
   renderSettlementTable,
   renderSettlementCards,
   updateRowStatus,
+  setMembersCache,
 } from './render.js';
 
 /* ============================================
@@ -42,6 +42,7 @@ let _filters = {
 let _sortMode = 'pending-first';
 
 let _unsubExpenses = null;
+let _unsubMembers = null;
 let _unsubYM = null;
 let _filterInstance = null;
 let _viewToggle = null;
@@ -109,6 +110,12 @@ export async function initSettlementsPage() {
   // 綁定狀態變更（事件委派）
   _bindStatusChange();
 
+  // 🆕 v101.3：監聽成員 → 更新 membersCache
+  _unsubMembers = listenMembers((list) => {
+    setMembersCache(list);
+    _render();  // 成員名稱更新後重繪
+  });
+
   // 統一由 AppState 觸發
   _unsubYM = AppState.on('ym-change', () => _reload());
 
@@ -138,14 +145,13 @@ function _bindStatusChange() {
 
     try {
       await updateRowStatus(row, newStatus);
-      // 更新本地資料
       row.status = newStatus;
       row.isDone = newStatus.startsWith('已');
       showToast('✅ 狀態已更新', 'success');
       _render();
     } catch (err) {
       showToast('更新失敗：' + err.message, 'error');
-      _render(); // 還原
+      _render();
     }
   };
 
@@ -183,7 +189,6 @@ async function _loadMonthly(year, month) {
     _unsubExpenses = null;
   }
 
-  // 個人支出：即時監聽
   _unsubExpenses = listenAllMemberExpenses(year, month, async (memberExpenses) => {
     const [fixedExpenses, insuranceRows] = await Promise.all([
       _loadFixed(year, month),
@@ -211,14 +216,12 @@ async function _loadAnnual(year) {
     _unsubExpenses = null;
   }
 
-  // 一次抓取整年的資料
   const [allExpenses, allFixed, policies] = await Promise.all([
     _loadAllMemberExpensesForYear(year),
     _loadFixedForYear(year),
     getInsurancePoliciesOnce(),
   ]);
 
-  // 預先載入所有保單的付款紀錄
   const paymentsCache = {};
   await Promise.all(policies.map(async (p) => {
     try {
@@ -228,7 +231,6 @@ async function _loadAnnual(year) {
     }
   }));
 
-  // 逐月合併
   const allRows = [];
   for (let m = 1; m <= 12; m++) {
     const mm = String(m).padStart(2, '0');
@@ -254,10 +256,6 @@ async function _loadAnnual(year) {
 /* ============================================
    資料讀取輔助
    ============================================ */
-
-/**
- * 讀取整年 12 個月的個人支出
- */
 async function _loadAllMemberExpensesForYear(year) {
   const promises = [];
   const result = [];
@@ -279,9 +277,6 @@ async function _loadAllMemberExpensesForYear(year) {
   return result;
 }
 
-/**
- * 讀取整年 12 個月的固定支出
- */
 async function _loadFixedForYear(year) {
   const result = {};
   const promises = [];
@@ -301,9 +296,6 @@ async function _loadFixedForYear(year) {
   return result;
 }
 
-/**
- * 讀取單月固定支出
- */
 async function _loadFixed(year, month) {
   try {
     return await getFixedExpensesOnce(year, month);
@@ -312,9 +304,6 @@ async function _loadFixed(year, month) {
   }
 }
 
-/**
- * 讀取單月保險扣款（含未扣款）
- */
 async function _loadInsurancePaymentsForMonth(year, month) {
   try {
     const policies = await getInsurancePoliciesOnce();
@@ -326,7 +315,6 @@ async function _loadInsurancePaymentsForMonth(year, month) {
         const existing = payments?.[year]?.[month];
 
         if (existing) {
-          // 已有扣款紀錄
           rows.push({
             policyId: p.id,
             policyName: p.name,
@@ -337,7 +325,6 @@ async function _loadInsurancePaymentsForMonth(year, month) {
             date: existing.date || '',
           });
         } else {
-          // 無紀錄 → 顯示為「未扣款」，並帶入預設分攤金額
           const estimated = _estimateMonthlyAmount(p, year, month);
           if (estimated > 0 || p.type === 'fund_insurance') {
             rows.push({
@@ -362,9 +349,6 @@ async function _loadInsurancePaymentsForMonth(year, month) {
   }
 }
 
-/**
- * 批次產生整年 12 個月的保險扣款列
- */
 function _buildInsuranceRows(policies, paymentsCache, year, month) {
   const rows = [];
 
@@ -400,13 +384,7 @@ function _buildInsuranceRows(policies, paymentsCache, year, month) {
   return rows;
 }
 
-/**
- * 估算某保單在某年月的分攤金額
- * - 若在供款期內 → 使用該期別的 monthlyAverage
- * - 若超出供款期 → 0
- */
 function _estimateMonthlyAmount(policy, year, month) {
-  // 基金保險：直接用 monthlyPremium
   if (policy.type === 'fund_insurance') {
     return Math.round(Number(policy.monthlyPremium) || 0);
   }
@@ -428,7 +406,6 @@ function _estimateMonthlyAmount(policy, year, month) {
     return Math.round(Number(periodData.monthlyAverage) || 0);
   }
 
-  // fallback：找最接近的期別
   const periodKeys = Object.keys(policy.periods || {})
     .map(Number)
     .filter((n) => !isNaN(n) && n > 0)
@@ -554,6 +531,10 @@ function _destroy() {
   if (_unsubExpenses) {
     try { _unsubExpenses(); } catch (e) { /* noop */ }
     _unsubExpenses = null;
+  }
+  if (_unsubMembers) {
+    try { _unsubMembers(); } catch (e) { /* noop */ }
+    _unsubMembers = null;
   }
   if (_unsubYM) {
     try { _unsubYM(); } catch (e) { /* noop */ }
