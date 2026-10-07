@@ -1,12 +1,13 @@
 /* ============================================
    components.css — 卡片、按鈕、表格、Modal、表單
    -------------------------------------------------
-   v101 更新：
-     ✅ 補基礎 .collapsible-card 樣式（從 HTML 內嵌抽出）
-     ✅ 刪除重複的 .form-stack 定義（只保留一份）
-     ✅ 刪除舊版 .filter-bar（統一用 .page-filter-bar）
-     ✅ 統一 .view-toggle-group（只保留一份）
+   v101.6 更新：
+     ✅ 補基礎 .collapsible-card 樣式
+     ✅ 刪除重複的 .form-stack 定義
+     ✅ 統一 .view-toggle-group
      ✅ 補 .collapsible-card-flat 樣式
+     ✅ 新增 .input-center-table（綜合輸入中心共用表格）
+     ✅ 新增 .input-center-table-wrapper（橫向滑動容器）
    ============================================ */
 
 /* ================= GlassCard ================= */
@@ -47,6 +48,7 @@
 .glass-card-value.emerald { color: var(--neon-emerald); }
 .glass-card-value.red     { color: var(--neon-red); }
 .glass-card-value.orange  { color: var(--neon-orange); }
+.glass-card-value.cyan    { color: var(--neon-cyan); }
 
 .glass-card-hint {
   font-size: 12px;
@@ -298,13 +300,7 @@
 }
 
 /* ============================================
-   🆕 可摺疊卡片（v101 統一，從 HTML 內嵌抽出）
-   -------------------------------------------------
-   用法：
-     <div class="glass-card collapsible-card" id="xxx-card">
-       <div class="collapsible-header">...</div>
-       <div class="collapsible-body" style="display:none;">...</div>
-     </div>
+   可摺疊卡片
    ============================================ */
 .collapsible-card {
   margin-bottom: 16px;
@@ -363,7 +359,7 @@
 }
 
 /* ============================================
-   表單單欄直落（v101 統一，只保留一份）
+   表單單欄直落
    ============================================ */
 .form-stack {
   display: flex;
@@ -399,7 +395,7 @@
 }
 
 /* ============================================
-   頁面篩選欄（v101 統一）
+   頁面篩選欄
    ============================================ */
 .page-filter-bar {
   display: flex;
@@ -746,8 +742,6 @@
 
 /* ============================================
    固定支出：每月 row
-   -------------------------------------------------
-   順序：月份 → 金額 input → 已付款 → 不適用
    ============================================ */
 .fixed-month-row {
   display: flex;
@@ -848,6 +842,56 @@
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+/* ============================================
+   🆕 v101.6：綜合輸入中心共用表格
+   ============================================ */
+.input-center-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.input-center-table th {
+  padding: 10px 10px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--glass-border);
+  background: rgba(0, 240, 255, 0.03);
+  white-space: nowrap;
+}
+
+.input-center-table td {
+  padding: 10px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.input-center-table tbody tr:hover td {
+  background: rgba(0, 240, 255, 0.03);
+}
+
+.input-center-table .num {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+/* 寬表格變體：7 欄以上需要橫向滾動 */
+.input-center-table.wide {
+  min-width: 720px;
+}
+
+/* wrapper：允許表格橫向滑動 */
+.input-center-table-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
 }
 
 /* ============================================
@@ -1008,100 +1052,93 @@
     padding: 0 16px 16px;
     padding-top: 14px;
   }
+
+  /* 綜合輸入中心表格手機版 */
+  .input-center-table th,
+  .input-center-table td {
+    padding: 8px 8px;
+    font-size: 12px;
+  }
+
+  /* data-card 卡片樣式 */
+  .data-card { padding: 16px; }
+  .data-card-primary {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--neon-cyan);
+    margin-bottom: 10px;
+    line-height: 1.35;
+  }
+  .data-card-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+  }
+  .data-card-field {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+  .data-card-label {
+    color: var(--text-muted);
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .data-card-value {
+    text-align: right;
+    word-break: break-word;
+  }
+  .data-card-footer {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
 }
+
 /* ============================================
-   recent-table — 輸入中心「最近新增」表格
-   （v101.6.3：與 policy-table 同樣的固定佈局）
+   data-card 卡片樣式（桌面）
    ============================================ */
-.recent-table {
-  width: 100%;
-  min-width: 800px;
-  table-layout: fixed;
-  border-collapse: collapse;
+.data-card { padding: 16px; }
+.data-card-primary {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--neon-cyan);
+  margin-bottom: 10px;
+  line-height: 1.35;
+}
+.data-card-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   font-size: 13px;
 }
-
-.recent-table thead th {
-  padding: 10px 8px;
-  text-align: left;
-  font-size: 11px;
-  font-weight: 600;
+.data-card-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.data-card-label {
   color: var(--text-muted);
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  border-bottom: 1px solid var(--glass-border);
-  background: rgba(0, 240, 255, 0.03);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.recent-table td {
-  padding: 10px 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  vertical-align: middle;
-}
-
-.recent-table tbody tr:hover td {
-  background: rgba(0, 240, 255, 0.03);
-}
-
-.recent-table .num {
-  text-align: right;
-  font-family: var(--font-mono);
-}
-/* ============================================
-   input-center-table — 綜合輸入中心共用表格
-   （v101.6.3：統一「最近新增」與「保單/基金/銀行」樣式）
-   ============================================ */
-.input-center-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.input-center-table th {
-  padding: 10px 10px;
-  text-align: left;
   font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-  letter-spacing: 0.5px;
-  border-bottom: 1px solid var(--glass-border);
-  background: rgba(0, 240, 255, 0.03);
-  white-space: nowrap;
+  flex-shrink: 0;
 }
-
-.input-center-table td {
-  padding: 10px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  vertical-align: middle;
-}
-
-.input-center-table tbody tr:hover td {
-  background: rgba(0, 240, 255, 0.03);
-}
-
-.input-center-table .num {
+.data-card-value {
   text-align: right;
-  font-family: var(--font-mono);
+  word-break: break-word;
 }
-
-/* 寬表格變體：7 欄以上需要橫向滾動 */
-.input-center-table.wide {
-  min-width: 720px;
-}
-
-/* 讓表格外層能橫向滾動 */
-.input-center-table-wrapper {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+.data-card-footer {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
