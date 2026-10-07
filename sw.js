@@ -1,14 +1,11 @@
 // ============================================
-// sw.js — Service Worker（v101.2）
+// sw.js — Service Worker（v101.4）
 // ============================================
-// v101.2 更新：
-//   ✅ CACHE_NAME = family-fin-v102
-//     （改動：修正 P0 致命 Bug + 結算清單重構 + 表單 0 值 + page-filter）
-//   ✅ STATIC_ASSETS 保持新目錄結構
-//   ✅ 加入保險模組的子檔案
+// v101.4 更新：
+//   ✅ CACHE_NAME = family-fin-v104
 // ============================================
 
-const CACHE_NAME = 'family-fin-v103'
+const CACHE_NAME = 'family-fin-v104';
 
 const STATIC_ASSETS = [
   // ================= CSS =================
@@ -106,9 +103,6 @@ const STATIC_ASSETS = [
   './icons/icon.svg',
 ];
 
-/* ============================================
-   Install：快取所有靜態資源
-   ============================================ */
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches
@@ -126,9 +120,6 @@ self.addEventListener('install', (e) => {
   );
 });
 
-/* ============================================
-   Activate：清除舊版快取
-   ============================================ */
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches
@@ -142,22 +133,11 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-/* ============================================
-   Fetch：網路優先，失敗時用快取
-   -------------------------------------------------
-   排除：
-     - 非 GET 請求
-     - 非本站網域
-     - Firebase / Google / CDN
-     - /api/ 路徑（Cloudflare Functions）
-     - HTML 檔（避免舊版殘留）
-   ============================================ */
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
 
   const url = new URL(e.request.url);
 
-  // 排除外部網域與 API
   if (
     url.origin !== self.location.origin ||
     url.hostname.includes('firebase') ||
@@ -170,12 +150,10 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // HTML 檔不走快取
   if (url.pathname.endsWith('.html') || url.pathname === '/') {
     return;
   }
 
-  // 靜態資源：網路優先，失敗時回快取
   e.respondWith(
     fetch(e.request)
       .then((res) => {
