@@ -1,15 +1,10 @@
 // ============================================
-// input-form.js — 全站共用可摺疊輸入表單（v101）
+// input-form.js — 全站共用可摺疊輸入表單（v101.3）
 // 位置：js/shared/input-form.js
 // ============================================
-// v101 修正（重大 Bug）：
-//   ✅ 修 api 未宣告就使用（TDZ）→ 提前宣告
-//   ✅ 修 window.showToast 未掛載 → import 直用
-//   ✅ 修 layout: 'half' 無效 → 自動分組為 .form-stack-row
-//   ✅ 修 bindExtraButtons 需手動呼叫 → 內部自動綁定
-//   ✅ 加 loading 狀態 + 防連點
-//   ✅ alert() 改為 showToast
-//   ✅ 新增 destroy()
+// v101.3 修正：
+//   ✅ bindExtraButtons 改為純空函式（保留向後相容，零風險）
+//   ✅ 移除 console.warn（避免打擾）
 // ============================================
 
 import { escapeHtml } from '../core/utils.js';
@@ -19,19 +14,6 @@ const DEFAULT_ICON = 'plus-circle';
 
 /**
  * 建立可摺疊輸入表單
- * @param {Object} options
- * @param {string} options.containerId - 容器 ID
- * @param {string} options.storageKey - localStorage key
- * @param {string} options.title - 表單標題
- * @param {string} [options.icon] - Lucide icon 名稱
- * @param {Array} options.fields - 欄位定義陣列
- * @param {string} [options.submitText] - 送出按鈕文字
- * @param {string} [options.resetText] - 重置按鈕文字
- * @param {boolean} [options.defaultOpen] - 預設是否展開
- * @param {Function} options.onSubmit - 送出回呼 (data, api) => Promise
- * @param {Function} [options.onReset] - 重置回呼
- * @param {Function} [options.beforeSubmit] - 送出前驗證 (data) => bool | string
- * @returns {Object|null}
  */
 export function createInputForm(options) {
   const {
@@ -54,7 +36,6 @@ export function createInputForm(options) {
     return null;
   }
 
-  // 產生欄位 HTML（支援 layout='half' 自動分組）
   const fieldsHtml = _renderFields(fields);
 
   root.innerHTML = `
@@ -90,7 +71,6 @@ export function createInputForm(options) {
   const submitBtn = document.getElementById(`${containerId}-submit`);
   const submitBtnLabel = submitBtn.querySelector('span');
 
-  // 初始化展開狀態
   const key = storageKey.startsWith('fin_ui_') ? storageKey : `fin_ui_${storageKey}`;
   let savedOpen = null;
   try { savedOpen = localStorage.getItem(key); } catch (e) { /* noop */ }
@@ -109,15 +89,11 @@ export function createInputForm(options) {
   };
   setOpen(initialOpen);
 
-  // 綁定展開/收起
   const headerClickHandler = () => {
     setOpen(!card.classList.contains('open'));
   };
   header.addEventListener('click', headerClickHandler);
 
-  /* ============================================
-     對外 API（提前宣告，避免 TDZ）
-     ============================================ */
   const api = {
     root,
     card,
@@ -181,13 +157,9 @@ export function createInputForm(options) {
     },
   };
 
-  /* ============================================
-     送出處理
-     ============================================ */
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    // 驗證必填
     for (const f of fields) {
       if (!f.required) continue;
       const el = document.getElementById(f.id);
@@ -202,7 +174,6 @@ export function createInputForm(options) {
 
     const data = _collectData(fields);
 
-    // 自訂驗證
     if (typeof beforeSubmit === 'function') {
       const result = beforeSubmit(data);
       if (result === false) return;
@@ -212,7 +183,6 @@ export function createInputForm(options) {
       }
     }
 
-    // 送出（加 loading + 防連點）
     api.setSubmitting(true);
     try {
       await onSubmit(data, api);
@@ -224,17 +194,11 @@ export function createInputForm(options) {
     }
   });
 
-  /* ============================================
-     重置
-     ============================================ */
   resetBtn.addEventListener('click', () => {
     form.reset();
     if (typeof onReset === 'function') onReset();
   });
 
-  /* ============================================
-     自動綁定 extraBtn（不需手動呼叫）
-     ============================================ */
   fields.forEach((f) => {
     if (!f.extraBtn) return;
     const btn = document.getElementById(`${f.id}-extra-btn`);
@@ -249,23 +213,20 @@ export function createInputForm(options) {
 }
 
 /* ============================================
-   向下相容：舊 API 保留
+   向後相容：空函式（v101.3 已自動化，此為 no-op）
    ============================================ */
-export function bindExtraButtons(formConfig) {
-  // v101：createInputForm 已自動綁定，此函式保留為 no-op
-  console.warn('[input-form] bindExtraButtons 已於 v101 自動化，無需手動呼叫');
+export function bindExtraButtons() {
+  // v101.3：createInputForm 已自動綁定，此函式保留為向後相容
+  // 若未來確認無人使用，可完全移除
 }
 
 /* ============================================
    內部函式
    ============================================ */
 
-/**
- * 渲染欄位（自動處理 layout='half' 分組）
- */
 function _renderFields(fields) {
   const output = [];
-  let buffer = [];   // 暫存連續 half 欄位
+  let buffer = [];
 
   const flushBuffer = () => {
     if (buffer.length === 0) return;
@@ -278,7 +239,6 @@ function _renderFields(fields) {
 
     if (f.layout === 'half') {
       buffer.push(html);
-      // 湊滿 2 個就 flush
       if (buffer.length >= 2) flushBuffer();
     } else {
       flushBuffer();
@@ -290,9 +250,6 @@ function _renderFields(fields) {
   return output.join('');
 }
 
-/**
- * 渲染單一欄位
- */
 function _renderField(f) {
   const {
     type,
@@ -364,9 +321,6 @@ function _renderField(f) {
   `;
 }
 
-/**
- * 收集欄位值
- */
 function _collectData(fields) {
   const data = {};
   fields.forEach((f) => {
