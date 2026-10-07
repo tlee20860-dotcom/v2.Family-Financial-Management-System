@@ -1,14 +1,11 @@
 // ============================================
-// render.js — 保險渲染模組（v101）
+// render.js — 保險渲染模組（v101.2）
 // 位置：js/pages/insurance/render.js
 // ============================================
-// 純渲染函式（無副作用，只讀傳入資料）
-//
-// 提供：
-//   renderStats(params)                       統計卡
-//   renderCompletedSection(completed, ...)    已供滿區塊
-//   renderPolicyGrid(container, list, ...)    卡片模式
-//   renderPolicyTable(container, list, ...)   表格模式
+// v101.2 修正：
+//   ✅ 移除未使用的 paymentsCache 參數（改用 p._payments）
+//   ✅ 移除未使用的 companies 參數
+//   ✅ 保留 _expandedKeys / toggleExpand / isExpanded
 // ============================================
 
 import { escapeHtml, formatHKD } from '../../core/utils.js';
@@ -18,7 +15,7 @@ import {
 } from './calc.js';
 
 /* ============================================
-   全域展開狀態（由 index.js 呼叫時可傳入）
+   全域展開狀態
    ============================================ */
 const _expandedKeys = new Set();
 
@@ -48,7 +45,7 @@ export function renderStats({ enriched, year }) {
 /* ============================================
    2. 已供滿區塊
    ============================================ */
-export function renderCompletedSection(completed, members, companies) {
+export function renderCompletedSection(completed, members) {
   const section = document.getElementById('completed-section');
   const grid = document.getElementById('completed-grid');
   const countEl = document.getElementById('completed-count');
@@ -75,7 +72,7 @@ export function renderCompletedSection(completed, members, companies) {
 /* ============================================
    3. 卡片模式
    ============================================ */
-export function renderPolicyGrid(container, list, { members, paymentsCache }) {
+export function renderPolicyGrid(container, list, { members }) {
   if (!container) return;
 
   if (!list || list.length === 0) {
@@ -228,7 +225,7 @@ function _renderNormalPolicyCard(p, members, isCompleted) {
 /* ============================================
    4. 表格模式
    ============================================ */
-export function renderPolicyTable(container, list, { members, paymentsCache }) {
+export function renderPolicyTable(container, list, { members }) {
   if (!container) return;
 
   if (!list || list.length === 0) {
