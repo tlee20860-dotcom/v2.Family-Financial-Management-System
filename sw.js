@@ -7,7 +7,7 @@
 //   ✅ 新增 input-center / database / settlements / insurance 等新檔
 // ============================================
 
-const CACHE_NAME = 'family-fin-v101';
+const CACHE_NAME = 'family-fin-v102';
 
 const STATIC_ASSETS = [
   // ================= CSS =================
