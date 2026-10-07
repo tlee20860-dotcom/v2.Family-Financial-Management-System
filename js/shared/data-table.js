@@ -1,12 +1,11 @@
 // ============================================
-// data-table.js — 通用表格渲染（v101.6 🆕）
+// data-table.js — 通用表格渲染（v101.6.1）
 // 位置：js/shared/data-table.js
 // ============================================
-// 職責：
-//   1. 從 entity-definitions.js 讀取 UI 配置
-//   2. 整合 column-settings.js（欄位調整）
-//   3. 支援 hooks（自訂 cell / actions / 事件）
-//   4. 自動處理型別格式化（text / number / date / select）
+// v101.6.1 修正：
+//   ✅ 支援「非標準實體」+ 自訂欄位
+//     （entityKey 找不到 def 時，若有 options.columns 則繼續渲染）
+//   ✅ def 為 null 時，預設 canEdit / canDelete 為 false
 //
 // API 凍結：v101.6 發布後只加不改
 // ============================================
@@ -30,11 +29,6 @@ import { initColumnSettings } from './column-settings.js';
  * @param {Object} [options.options.resolvers] - 欄位解析器 { [colId]: (val, row) => string }
  * @param {Array} [options.options.columns] - 自訂欄位（若未提供，從 entity-definitions 讀）
  * @param {Object} [options.hooks] - Hook
- * @param {Function} [options.hooks.beforeRender] - (rows) => rows
- * @param {Function} [options.hooks.afterRender] - (container) => void
- * @param {Function} [options.hooks.customCellRender] - (column, row) => string | null
- * @param {Function} [options.hooks.customActions] - (row) => Array<{label, icon, onClick, className}>
- * @param {Function} [options.hooks.onRowClick] - (row) => void
  * @returns {Object} { container, table, refresh, destroy }
  */
 export function renderDataTable(options) {
@@ -54,27 +48,36 @@ export function renderDataTable(options) {
   }
 
   const def = getEntityDef(entityKey);
-  if (!def) {
-    console.warn(`⚠️ renderDataTable: 找不到實體 ${entityKey}`);
+  const customColumns = extraOptions.columns;
+  const hasCustomColumns = Array.isArray(customColumns) && customColumns.length > 0;
+
+  // 🆕 v101.6.1：允許「非標準實體」+ 自訂欄位
+  if (!def && !hasCustomColumns) {
+    console.warn(`⚠️ renderDataTable: 找不到實體 ${entityKey}，且未提供自訂欄位`);
     return null;
   }
 
-  const ui = getEntityUi(entityKey) || {};
+  // 🆕 v101.6.1：def 為 null 時，用空物件 + 預設 UI 配置
+  const effectiveDef = def || { fields: [] };
+  const effectiveUi = def
+    ? (getEntityUi(entityKey) || {})
+    : { canEdit: false, canDelete: false };
+
   const _tableId = tableId || entityKey;
-  const { resolvers = {}, columns: customColumns } = extraOptions;
+  const { resolvers = {} } = extraOptions;
 
   /* ============================================
      準備欄位定義
      ============================================ */
   const fieldMap = {};
-  (def.fields || []).forEach((f) => { fieldMap[f.id] = f; });
+  (effectiveDef.fields || []).forEach((f) => { fieldMap[f.id] = f; });
 
   // 決定欄位清單
   let allColumns;
-  if (customColumns) {
+  if (hasCustomColumns) {
     allColumns = customColumns;
   } else {
-    const listCols = ui.listColumns || (def.fields || []).map((f) => f.id);
+    const listCols = effectiveUi.listColumns || (effectiveDef.fields || []).map((f) => f.id);
     allColumns = listCols.map((id) => {
       const field = fieldMap[id];
       return {
@@ -87,7 +90,7 @@ export function renderDataTable(options) {
   }
 
   // 加入操作欄位
-  const hasActions = (ui.canEdit !== false) || (ui.canDelete !== false);
+  const hasActions = (effectiveUi.canEdit !== false) || (effectiveUi.canDelete !== false);
   if (hasActions && !allColumns.some((c) => c.id === '__actions__')) {
     allColumns.push({
       id: '__actions__',
@@ -216,8 +219,8 @@ export function renderDataTable(options) {
       `).join('');
     }
 
-    // 內建編輯 / 刪除（若無 customActions 定義）
-    const ui = getEntityUi(entityKey) || {};
+    // 內建編輯 / 刪除
+    const ui = effectiveUi;
     if (ui.canEdit !== false) {
       actionsHtml += `<button class="btn btn-sm btn-ghost" data-action="edit">
         <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
@@ -238,7 +241,6 @@ export function renderDataTable(options) {
   let _listener = null;
 
   function _bindEvents() {
-    // 移除舊 listener
     if (_listener) {
       root.removeEventListener('click', _listener);
     }
@@ -275,7 +277,6 @@ export function renderDataTable(options) {
           }
         }
 
-        // 內建 edit / delete
         if (action === 'edit' && typeof hooks.onEdit === 'function') {
           e.stopPropagation();
           hooks.onEdit(row);
@@ -308,14 +309,8 @@ export function renderDataTable(options) {
     container: root,
     table: root.querySelector('table'),
 
-    /**
-     * 重新渲染（用於資料更新後）
-     */
     refresh: () => _render(),
 
-    /**
-     * 銷毀
-     */
     destroy: () => {
       if (_listener) {
         root.removeEventListener('click', _listener);

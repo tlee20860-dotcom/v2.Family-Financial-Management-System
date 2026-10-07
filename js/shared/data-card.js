@@ -1,12 +1,11 @@
 // ============================================
-// data-card.js — 通用卡片渲染（v101.6 重寫）
+// data-card.js — 通用卡片渲染（v101.6.1）
 // 位置：js/shared/data-card.js
 // ============================================
-// v101.6 重寫：
-//   ✅ 從 entity-definitions.js 讀取 UI 配置
-//   ✅ 支援 hooks（customHeader / customBody / customFooter / customActions）
-//   ✅ 支援 onEdit / onDelete
-//   ✅ 支援 resolvers（欄位解析器）
+// v101.6.1 修正：
+//   ✅ 支援「非標準實體」+ 自訂欄位
+//     （entityKey 找不到 def 時，若有 options.fields 則繼續渲染）
+//   ✅ def 為 null 時，預設 canEdit / canDelete 為 false
 //
 // API 凍結：v101.6 發布後只加不改
 // ============================================
@@ -20,24 +19,6 @@ import { escapeHtml, formatHKD, formatNumber } from '../core/utils.js';
 
 /**
  * 渲染資料卡片
- * @param {Object} options
- * @param {HTMLElement|string} options.container - 容器
- * @param {string} options.entityKey - 實體 key
- * @param {Array} options.rows - 資料陣列
- * @param {Object} [options.options] - 選項
- * @param {Object} [options.options.resolvers] - 欄位解析器 { [colId]: (val, row) => string }
- * @param {string} [options.options.gridClass='grid grid-3'] - 外層 grid class
- * @param {Object} [options.hooks] - Hook
- * @param {Function} [options.hooks.beforeRender] - (rows) => rows
- * @param {Function} [options.hooks.afterRender] - (container) => void
- * @param {Function} [options.hooks.customHeader] - (row) => string | null
- * @param {Function} [options.hooks.customBody] - (row) => string | null
- * @param {Function} [options.hooks.customFooter] - (row) => string | null
- * @param {Function} [options.hooks.customActions] - (row) => Array<{label, icon, onClick, className}>
- * @param {Function} [options.hooks.onEdit] - (row) => void
- * @param {Function} [options.hooks.onDelete] - (row) => void
- * @param {Function} [options.hooks.onCardClick] - (row) => void
- * @returns {Object} { container, refresh, destroy }
  */
 export function renderDataCard(options) {
   const {
@@ -55,12 +36,21 @@ export function renderDataCard(options) {
   }
 
   const def = getEntityDef(entityKey);
-  if (!def) {
-    console.warn(`⚠️ renderDataCard: 找不到實體 ${entityKey}`);
+  const customFields = extraOptions.fields;
+  const hasCustomFields = Array.isArray(customFields) && customFields.length > 0;
+
+  // 🆕 v101.6.1：允許「非標準實體」+ 自訂欄位
+  if (!def && !hasCustomFields) {
+    console.warn(`⚠️ renderDataCard: 找不到實體 ${entityKey}，且未提供自訂欄位`);
     return null;
   }
 
-  const ui = getEntityUi(entityKey) || {};
+  // 🆕 v101.6.1：def 為 null 時，用空物件 + 預設 UI 配置
+  const effectiveDef = def || { fields: [] };
+  const effectiveUi = def
+    ? (getEntityUi(entityKey) || {})
+    : { canEdit: false, canDelete: false };
+
   const {
     gridClass = 'grid grid-3',
     resolvers = {},
@@ -70,15 +60,15 @@ export function renderDataCard(options) {
      準備欄位定義
      ============================================ */
   const fieldMap = {};
-  (def.fields || []).forEach((f) => { fieldMap[f.id] = f; });
+  (effectiveDef.fields || []).forEach((f) => { fieldMap[f.id] = f; });
 
-  const primaryColumn = ui.primaryColumn || null;
-  const cardFields = ui.cardFields || (def.fields || [])
+  const primaryColumn = effectiveUi.primaryColumn || null;
+  const cardFields = effectiveUi.cardFields || (effectiveDef.fields || [])
     .filter((f) => f.id !== primaryColumn)
     .slice(0, 3)
     .map((f) => f.id);
 
-  const hasActions = (ui.canEdit !== false) || (ui.canDelete !== false);
+  const hasActions = (effectiveUi.canEdit !== false) || (effectiveUi.canDelete !== false);
 
   /* ============================================
      渲染
@@ -107,17 +97,14 @@ export function renderDataCard(options) {
   }
 
   function _renderCard(row, index) {
-    // 自訂 header
     const headerHtml = typeof hooks.customHeader === 'function'
       ? (hooks.customHeader(row) || _defaultHeader(row))
       : _defaultHeader(row);
 
-    // 自訂 body
     const bodyHtml = typeof hooks.customBody === 'function'
       ? (hooks.customBody(row) || _defaultBody(row))
       : _defaultBody(row);
 
-    // 自訂 footer
     const footerHtml = typeof hooks.customFooter === 'function'
       ? (hooks.customFooter(row) || _defaultFooter(row))
       : _defaultFooter(row);
@@ -132,9 +119,7 @@ export function renderDataCard(options) {
   }
 
   function _defaultHeader(row) {
-    const primaryField = primaryColumn ? fieldMap[primaryColumn] : null;
     const primaryValue = primaryColumn ? row[primaryColumn] : (row.name || '（未命名）');
-    const primaryLabel = primaryField?.label || '';
 
     return `
       <div class="data-card-primary" style="font-size:15px; font-weight:700; color:var(--neon-cyan); margin-bottom:10px; word-break:break-word;">
@@ -176,7 +161,6 @@ export function renderDataCard(options) {
 
     let actionsHtml = '';
 
-    // 自訂 actions
     if (typeof hooks.customActions === 'function') {
       const customActions = hooks.customActions(row) || [];
       actionsHtml += customActions.map((a) => `
@@ -188,12 +172,12 @@ export function renderDataCard(options) {
       `).join('');
     }
 
-    if (ui.canEdit !== false) {
+    if (effectiveUi.canEdit !== false) {
       actionsHtml += `<button class="btn btn-sm btn-ghost" data-action="edit">
         <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
       </button>`;
     }
-    if (ui.canDelete !== false) {
+    if (effectiveUi.canDelete !== false) {
       actionsHtml += `<button class="btn btn-sm btn-danger" data-action="delete">
         <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
       </button>`;
@@ -227,7 +211,6 @@ export function renderDataCard(options) {
         const row = _beforeRows[index];
         if (!row) return;
 
-        // 自訂 action 優先
         if (typeof hooks.customActions === 'function') {
           const customActions = hooks.customActions(row) || [];
           const matched = customActions.find((a) => (a.action || 'custom') === action);
@@ -251,7 +234,6 @@ export function renderDataCard(options) {
         return;
       }
 
-      // 點擊卡片
       const card = e.target.closest('.data-card[data-row-index]');
       if (card && typeof hooks.onCardClick === 'function') {
         const index = Number(card.dataset.rowIndex);
