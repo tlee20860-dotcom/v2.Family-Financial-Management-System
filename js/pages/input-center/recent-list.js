@@ -1,10 +1,9 @@
 // ============================================
-// recent-list.js — 輸入中心：最近 20 筆（v101.6.3）
+// recent-list.js — 輸入中心：最近 20 筆（v101.6.5）
 // 位置：js/pages/input-center/recent-list.js
 // ============================================
-// v101.6.3 修正：
-//   ✅ 統一使用 .input-center-table class
-//   ✅ 7 欄用 .wide 變體（橫向滾動）
+// v101.6.5 修正：
+//   ✅ 移除外層 padding（表格貼邊，用盡寬度）
 // ============================================
 
 import {
@@ -86,28 +85,31 @@ function _render(root) {
     return;
   }
 
+  // 🆕 v101.6.5：移除 padding，表格貼邊
   root.innerHTML = `
-    <div style="padding:0 20px 20px;">
-      <div class="text-muted" style="font-size:12px; margin-bottom:10px;">
+    <div style="padding:0 0 20px;">
+      <div class="text-muted" style="font-size:12px; margin-bottom:10px; padding:0 16px;">
         共 ${items.length} 筆，顯示最近 ${limited.length} 筆
       </div>
-      <div class="input-center-table-wrapper">
-        <table class="input-center-table wide">
-          <thead>
-            <tr>
-              <th style="width:70px;">類型</th>
-              <th style="width:95px;">年月</th>
-              <th style="width:90px;">成員</th>
-              <th style="width:200px;">項目</th>
-              <th style="width:110px;" class="num">金額</th>
-              <th style="width:100px;">日期</th>
-              <th style="width:150px;">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${limited.map((it) => _renderRow(it)).join('')}
-          </tbody>
-        </table>
+      <div class="glass-card" style="padding:0; overflow:hidden; border-radius:0;">
+        <div class="input-center-table-wrapper">
+          <table class="input-center-table wide">
+            <thead>
+              <tr>
+                <th style="width:70px; padding-left:16px;">類型</th>
+                <th style="width:95px;">年月</th>
+                <th style="width:90px;">成員</th>
+                <th style="width:200px;">項目</th>
+                <th style="width:110px;" class="num">金額</th>
+                <th style="width:100px;">日期</th>
+                <th style="width:150px; padding-right:16px;">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${limited.map((it) => _renderRow(it)).join('')}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   `;
@@ -169,21 +171,21 @@ function _renderRow(it) {
 
   return `
     <tr data-type="${it.type}" data-key="${escapeHtml(it.id)}">
-      <td>
+      <td style="padding-left:16px;">
         <span class="badge ${it.typeBadge}">${it.typeLabel}</span>
       </td>
       <td class="mono" style="font-size:12px;">
         ${escapeHtml(it.year)}-${escapeHtml(it.month)}
       </td>
       <td style="font-size:12px;">${escapeHtml(memberName)}</td>
-      <td title="${escapeHtml(it.name)}">${escapeHtml(it.name)}</td>
+      <td>${escapeHtml(it.name)}</td>
       <td class="num ${it.type === 'income' ? 'text-emerald' : 'text-red'}">
         ${formatHKD(it.amount)}
       </td>
       <td class="mono" style="font-size:11px; color:var(--text-muted);">
         ${escapeHtml(it.date || '—')}
       </td>
-      <td>
+      <td style="padding-right:16px;">
         <button class="btn btn-sm btn-ghost" data-action="edit" data-key="${escapeHtml(it.id)}">編輯</button>
         <button class="btn btn-sm btn-danger" data-action="delete" data-key="${escapeHtml(it.id)}">刪除</button>
       </td>
