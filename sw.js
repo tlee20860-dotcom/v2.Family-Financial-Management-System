@@ -8,7 +8,7 @@
 //   ✅ 加入保險模組的子檔案
 // ============================================
 
-const CACHE_NAME = 'family-fin-v102';
+const CACHE_NAME = 'family-fin-v103'
 
 const STATIC_ASSETS = [
   // ================= CSS =================
