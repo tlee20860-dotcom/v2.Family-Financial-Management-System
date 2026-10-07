@@ -1054,3 +1054,54 @@
   text-align: right;
   font-family: var(--font-mono);
 }
+/* ============================================
+   input-center-table — 綜合輸入中心共用表格
+   （v101.6.3：統一「最近新增」與「保單/基金/銀行」樣式）
+   ============================================ */
+.input-center-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.input-center-table th {
+  padding: 10px 10px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--glass-border);
+  background: rgba(0, 240, 255, 0.03);
+  white-space: nowrap;
+}
+
+.input-center-table td {
+  padding: 10px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.input-center-table tbody tr:hover td {
+  background: rgba(0, 240, 255, 0.03);
+}
+
+.input-center-table .num {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+/* 寬表格變體：7 欄以上需要橫向滾動 */
+.input-center-table.wide {
+  min-width: 720px;
+}
+
+/* 讓表格外層能橫向滾動 */
+.input-center-table-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}

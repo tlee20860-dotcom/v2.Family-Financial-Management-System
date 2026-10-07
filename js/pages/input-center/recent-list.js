@@ -3,10 +3,8 @@
 // 位置：js/pages/input-center/recent-list.js
 // ============================================
 // v101.6.3 修正：
-//   ✅ 表格改為固定佈局（table-layout: fixed）
-//   ✅ 每列精確 px 寬度（參考 policy-table）
-//   ✅ 總寬度 800px，手機橫向滾動
-//   ✅ 文字 nowrap + ellipsis（避免換行）
+//   ✅ 統一使用 .input-center-table class
+//   ✅ 7 欄用 .wide 變體（橫向滾動）
 // ============================================
 
 import {
@@ -93,8 +91,8 @@ function _render(root) {
       <div class="text-muted" style="font-size:12px; margin-bottom:10px;">
         共 ${items.length} 筆，顯示最近 ${limited.length} 筆
       </div>
-      <div class="recent-table-wrapper" style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
-        <table class="recent-table">
+      <div class="input-center-table-wrapper">
+        <table class="input-center-table wide">
           <thead>
             <tr>
               <th style="width:70px;">類型</th>
