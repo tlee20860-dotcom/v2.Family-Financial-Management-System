@@ -1,19 +1,27 @@
 // ============================================
-// portfolio.js — 基金投資明細（v101.5）
+// portfolio.js — 基金投資表（v101.6）
 // 位置：js/pages/portfolio.js
 // ============================================
-// v101.5 修正：
-//   ✅ 新增「編輯」按鈕（透過 entity-modal）
-//   ✅ 修正卡片 class：policy-card → fund-card
-//   ✅ 使用 registerPageCleanup 註冊清理
+// v101.6 重寫：
+//   ✅ 改名「基金投資表」
+//   ✅ 新增「+ 新增基金」按鈕
+//   ✅ 卡片 / 表格加「編輯 / 刪除」按鈕
+//   ✅ 使用 stats-cards.js 統一統計卡
+//   ✅ 使用 listener-group 統一訂閱
 // ============================================
 
 import { listenFunds } from '../core/db.js';
-import { escapeHtml, formatHKD } from '../core/utils.js';
+import { escapeHtml, formatHKD, setText } from '../core/utils.js';
+import { ENTITY_KEYS } from '../config/constants.js';
 import { initViewToggle } from '../shared/view-toggle.js';
 import { renderQuickSummary } from '../shared/quick-summary.js';
+import { renderStatsCards } from '../shared/stats-cards.js';
 import { openEntityModal } from '../shared/entity-modal.js';
-import { QUICK_SUMMARY_TYPES, ENTITY_KEYS } from '../config/constants.js';
+import { deleteEntity } from '../shared/entity-helpers.js';
+import { openConfirm } from '../shared/modal.js';
+import { showToast } from '../shared/toast.js';
+import { createListenerGroup } from '../shared/listener-group.js';
+import { QUICK_SUMMARY_TYPES } from '../config/constants.js';
 import { registerPageCleanup } from '../core/app.js';
 
 /* ============================================
@@ -21,8 +29,11 @@ import { registerPageCleanup } from '../core/app.js';
    ============================================ */
 let _funds = [];
 let _viewToggle = null;
-let _unsubFunds = null;
-let _listClickHandler = null;
+let _statsApi = null;
+let _addFundHandler = null;
+let _addFirstFundHandler = null;
+
+const listenerGroup = createListenerGroup();
 
 /* ============================================
    主入口
@@ -38,45 +49,40 @@ export async function initPortfolioPage() {
     onChange: () => _render(),
   });
 
-  document.getElementById('go-database-btn')?.addEventListener('click', () => {
-    window.location.href = 'database.html';
-  });
-
-  document.getElementById('go-input-center-btn')?.addEventListener('click', () => {
-    window.location.href = 'input-center.html';
-  });
-
-  _unsubFunds = listenFunds((list) => {
-    _funds = list;
-    _render();
-  });
-
-  // 事件委派（編輯按鈕）
-  _listClickHandler = (e) => {
-    const btn = e.target.closest('button[data-action="edit"]');
-    if (!btn) return;
-    const id = btn.dataset.id;
-    const fund = _funds.find((f) => f.id === id);
-    if (!fund) return;
-
+  // 「新增基金」按鈕
+  _addFundHandler = () => {
     openEntityModal({
       entity: ENTITY_KEYS.FUND,
-      mode: 'edit',
-      id: fund.id,
+      mode: 'add',
       allRows: _funds,
     });
   };
+  document.getElementById('add-fund-btn')?.addEventListener('click', _addFundHandler);
 
-  const cardEl = document.getElementById('fund-card-view');
-  const tableEl = document.getElementById('fund-table-view');
-  cardEl?.addEventListener('click', _listClickHandler);
-  tableEl?.addEventListener('click', _listClickHandler);
+  // 空狀態「新增第一筆基金」
+  _addFirstFundHandler = () => {
+    openEntityModal({
+      entity: ENTITY_KEYS.FUND,
+      mode: 'add',
+      allRows: _funds,
+    });
+  };
+  document.getElementById('add-first-fund-btn')?.addEventListener('click', _addFirstFundHandler);
+
+  // 訂閱基金
+  listenerGroup.add(
+    listenFunds((list) => {
+      _funds = list || [];
+      _render();
+    })
+  );
+
+  // 綁定卡片 / 表格的編輯 / 刪除
+  _bindListActions();
 
   registerPageCleanup(_destroy);
 
-  return {
-    destroy: _destroy,
-  };
+  return { destroy: _destroy };
 }
 
 /* ============================================
@@ -88,26 +94,19 @@ function _render() {
   const view = _viewToggle?.getView() || 'card';
   const cardEl = document.getElementById('fund-card-view');
   const tableEl = document.getElementById('fund-table-view');
+  const emptyEl = document.getElementById('fund-empty-state');
 
   if (!cardEl || !tableEl) return;
 
   if (_funds.length === 0) {
-    const emptyHtml = `
-      <div class="glass-card">
-        <div class="empty-state">
-          <i data-lucide="line-chart" style="width:48px;height:48px;opacity:0.4;"></i>
-          <p style="margin-top:12px;">尚無基金持倉</p>
-          <button class="btn btn-primary" onclick="window.location.href='database.html'" style="margin-top:12px;">
-            <i data-lucide="plus"></i> 前往基礎資料庫
-          </button>
-        </div>
-      </div>
-    `;
-    cardEl.innerHTML = emptyHtml;
-    tableEl.innerHTML = '';
+    if (emptyEl) emptyEl.style.display = 'block';
+    cardEl.style.display = 'none';
+    tableEl.style.display = 'none';
     if (window.lucide) window.lucide.createIcons();
     return;
   }
+
+  if (emptyEl) emptyEl.style.display = 'none';
 
   if (view === 'card') {
     cardEl.style.display = 'block';
@@ -125,29 +124,48 @@ function _render() {
 }
 
 /* ============================================
-   統計卡
+   統計卡（使用 stats-cards.js）
    ============================================ */
 function _renderStats() {
   const totalCost = _funds.reduce((s, f) => s + (Number(f.cost) || 0), 0);
   const totalValue = _funds.reduce((s, f) => s + (Number(f.currentValue) || 0), 0);
   const pnl = totalValue - totalCost;
   const pnlPct = totalCost > 0 ? ((pnl / totalCost) * 100).toFixed(2) : '0.00';
+  const sign = pnl >= 0 ? '+' : '';
 
-  const costEl = document.getElementById('stat-fund-cost');
-  const valueEl = document.getElementById('stat-fund-value');
-  const pnlEl = document.getElementById('stat-fund-pnl');
+  const cards = [
+    {
+      title: '總投入成本',
+      value: formatHKD(totalCost),
+      valueClass: '',
+      hint: `共 ${_funds.length} 筆持倉`,
+      icon: 'wallet',
+    },
+    {
+      title: '總現時價值',
+      value: formatHKD(totalValue),
+      valueClass: 'emerald',
+      hint: '最新現值加總',
+      icon: 'line-chart',
+    },
+    {
+      title: '總帳面盈虧',
+      value: `${sign}${formatHKD(pnl)} (${pnlPct}%)`,
+      valueClass: pnl >= 0 ? 'emerald' : 'red',
+      hint: pnl >= 0 ? '獲利中' : '虧損中',
+      icon: pnl >= 0 ? 'trending-up' : 'trending-down',
+    },
+  ];
 
-  if (costEl) costEl.textContent = formatHKD(totalCost);
-  if (valueEl) valueEl.textContent = formatHKD(totalValue);
-
-  if (pnlEl) {
-    pnlEl.textContent = `${pnl >= 0 ? '+' : ''}${formatHKD(pnl)} (${pnlPct}%)`;
-    pnlEl.classList.remove('emerald', 'red');
-    pnlEl.classList.add(pnl >= 0 ? 'emerald' : 'red');
+  if (_statsApi) {
+    try { _statsApi.destroy(); } catch (e) { /* noop */ }
   }
 
-  const countEl = document.getElementById('fund-count');
-  if (countEl) countEl.textContent = `（共 ${_funds.length} 筆）`;
+  _statsApi = renderStatsCards({
+    container: 'portfolio-stats-root',
+    cards,
+    columns: 3,
+  });
 }
 
 /* ============================================
@@ -166,11 +184,11 @@ function _renderCard(f) {
   const value = Number(f.currentValue) || 0;
   const pnl = value - cost;
   const pnlPct = cost > 0 ? ((pnl / cost) * 100).toFixed(2) : '0.00';
-  const pnlClass = pnl >= 0 ? 'emerald' : 'red';
+  const pnlClass = pnl >= 0 ? 'text-emerald' : 'text-red';
   const sign = pnl >= 0 ? '+' : '';
 
   return `
-    <div class="glass-card fund-card">
+    <div class="glass-card fund-card" data-id="${f.id}">
       <div class="policy-header">
         <div style="min-width:0; flex:1;">
           <div class="policy-name" style="word-break:break-word;">${escapeHtml(f.name || '（未命名）')}</div>
@@ -189,11 +207,11 @@ function _renderCard(f) {
         </div>
         <div class="policy-info-item">
           <span class="policy-info-label">帳面盈虧</span>
-          <span class="policy-info-value text-${pnlClass}">${sign}${formatHKD(pnl)}</span>
+          <span class="policy-info-value ${pnlClass}">${sign}${formatHKD(pnl)}</span>
         </div>
         <div class="policy-info-item">
           <span class="policy-info-label">報酬率</span>
-          <span class="policy-info-value text-${pnlClass}">${pnlPct}%</span>
+          <span class="policy-info-value ${pnlClass}">${pnlPct}%</span>
         </div>
         <div class="policy-info-item">
           <span class="policy-info-label">持有單位數</span>
@@ -204,8 +222,11 @@ function _renderCard(f) {
       ${f.note ? `<div class="glass-card-hint">📝 ${escapeHtml(f.note)}</div>` : ''}
 
       <div class="policy-actions">
-        <button class="btn btn-sm btn-ghost" data-action="edit" data-id="${f.id}">
+        <button class="btn btn-sm btn-ghost" data-action="edit-fund" data-id="${f.id}">
           <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+        </button>
+        <button class="btn btn-sm btn-danger" data-action="delete-fund" data-id="${f.id}">
+          <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
         </button>
       </div>
     </div>
@@ -228,42 +249,98 @@ function _renderTable(container) {
               <th class="num hide-mobile">盈虧</th>
               <th class="num hide-mobile">報酬率</th>
               <th class="num hide-mobile">單位數</th>
-              <th style="width:120px;">操作</th>
+              <th style="width:150px;">操作</th>
             </tr>
           </thead>
           <tbody>
-            ${_funds.map((f) => {
-              const cost = Number(f.cost) || 0;
-              const value = Number(f.currentValue) || 0;
-              const pnl = value - cost;
-              const pnlPct = cost > 0 ? ((pnl / cost) * 100).toFixed(2) : '0.00';
-              const pnlCls = pnl >= 0 ? 'text-emerald' : 'text-red';
-              const sign = pnl >= 0 ? '+' : '';
-
-              return `
-                <tr>
-                  <td data-primary="1">
-                    ${escapeHtml(f.name || '（未命名）')}
-                    ${f.note ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${escapeHtml(f.note)}</div>` : ''}
-                  </td>
-                  <td class="num" data-label="投入成本">${formatHKD(cost)}</td>
-                  <td class="num text-emerald" data-label="現時價值">${formatHKD(value)}</td>
-                  <td class="num hide-mobile ${pnlCls}" data-label="盈虧">${sign}${formatHKD(pnl)}</td>
-                  <td class="num hide-mobile ${pnlCls}" data-label="報酬率">${pnlPct}%</td>
-                  <td class="num hide-mobile" data-label="單位數">${f.units || '—'}</td>
-                  <td data-label="操作">
-                    <button class="btn btn-sm btn-ghost" data-action="edit" data-id="${f.id}">
-                      <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
-                    </button>
-                  </td>
-                </tr>
-              `;
-            }).join('')}
+            ${_funds.map((f) => _renderTableRow(f)).join('')}
           </tbody>
         </table>
       </div>
     </div>
   `;
+}
+
+function _renderTableRow(f) {
+  const cost = Number(f.cost) || 0;
+  const value = Number(f.currentValue) || 0;
+  const pnl = value - cost;
+  const pnlPct = cost > 0 ? ((pnl / cost) * 100).toFixed(2) : '0.00';
+  const pnlCls = pnl >= 0 ? 'text-emerald' : 'text-red';
+  const sign = pnl >= 0 ? '+' : '';
+
+  return `
+    <tr data-id="${f.id}">
+      <td data-primary="1">
+        ${escapeHtml(f.name || '（未命名）')}
+        ${f.note ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${escapeHtml(f.note)}</div>` : ''}
+      </td>
+      <td class="num" data-label="投入成本">${formatHKD(cost)}</td>
+      <td class="num text-emerald" data-label="現時價值">${formatHKD(value)}</td>
+      <td class="num hide-mobile ${pnlCls}" data-label="盈虧">${sign}${formatHKD(pnl)}</td>
+      <td class="num hide-mobile ${pnlCls}" data-label="報酬率">${pnlPct}%</td>
+      <td class="num hide-mobile" data-label="單位數">${f.units || '—'}</td>
+      <td data-label="操作">
+        <button class="btn btn-sm btn-ghost" data-action="edit-fund" data-id="${f.id}">
+          <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+        </button>
+        <button class="btn btn-sm btn-danger" data-action="delete-fund" data-id="${f.id}">
+          <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
+        </button>
+      </td>
+    </tr>
+  `;
+}
+
+/* ============================================
+   事件綁定
+   ============================================ */
+function _bindListActions() {
+  const cardEl = document.getElementById('fund-card-view');
+  const tableEl = document.getElementById('fund-table-view');
+
+  const handler = async (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+
+    const action = btn.dataset.action;
+    const id = btn.dataset.id;
+    if (!id) return;
+
+    const fund = _funds.find((f) => f.id === id);
+    if (!fund) return;
+
+    if (action === 'edit-fund') {
+      openEntityModal({
+        entity: ENTITY_KEYS.FUND,
+        mode: 'edit',
+        id: fund.id,
+        allRows: _funds,
+      });
+    } else if (action === 'delete-fund') {
+      await _handleDeleteFund(fund);
+    }
+  };
+
+  cardEl?.addEventListener('click', handler);
+  tableEl?.addEventListener('click', handler);
+}
+
+async function _handleDeleteFund(fund) {
+  const ok = await openConfirm(`確定要刪除基金「${fund.name}」嗎？`, {
+    title: '刪除基金',
+    okText: '刪除',
+    okClass: 'btn-danger',
+  });
+  if (!ok) return;
+
+  try {
+    await deleteEntity(ENTITY_KEYS.FUND, fund.id);
+    showToast('✅ 已刪除基金', 'success');
+  } catch (err) {
+    console.error('[portfolio] 刪除失敗：', err);
+    showToast('刪除失敗：' + err.message, 'error');
+  }
 }
 
 /* ============================================
@@ -298,19 +375,22 @@ function _renderQuickSummary() {
    銷毀
    ============================================ */
 function _destroy() {
-  if (_unsubFunds) {
-    try { _unsubFunds(); } catch (e) { /* noop */ }
-    _unsubFunds = null;
-  }
+  listenerGroup.destroy();
+
   if (_viewToggle) {
     try { _viewToggle.destroy(); } catch (e) { /* noop */ }
     _viewToggle = null;
   }
-  if (_listClickHandler) {
-    const cardEl = document.getElementById('fund-card-view');
-    const tableEl = document.getElementById('fund-table-view');
-    cardEl?.removeEventListener('click', _listClickHandler);
-    tableEl?.removeEventListener('click', _listClickHandler);
-    _listClickHandler = null;
+  if (_statsApi) {
+    try { _statsApi.destroy(); } catch (e) { /* noop */ }
+    _statsApi = null;
+  }
+  if (_addFundHandler) {
+    document.getElementById('add-fund-btn')?.removeEventListener('click', _addFundHandler);
+    _addFundHandler = null;
+  }
+  if (_addFirstFundHandler) {
+    document.getElementById('add-first-fund-btn')?.removeEventListener('click', _addFirstFundHandler);
+    _addFirstFundHandler = null;
   }
 }

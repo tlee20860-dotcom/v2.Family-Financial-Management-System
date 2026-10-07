@@ -1,16 +1,19 @@
 // ============================================
-// sw.js — Service Worker（v101.5）
+// sw.js — Service Worker（v101.6）
 // ============================================
-// v101.5 更新：
-//   ✅ CACHE_NAME = family-fin-v105
-//   ✅ 移除 input-form.js（已刪除）
-//   ✅ 移除 insurance/calc.js（已刪除）
-//   ✅ 新增 entity-definitions.js / entity-modal.js / entity-helpers.js
-//   ✅ 新增 shared/insurance-calc.js
-//   ✅ 移除未使用的 insurance/calc.js 路徑
+// v101.6 更新：
+//   ✅ CACHE_NAME = family-fin-v106
+//   ✅ 移除已刪除的檔案（income / banks / members / member-detail
+//      / personal-expenses / fixed-expenses / tab-policies / tab-funds
+//      / tab-expenses / tab-fixed / tab-insurance / tab-income
+//      / tab-banks / tab-funds）
+//   ✅ 新增 v101.6 新檔案（column-settings / data-table / stats-cards
+//      / listener-group / form-handler / entity-list-page
+//      / finance-overview / member-report
+//      / input-center/recent-list / input-center/holdings-list）
 // ============================================
 
-const CACHE_NAME = 'family-fin-v105';
+const CACHE_NAME = 'family-fin-v106';
 
 const STATIC_ASSETS = [
   // ================= CSS =================
@@ -25,7 +28,7 @@ const STATIC_ASSETS = [
   './js/config/constants.js',
   './js/config/firebase-config.js',
   './js/config/app-config.js',
-  './js/config/entity-definitions.js',   // 🆕 v101.5
+  './js/config/entity-definitions.js',
 
   // ================= JS — core =================
   './js/core/state.js',
@@ -54,37 +57,33 @@ const STATIC_ASSETS = [
   './js/shared/data-card.js',
   './js/shared/quick-summary.js',
   './js/shared/form-builder.js',
-  './js/shared/insurance-calc.js',       // 🆕 v101.5
-  './js/shared/entity-modal.js',         // 🆕 v101.5
-  './js/shared/entity-helpers.js',       // 🆕 v101.5
+  './js/shared/insurance-calc.js',
+  './js/shared/entity-modal.js',
+  './js/shared/entity-helpers.js',
+  './js/shared/column-settings.js',      // 🆕 v101.6
+  './js/shared/data-table.js',           // 🆕 v101.6
+  './js/shared/stats-cards.js',          // 🆕 v101.6
+  './js/shared/entity-list-page.js',     // 🆕 v101.6
+  './js/shared/form-handler.js',         // 🆕 v101.6
+  './js/shared/listener-group.js',       // 🆕 v101.6
 
   // ================= JS — pages (根目錄) =================
   './js/pages/dashboard.js',
-  './js/pages/members.js',
-  './js/pages/member-detail.js',
-  './js/pages/personal-expenses.js',
-  './js/pages/fixed-expenses.js',
-  './js/pages/income.js',
-  './js/pages/banks.js',
   './js/pages/portfolio.js',
   './js/pages/annual-report.js',
   './js/pages/settings.js',
+  './js/pages/finance-overview.js',      // 🆕 v101.6
+  './js/pages/member-report.js',         // 🆕 v101.6
 
   // ================= JS — pages/input-center =================
   './js/pages/input-center/index.js',
-  './js/pages/input-center/tab-expenses.js',
-  './js/pages/input-center/tab-fixed.js',
-  './js/pages/input-center/tab-insurance.js',
-  './js/pages/input-center/tab-income.js',
-  './js/pages/input-center/tab-banks.js',
-  './js/pages/input-center/tab-funds.js',
+  './js/pages/input-center/recent-list.js',    // 🆕 v101.6
+  './js/pages/input-center/holdings-list.js',  // 🆕 v101.6
 
   // ================= JS — pages/database =================
   './js/pages/database/index.js',
   './js/pages/database/tab-members.js',
   './js/pages/database/tab-banks.js',
-  './js/pages/database/tab-policies.js',
-  './js/pages/database/tab-funds.js',
   './js/pages/database/tab-categories.js',
   './js/pages/database/tab-options.js',
   './js/pages/database/tab-dropdowns.js',

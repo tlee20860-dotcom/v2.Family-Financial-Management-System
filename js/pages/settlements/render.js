@@ -1,199 +1,84 @@
 // ============================================
-// render.js — 結算清單渲染（v101.5）
+// render.js — 結算清單渲染輔助（v101.6）
 // 位置：js/pages/settlements/render.js
 // ============================================
-// v101.5 修正：
-//   ✅ 狀態 badge 改用 entity-helpers 的 renderStatusBadge
-//   ✅ updateRowStatus 使用 db.js 的 updateEntityStatus（跨來源 SSOT）
-//   ✅ 保險的 memberId 統一使用 row._ref.memberId（已由 merge.js 處理 policyHolderId）
+// v101.6 重寫：
+//   ✅ 只保留「狀態欄位」與「更新狀態」邏輯
+//   ✅ 表格渲染改由 data-table.js 統一處理
+//   ✅ setMembersCache 保留相容
 // ============================================
 
 import {
   updateEntityStatus,
-} from '../../core/db.js';
-import {
   saveInsurancePaymentBatch,
   removeInsurancePaymentBatch,
 } from '../../core/db.js';
 import { api } from '../../core/api.js';
 import { getStatusesByCategory } from '../../config/app-config.js';
-import { escapeHtml, formatHKD } from '../../core/utils.js';
-import { renderStatusBadge, isDoneStatus } from '../../shared/entity-helpers.js';
+import { escapeHtml } from '../../core/utils.js';
+import { isDoneStatus } from '../../shared/entity-helpers.js';
 
 /* ============================================
    成員快取（由 index.js 注入）
    ============================================ */
 let _membersCache = [];
 
-/**
- * 設定成員快取
- */
 export function setMembersCache(members) {
   _membersCache = members || [];
 }
 
-/* ============================================
-   對外：表格渲染
-   ============================================ */
-export function renderSettlementTable(container, rows) {
-  if (!container) return;
-
-  if (!rows || rows.length === 0) {
-    container.innerHTML = `
-      <div class="glass-card">
-        <div class="empty-state">沒有符合條件的紀錄</div>
-      </div>
-    `;
-    return;
-  }
-
-  container.innerHTML = `
-    <div class="glass-card collapsible-card collapsible-card-flat" style="padding:0;">
-      <div style="overflow-x:auto;">
-        <table class="data-table settlement-table mobile-cards">
-          <thead>
-            <tr>
-              <th style="width:90px;">來源</th>
-              <th class="hide-mobile" style="width:80px;">年月</th>
-              <th class="hide-mobile" style="width:80px;">成員</th>
-              <th>項目名稱</th>
-              <th class="num" style="width:110px;">金額</th>
-              <th class="hide-mobile" style="width:100px;">日期</th>
-              <th style="width:140px;">狀態</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.map((r) => _renderTableRow(r)).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
-}
-
-function _renderTableRow(r) {
-  const memberName = _getMemberName(r);
-  const statusCell = _renderStatusCell(r);
-
-  return `
-    <tr data-key="${escapeHtml(r.key)}">
-      <td data-label="來源">${_renderSourceBadge(r)}</td>
-      <td class="hide-mobile mono" data-label="年月" style="font-size:12px;">
-        ${escapeHtml(r.year)}-${escapeHtml(r.month)}
-      </td>
-      <td class="hide-mobile" data-label="成員" style="font-size:12px;">
-        ${escapeHtml(memberName)}
-      </td>
-      <td data-primary="1">${escapeHtml(r.name)}</td>
-      <td class="num" data-label="金額">${formatHKD(r.amount)}</td>
-      <td class="hide-mobile mono" data-label="日期" style="font-size:11px; color:var(--text-muted);">
-        ${escapeHtml(r.date || '—')}
-      </td>
-      <td data-label="狀態">${statusCell}</td>
-    </tr>
-  `;
+export function getMembersCache() {
+  return _membersCache;
 }
 
 /* ============================================
-   對外：卡片渲染
+   狀態欄位渲染（供 data-table.js 的 customCellRender 使用）
    ============================================ */
-export function renderSettlementCards(container, rows) {
-  if (!container) return;
-
-  if (!rows || rows.length === 0) {
-    container.innerHTML = `
-      <div class="glass-card">
-        <div class="empty-state">沒有符合條件的紀錄</div>
-      </div>
-    `;
-    return;
-  }
-
-  container.innerHTML = `
-    <div class="grid grid-3" style="gap:10px;">
-      ${rows.map((r) => _renderCard(r)).join('')}
-    </div>
-  `;
-}
-
-function _renderCard(r) {
-  const memberName = _getMemberName(r);
-  const statusCell = _renderStatusCell(r);
-
-  return `
-    <div class="glass-card" data-key="${escapeHtml(r.key)}" style="padding:14px;">
-      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:10px;">
-        <div style="flex:1; min-width:0;">
-          <div style="margin-bottom:6px;">${_renderSourceBadge(r)}</div>
-          <div style="font-weight:600; color:var(--text-primary); word-break:break-word; margin-bottom:4px;">
-            ${escapeHtml(r.name)}
-          </div>
-          <div style="font-size:11px; color:var(--text-muted);">
-            ${escapeHtml(r.year)}-${escapeHtml(r.month)} · ${escapeHtml(memberName)}
-            ${r.date ? ` · ${escapeHtml(r.date)}` : ''}
-          </div>
-        </div>
-        <div style="text-align:right; flex-shrink:0;">
-          <div class="mono text-emerald" style="font-weight:700; font-size:14px;">
-            ${formatHKD(r.amount)}
-          </div>
-        </div>
-      </div>
-      <div style="padding-top:10px; border-top:1px dashed rgba(255,255,255,0.08);">
-        ${statusCell}
-      </div>
-    </div>
-  `;
-}
-
-/* ============================================
-   來源 Badge
-   ============================================ */
-function _renderSourceBadge(r) {
-  const map = {
-    personal:  { cls: 'badge-info',    label: '🏷 個人' },
-    fixed:     { cls: 'badge-magenta', label: '📋 固定' },
-    insurance: { cls: 'badge-success', label: '🛡 保險' },
-  };
-  const cfg = map[r.source] || map.personal;
-  return `<span class="badge ${cfg.cls}">${cfg.label}</span>`;
-}
-
-/* ============================================
-   狀態 Cell（含可改狀態的下拉）
-   ============================================ */
-function _renderStatusCell(r) {
-  const statuses = getStatusesByCategory(r.source);
+export function renderStatusCell(row) {
+  const statuses = getStatusesByCategory(row.source);
   if (statuses.length === 0) {
-    return renderStatusBadge(r.status, r.source);
+    return _renderStatusBadge(row.status, row.isDone);
   }
 
   const options = statuses.map((s) =>
-    `<option value="${escapeHtml(s.name)}" ${s.name === r.status ? 'selected' : ''}>${escapeHtml(s.name)}</option>`
+    `<option value="${escapeHtml(s.name)}" ${s.name === row.status ? 'selected' : ''}>${escapeHtml(s.name)}</option>`
   ).join('');
 
   return `
-    <select class="select settlement-status-select" data-key="${escapeHtml(r.key)}"
+    <select class="select settlement-status-select" data-key="${escapeHtml(row.key)}"
             style="padding:5px 8px; font-size:12px; background:rgba(8,11,17,0.6);">
       ${options}
     </select>
   `;
 }
 
+function _renderStatusBadge(status, isDone) {
+  const cls = isDone ? 'badge-success' : 'badge-pending';
+  return `<span class="badge ${cls}">${escapeHtml(status || '未處理')}</span>`;
+}
+
+/* ============================================
+   來源 badge 渲染（供 data-table.js 使用）
+   ============================================ */
+export function renderSourceBadge(row) {
+  const map = {
+    personal:  { cls: 'badge-info',    label: row.memberId === 'shared' ? '🏠 家庭' : '🏷 個人' },
+    insurance: { cls: 'badge-success', label: '🛡 保險' },
+  };
+  const cfg = map[row.source] || map.personal;
+  return `<span class="badge ${cfg.cls}">${cfg.label}</span>`;
+}
+
 /* ============================================
    成員名稱
    ============================================ */
-function _getMemberName(r) {
-  if (r.source === 'fixed') {
-    return r.memberId === 'shared' ? '家庭共用' : '（成員）';
-  }
-
-  if (r.source === 'personal' || r.source === 'insurance') {
-    const m = _membersCache.find((x) => x.id === r.memberId);
+export function getMemberName(row) {
+  if (row.source === 'personal' || row.source === 'insurance') {
+    const m = _membersCache.find((x) => x.id === row.memberId);
     if (m) return m.name;
+    if (row.memberId === 'shared') return '家庭共用';
   }
-
-  return r._memberName || '（未知）';
+  return row._memberName || '（未知）';
 }
 
 /* ============================================
@@ -207,8 +92,6 @@ export async function updateRowStatus(row, newStatus) {
   switch (row.source) {
     case 'personal':
       return updateEntityStatus('personal', row, newStatus, isDone);
-    case 'fixed':
-      return updateEntityStatus('fixed', row, newStatus, isDone);
     case 'insurance':
       return _updateInsuranceStatus(row, newStatus, isDone);
     default:

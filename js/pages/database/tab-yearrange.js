@@ -1,12 +1,11 @@
 // ============================================
-// tab-yearrange.js — 基礎資料庫：年份範圍 Tab（v101.5）
+// tab-yearrange.js — 基礎資料庫：年份範圍 Tab（v101.6）
 // 位置：js/pages/database/tab-yearrange.js
 // ============================================
-// v101.5 修正：
-//   ✅ 使用 beforeSubmit 驗證
-//   ✅ confirm 改用 openConfirm
-//   ✅ 使用 _container.querySelector + 完整清理
-//   ✅ 抽出 _parseFormValues（避免重複解析）
+// v101.6 修正：
+//   ✅ 使用 listener-group 統一管理訂閱
+//   ✅ 使用 setText / escapeHtml（utils.js）
+//   ✅ confirm 改用 openConfirm（已於 v101.5）
 // ============================================
 
 import { listenYearRange, saveYearRange } from '../../core/db.js';
@@ -16,6 +15,7 @@ import { escapeHtml } from '../../core/utils.js';
 import { showToast } from '../../shared/toast.js';
 import { openConfirm } from '../../shared/modal.js';
 import { buildForm } from '../../shared/form-builder.js';
+import { createListenerGroup } from '../../shared/listener-group.js';
 
 /* ============================================
    Module 狀態
@@ -24,8 +24,9 @@ let _container = null;
 let _formApi = null;
 let _currentRange = { startYear: null, futureYears: LIMITS.YEAR_FUTURE_DEFAULT };
 let _hasFamilyOverride = false;
-let _unsubYearRange = null;
 let _resetBtnHandler = null;
+
+const listenerGroup = createListenerGroup();
 
 /* ============================================
    主入口
@@ -42,30 +43,32 @@ export function initYearRangeTab(containerId) {
   _renderForm();
   _bindEvents();
 
-  _unsubYearRange = listenYearRange((data) => {
-    if (data && (data.startYear != null || data.futureYears != null)) {
-      _currentRange = {
-        startYear: data.startYear != null ? Number(data.startYear) : null,
-        futureYears: Number(data.futureYears) || LIMITS.YEAR_FUTURE_DEFAULT,
-      };
-      _hasFamilyOverride = true;
-    } else {
-      const merged = getMergedYearRange();
-      _currentRange = {
-        startYear: merged.startYear,
-        futureYears: merged.endYear - new Date().getFullYear(),
-      };
-      _hasFamilyOverride = false;
-    }
+  listenerGroup.add(
+    listenYearRange((data) => {
+      if (data && (data.startYear != null || data.futureYears != null)) {
+        _currentRange = {
+          startYear: data.startYear != null ? Number(data.startYear) : null,
+          futureYears: Number(data.futureYears) || LIMITS.YEAR_FUTURE_DEFAULT,
+        };
+        _hasFamilyOverride = true;
+      } else {
+        const merged = getMergedYearRange();
+        _currentRange = {
+          startYear: merged.startYear,
+          futureYears: merged.endYear - new Date().getFullYear(),
+        };
+        _hasFamilyOverride = false;
+      }
 
-    if (_formApi) {
-      _formApi.setData({
-        'db-yr-start': _currentRange.startYear != null ? _currentRange.startYear : '',
-        'db-yr-future': _currentRange.futureYears,
-      });
-    }
-    _refreshPreview();
-  });
+      if (_formApi) {
+        _formApi.setData({
+          'db-yr-start': _currentRange.startYear != null ? _currentRange.startYear : '',
+          'db-yr-future': _currentRange.futureYears,
+        });
+      }
+      _refreshPreview();
+    })
+  );
 
   return {
     refresh: _refreshPreview,
@@ -85,8 +88,6 @@ function _buildSkeleton() {
     </div>
 
     <div class="grid grid-2" style="gap:16px; align-items:start;">
-
-      <!-- 左：設定表單 -->
       <div>
         <div class="glass-card">
           <div class="glass-card-title" style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
@@ -105,7 +106,6 @@ function _buildSkeleton() {
         </div>
       </div>
 
-      <!-- 右：預覽 -->
       <div>
         <div class="glass-card">
           <div class="glass-card-title" style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
@@ -116,7 +116,6 @@ function _buildSkeleton() {
           <div id="db-yearrange-preview"></div>
         </div>
       </div>
-
     </div>
   `;
 }
@@ -325,10 +324,8 @@ function _parseFormValues(data) {
    銷毀
    ============================================ */
 function _destroy() {
-  if (_unsubYearRange) {
-    try { _unsubYearRange(); } catch (e) { /* noop */ }
-    _unsubYearRange = null;
-  }
+  listenerGroup.destroy();
+
   if (_formApi) {
     try { _formApi.destroy(); } catch (e) { /* noop */ }
     _formApi = null;
@@ -337,4 +334,5 @@ function _destroy() {
     _container.querySelector('#db-yearrange-reset')?.removeEventListener('click', _resetBtnHandler);
     _resetBtnHandler = null;
   }
+  _container = null;
 }

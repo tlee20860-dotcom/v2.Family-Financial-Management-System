@@ -1,36 +1,42 @@
 // ============================================
-// index.js — 結算清單入口（v101.5）
+// index.js — 結算清單入口（v101.6）
 // 位置：js/pages/settlements/index.js
 // ============================================
-// v101.5 修正：
-//   ✅ 保單金額計算改用 shared/insurance-calc.js
-//   ✅ 使用 registerPageCleanup 註冊清理
-//   ✅ updateRowStatus 改由 render.js 提供（跨來源改狀態 SSOT）
+// v101.6 重寫：
+//   ✅ 使用 stats-cards.js 統一統計卡
+//   ✅ 使用 data-table.js 統一表格（含欄位調整）
+//   ✅ 使用 listener-group 統一訂閱
+//   ✅ 廢除固定支出來源
+//   ✅ 保留狀態編輯功能
 // ============================================
 
 import { AppState } from '../../core/state.js';
 import {
   listenMembers,
   listenAllMemberExpenses,
-  getFixedExpensesOnce,
   getInsurancePoliciesOnce,
   getInsurancePaymentsOnce,
   getAllMemberExpensesOnce,
 } from '../../core/db.js';
+import {
+  formatHKD, escapeHtml, setText,
+} from '../../core/utils.js';
 import { renderPageFilter } from '../../shared/page-filter.js';
-import { initViewToggle } from '../../shared/view-toggle.js';
 import { showToast } from '../../shared/toast.js';
+import { renderStatsCards } from '../../shared/stats-cards.js';
+import { renderDataTable } from '../../shared/data-table.js';
+import { createListenerGroup } from '../../shared/listener-group.js';
 import { registerPageCleanup } from '../../core/app.js';
+import { estimateMonthlyAmount } from '../../shared/insurance-calc.js';
+
 import { mergeSettlementData } from './merge.js';
 import {
-  renderSettlementTable,
-  renderSettlementCards,
+  renderStatusCell,
+  renderSourceBadge,
+  getMemberName,
   updateRowStatus,
   setMembersCache,
 } from './render.js';
-
-// 🆕 v101.5：改用 shared/insurance-calc.js
-import { estimateMonthlyAmount } from '../../shared/insurance-calc.js';
 
 /* ============================================
    Module 狀態
@@ -46,28 +52,29 @@ let _filters = {
 };
 let _sortMode = 'pending-first';
 
-let _unsubExpenses = null;
-let _unsubMembers = null;
-let _unsubYM = null;
 let _filterInstance = null;
-let _viewToggle = null;
+let _statsApi = null;
+let _tableApi = null;
 let _sortHandler = null;
-let _statusChangeHandlers = [];
+let _statusChangeHandler = null;
+
+const listenerGroup = createListenerGroup();
+
+/* 表格欄位定義 */
+const TABLE_COLUMNS = [
+  { id: 'source',   label: '來源',      defaultVisible: true,  defaultWidth: 90 },
+  { id: 'yearMonth', label: '年月',      defaultVisible: true,  defaultWidth: 90 },
+  { id: 'member',   label: '成員',      defaultVisible: true,  defaultWidth: 90 },
+  { id: 'name',     label: '項目名稱',   defaultVisible: true,  defaultWidth: 200 },
+  { id: 'amount',   label: '金額',      defaultVisible: true,  defaultWidth: 110 },
+  { id: 'date',     label: '日期',      defaultVisible: true,  defaultWidth: 100 },
+  { id: 'status',   label: '狀態',      defaultVisible: true,  defaultWidth: 140 },
+];
 
 /* ============================================
    主入口
    ============================================ */
 export async function initSettlementsPage() {
-  _viewToggle = initViewToggle({
-    containerId: 'view-toggle-root',
-    storageKey: 'settlements-view',
-    defaultView: 'table',
-    cardText: '卡片',
-    tableText: '表格',
-    autoApply: false,
-    onChange: () => _render(),
-  });
-
   _filterInstance = renderPageFilter({
     containerId: 'page-filter-root',
     fields: ['year', 'month'],
@@ -77,7 +84,6 @@ export async function initSettlementsPage() {
         <select class="select" data-filter="source">
           <option value="">全部</option>
           <option value="personal">🏷 個人支出</option>
-          <option value="fixed">📋 固定支出</option>
           <option value="insurance">🛡 保險扣款</option>
         </select>
       </div>
@@ -106,39 +112,43 @@ export async function initSettlementsPage() {
     },
   });
 
-  // 排序切換
+  // 排序
   _sortHandler = (e) => {
     _sortMode = e.target.value;
     _render();
   };
   document.getElementById('settlement-sort')?.addEventListener('change', _sortHandler);
 
+  // 訂閱成員 → 更新快取
+  listenerGroup.add(
+    listenMembers((list) => {
+      setMembersCache(list);
+      _render();
+    })
+  );
+
+  // 訂閱年月變更
+  listenerGroup.add(AppState.on('ym-change', () => _reload()));
+
+  // 綁定狀態變更
   _bindStatusChange();
 
-  _unsubMembers = listenMembers((list) => {
-    setMembersCache(list);
-    _render();
-  });
-
-  _unsubYM = AppState.on('ym-change', () => _reload());
-
+  // 初次載入
   await _reload();
 
   registerPageCleanup(_destroy);
 
-  return {
-    destroy: _destroy,
-  };
+  return { destroy: _destroy };
 }
 
 /* ============================================
    狀態變更事件委派
    ============================================ */
 function _bindStatusChange() {
-  const cardEl = document.getElementById('settlements-card-view');
-  const tableEl = document.getElementById('settlements-table-view');
+  const root = document.getElementById('settlement-table-root');
+  if (!root) return;
 
-  const handler = async (e) => {
+  _statusChangeHandler = async (e) => {
     const sel = e.target.closest('.settlement-status-select');
     if (!sel) return;
 
@@ -159,14 +169,7 @@ function _bindStatusChange() {
     }
   };
 
-  if (cardEl) {
-    cardEl.addEventListener('change', handler);
-    _statusChangeHandlers.push({ el: cardEl, handler });
-  }
-  if (tableEl) {
-    tableEl.addEventListener('change', handler);
-    _statusChangeHandlers.push({ el: tableEl, handler });
-  }
+  root.addEventListener('change', _statusChangeHandler);
 }
 
 /* ============================================
@@ -176,12 +179,8 @@ async function _reload() {
   const { year, month } = AppState.getYearMonth();
   const isAnnual = month === 'all';
 
-  const monthEl = document.getElementById('settlement-month');
-  if (monthEl) {
-    monthEl.textContent = isAnnual
-      ? `${year} 年 全年總覽`
-      : `${year} 年 ${month} 月`;
-  }
+  setText('settlement-month',
+    isAnnual ? `${year} 年 全年總覽` : `${year} 年 ${month} 月`);
 
   if (isAnnual) {
     await _loadAnnual(year);
@@ -194,41 +193,28 @@ async function _reload() {
    單月載入
    ============================================ */
 async function _loadMonthly(year, month) {
-  if (_unsubExpenses) {
-    try { _unsubExpenses(); } catch (e) { /* noop */ }
-    _unsubExpenses = null;
-  }
+  listenerGroup.add(
+    listenAllMemberExpenses(year, month, async (memberExpenses) => {
+      const insuranceRows = await _loadInsurancePaymentsForMonth(year, month);
 
-  _unsubExpenses = listenAllMemberExpenses(year, month, async (memberExpenses) => {
-    const [fixedExpenses, insuranceRows] = await Promise.all([
-      _loadFixed(year, month),
-      _loadInsurancePaymentsForMonth(year, month),
-    ]);
+      _rows = mergeSettlementData({
+        memberExpenses,
+        insuranceRows,
+        year,
+        month,
+      });
 
-    _rows = mergeSettlementData({
-      memberExpenses,
-      fixedExpenses,
-      insuranceRows,
-      year,
-      month,
-    });
-
-    _render();
-  });
+      _render();
+    })
+  );
 }
 
 /* ============================================
    全年載入
    ============================================ */
 async function _loadAnnual(year) {
-  if (_unsubExpenses) {
-    try { _unsubExpenses(); } catch (e) { /* noop */ }
-    _unsubExpenses = null;
-  }
-
-  const [allExpenses, allFixed, policies] = await Promise.all([
+  const [allExpenses, policies] = await Promise.all([
     _loadAllMemberExpensesForYear(year),
-    _loadFixedForYear(year),
     getInsurancePoliciesOnce(),
   ]);
 
@@ -244,14 +230,11 @@ async function _loadAnnual(year) {
   const allRows = [];
   for (let m = 1; m <= 12; m++) {
     const mm = String(m).padStart(2, '0');
-
     const monthExpenses = allExpenses.filter((e) => e.month === mm);
-    const monthFixed = allFixed[mm] || [];
     const insuranceRows = _buildInsuranceRows(policies, paymentsCache, year, mm);
 
     const rows = mergeSettlementData({
       memberExpenses: monthExpenses,
-      fixedExpenses: monthFixed,
       insuranceRows,
       year,
       month: mm,
@@ -287,33 +270,6 @@ async function _loadAllMemberExpensesForYear(year) {
   return result;
 }
 
-async function _loadFixedForYear(year) {
-  const result = {};
-  const promises = [];
-
-  for (let m = 1; m <= 12; m++) {
-    const mm = String(m).padStart(2, '0');
-    promises.push(
-      getFixedExpensesOnce(year, mm).then((list) => {
-        result[mm] = list;
-      }).catch(() => {
-        result[mm] = [];
-      })
-    );
-  }
-
-  await Promise.all(promises);
-  return result;
-}
-
-async function _loadFixed(year, month) {
-  try {
-    return await getFixedExpensesOnce(year, month);
-  } catch (e) {
-    return [];
-  }
-}
-
 async function _loadInsurancePaymentsForMonth(year, month) {
   try {
     const policies = await getInsurancePoliciesOnce();
@@ -325,30 +281,11 @@ async function _loadInsurancePaymentsForMonth(year, month) {
         const existing = payments?.[year]?.[month];
 
         if (existing) {
-          rows.push({
-            policyId: p.id,
-            policyName: p.name,
-            memberId: p.memberId,
-            policyHolderId: p.policyHolderId || p.memberId,
-            type: p.type,
-            status: existing.status || '已扣款',
-            amount: Number(existing.amount) || 0,
-            date: existing.date || '',
-          });
+          rows.push(_buildInsuranceRow(p, existing, year, month));
         } else {
-          // 🆕 v101.5：改用 shared/insurance-calc.js
           const estimated = estimateMonthlyAmount(p, year, month);
           if (estimated > 0 || p.type === 'fund_insurance') {
-            rows.push({
-              policyId: p.id,
-              policyName: p.name,
-              memberId: p.memberId,
-              policyHolderId: p.policyHolderId || p.memberId,
-              type: p.type,
-              status: '未扣款',
-              amount: estimated,
-              date: '',
-            });
+            rows.push(_buildInsuranceRow(p, { status: '未扣款', amount: estimated, date: '' }, year, month));
           }
         }
       } catch (e) {
@@ -369,35 +306,29 @@ function _buildInsuranceRows(policies, paymentsCache, year, month) {
     const existing = paymentsCache[p.id]?.[year]?.[month];
 
     if (existing) {
-      rows.push({
-        policyId: p.id,
-        policyName: p.name,
-        memberId: p.memberId,
-        policyHolderId: p.policyHolderId || p.memberId,
-        type: p.type,
-        status: existing.status || '已扣款',
-        amount: Number(existing.amount) || 0,
-        date: existing.date || '',
-      });
+      rows.push(_buildInsuranceRow(p, existing, year, month));
     } else {
-      // 🆕 v101.5：改用 shared/insurance-calc.js
       const estimated = estimateMonthlyAmount(p, year, month);
       if (estimated > 0 || p.type === 'fund_insurance') {
-        rows.push({
-          policyId: p.id,
-          policyName: p.name,
-          memberId: p.memberId,
-          policyHolderId: p.policyHolderId || p.memberId,
-          type: p.type,
-          status: '未扣款',
-          amount: estimated,
-          date: '',
-        });
+        rows.push(_buildInsuranceRow(p, { status: '未扣款', amount: estimated, date: '' }, year, month));
       }
     }
   });
 
   return rows;
+}
+
+function _buildInsuranceRow(policy, payment, year, month) {
+  return {
+    policyId: policy.id,
+    policyName: policy.name,
+    memberId: policy.memberId,
+    policyHolderId: policy.policyHolderId || policy.memberId,
+    type: policy.type,
+    status: payment.status || '已扣款',
+    amount: Number(payment.amount) || 0,
+    date: payment.date || '',
+  };
 }
 
 /* ============================================
@@ -408,24 +339,93 @@ function _render() {
   _filtered = _applySort(_filtered);
 
   _renderStats();
+  _renderTable();
+}
 
-  const view = _viewToggle?.getView() || 'table';
-  const cardEl = document.getElementById('settlements-card-view');
-  const tableEl = document.getElementById('settlements-table-view');
-  if (!cardEl || !tableEl) return;
+/* ============================================
+   統計卡
+   ============================================ */
+function _renderStats() {
+  const pending = _filtered.filter((r) => !r.isDone);
+  const done = _filtered.filter((r) => r.isDone);
 
-  const countEl = document.getElementById('settlement-count');
-  if (countEl) countEl.textContent = `（共 ${_filtered.length} 筆）`;
+  const pendingTotal = pending.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const doneTotal = done.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const total = pendingTotal + doneTotal;
 
-  if (view === 'card') {
-    cardEl.style.display = 'block';
-    tableEl.style.display = 'none';
-    renderSettlementCards(cardEl, _filtered);
-  } else {
-    cardEl.style.display = 'none';
-    tableEl.style.display = 'block';
-    renderSettlementTable(tableEl, _filtered);
+  const cards = [
+    {
+      title: '待處理',
+      value: formatHKD(pendingTotal),
+      valueClass: 'magenta',
+      hint: `${pending.length} 筆`,
+      icon: 'clock',
+    },
+    {
+      title: '已處理',
+      value: formatHKD(doneTotal),
+      valueClass: 'emerald',
+      hint: `${done.length} 筆`,
+      icon: 'check-circle',
+    },
+    {
+      title: '總計',
+      value: formatHKD(total),
+      valueClass: 'cyan',
+      hint: `${_filtered.length} 筆`,
+      icon: 'calculator',
+    },
+  ];
+
+  if (_statsApi) {
+    try { _statsApi.destroy(); } catch (e) { /* noop */ }
   }
+
+  _statsApi = renderStatsCards({
+    container: 'settlement-stats-root',
+    cards,
+    columns: 3,
+  });
+}
+
+/* ============================================
+   表格（使用 data-table.js）
+   ============================================ */
+function _renderTable() {
+  const root = document.getElementById('settlement-table-root');
+  if (!root) return;
+
+  if (_tableApi) {
+    try { _tableApi.destroy(); } catch (e) { /* noop */ }
+    _tableApi = null;
+  }
+
+  _tableApi = renderDataTable({
+    container: root,
+    entityKey: '__settlement__',    // 特殊：非標準實體
+    rows: _filtered,
+    tableId: 'settlement-table',
+    options: {
+      columns: TABLE_COLUMNS,
+      resolvers: {
+        source: (_, row) => renderSourceBadge(row),
+        yearMonth: (_, row) => `${escapeHtml(row.year)}-${escapeHtml(row.month)}`,
+        member: (_, row) => escapeHtml(getMemberName(row)),
+        name: (_, row) => escapeHtml(row.name),
+        amount: (val) => formatHKD(val),
+        date: (val) => escapeHtml(val || '—'),
+      },
+    },
+    hooks: {
+      customCellRender: (col, row) => {
+        if (col.id === 'status') {
+          return renderStatusCell(row);
+        }
+        return null;
+      },
+      customActions: () => [],  // 結算清單無編輯 / 刪除按鈕
+    },
+  });
 
   if (window.lucide) window.lucide.createIcons();
 }
@@ -439,7 +439,7 @@ function _applyFilters(list) {
     if (_filters.month && r.month !== _filters.month) return false;
     if (_filters.source && r.source !== _filters.source) return false;
     if (_filters.status && r.status !== _filters.status) return false;
-    if (_filters.member && r.source === 'personal' && r.memberId !== _filters.member) return false;
+    if (_filters.member && r.memberId !== _filters.member) return false;
     return true;
   });
 }
@@ -472,67 +472,30 @@ function _applySort(list) {
 }
 
 /* ============================================
-   統計
-   ============================================ */
-function _renderStats() {
-  const pending = _filtered.filter((r) => !r.isDone);
-  const done = _filtered.filter((r) => r.isDone);
-
-  const pendingTotal = pending.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-  const doneTotal = done.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-  const total = pendingTotal + doneTotal;
-
-  _setText('settlement-pending-total', _fmt(pendingTotal));
-  _setText('settlement-pending-count', `${pending.length} 筆`);
-  _setText('settlement-done-total', _fmt(doneTotal));
-  _setText('settlement-done-count', `${done.length} 筆`);
-  _setText('settlement-grand-total', _fmt(total));
-  _setText('settlement-grand-count', `${_filtered.length} 筆`);
-}
-
-/* ============================================
-   工具
-   ============================================ */
-function _setText(id, text) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = text;
-}
-
-function _fmt(n) {
-  if (n == null || isNaN(n)) return 'HK$ 0';
-  return 'HK$ ' + Math.round(Number(n)).toLocaleString('zh-HK');
-}
-
-/* ============================================
    銷毀
    ============================================ */
 function _destroy() {
-  if (_unsubExpenses) {
-    try { _unsubExpenses(); } catch (e) { /* noop */ }
-    _unsubExpenses = null;
-  }
-  if (_unsubMembers) {
-    try { _unsubMembers(); } catch (e) { /* noop */ }
-    _unsubMembers = null;
-  }
-  if (_unsubYM) {
-    try { _unsubYM(); } catch (e) { /* noop */ }
-    _unsubYM = null;
-  }
+  listenerGroup.destroy();
+
   if (_filterInstance) {
     try { _filterInstance.destroy(); } catch (e) { /* noop */ }
     _filterInstance = null;
   }
-  if (_viewToggle) {
-    try { _viewToggle.destroy(); } catch (e) { /* noop */ }
-    _viewToggle = null;
+  if (_statsApi) {
+    try { _statsApi.destroy(); } catch (e) { /* noop */ }
+    _statsApi = null;
+  }
+  if (_tableApi) {
+    try { _tableApi.destroy(); } catch (e) { /* noop */ }
+    _tableApi = null;
   }
   if (_sortHandler) {
     document.getElementById('settlement-sort')?.removeEventListener('change', _sortHandler);
     _sortHandler = null;
   }
-  _statusChangeHandlers.forEach(({ el, handler }) => {
-    try { el.removeEventListener('change', handler); } catch (e) { /* noop */ }
-  });
-  _statusChangeHandlers = [];
+  if (_statusChangeHandler) {
+    const root = document.getElementById('settlement-table-root');
+    root?.removeEventListener('change', _statusChangeHandler);
+    _statusChangeHandler = null;
+  }
 }

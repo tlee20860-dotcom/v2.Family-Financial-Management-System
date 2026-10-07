@@ -1,13 +1,11 @@
 // ============================================
-// db.js — Firebase Realtime Database 讀寫封裝（v101.5）
+// db.js — Firebase RTDB 讀寫封裝（v101.6）
 // 位置：js/core/db.js
 // ============================================
-// v101.5 修正：
-//   ✅ 新增 getPolicyEffectiveMemberId（從 constants 讀取）
-//   ✅ 新增 updateEntityStatus（跨來源改狀態通用函式）
-//   ✅ 新增 getMemberExpensesForYear 保留（v101.3）
-//   ✅ 新增 updateBank / updateFund 支援部分更新
-//   ✅ 保險相關的 linked_ 前綴改用 LINKED_PREFIX 常數
+// v101.6 修正：
+//   ✅ 移除所有 fixedTemplate / fixedExpense 相關函式
+//   ✅ 保留 updateEntityStatus（跨來源改狀態）
+//   ✅ 保留所有其他 CRUD
 // ============================================
 
 import { db } from '../config/firebase-config.js';
@@ -155,9 +153,6 @@ export async function addBank(nameOrObj) {
   return newRef.key;
 }
 
-/**
- * v101.5：支援部分更新（可傳 string 或 { name }）
- */
 export async function updateBank(id, patch) {
   const clean = {};
   if (typeof patch === 'string') {
@@ -503,7 +498,7 @@ export async function setPlatformResource(resource, data) {
 }
 
 /* ============================================
-   成員支出（代墊）
+   成員支出
    ============================================ */
 
 function expensePath(year, month, memberId) {
@@ -643,10 +638,6 @@ export async function markMemberExpenseRepaid(year, month, memberId, expId, stat
   });
 }
 
-/* ============================================
-   批次更新支出
-   ============================================ */
-
 export async function batchUpdateExpenses(updates) {
   const familyId = AppState.getFamilyId();
   if (!familyId) throw new Error('尚未選擇家庭');
@@ -748,7 +739,6 @@ export async function updateInsurancePolicy(id, patch) {
   fields.forEach((f) => {
     if (patch[f] !== undefined) clean[f] = patch[f];
   });
-  if (clean.amount != null) clean.amount = roundInt(clean.amount);
   if (clean.totalPremium != null) clean.totalPremium = roundInt(clean.totalPremium);
   if (Object.keys(clean).length === 0) return;
   await update(familyRef(`insurance_policies/${id}`), clean);
@@ -758,9 +748,6 @@ export async function removeInsurancePolicy(id) {
   await remove(familyRef(`insurance_policies/${id}`));
 }
 
-/**
- * v101.5：使用 buildLinkedKey
- */
 export async function deleteInsurancePolicyAndData(policyId, memberId) {
   const familyId = AppState.getFamilyId();
   if (!familyId) throw new Error('尚未選擇家庭');
@@ -879,6 +866,12 @@ export function listenFunds(cb, err) {
   return listenList('funds', byCreatedAt, cb, err);
 }
 
+export async function getFundsOnce() {
+  const snap = await get(familyRef('funds'));
+  const val = snap.val() || {};
+  return Object.entries(val).map(([id, f]) => ({ id, ...f }));
+}
+
 export async function addFund(fund) {
   const newRef = push(familyRef('funds'));
   await set(newRef, {
@@ -908,129 +901,9 @@ export async function removeFund(id) {
 }
 
 /* ============================================
-   固定支出模板
+   跨來源改狀態（供 settlements 使用）
    ============================================ */
 
-export function listenFixedTemplates(cb, err) {
-  return listenList('fixed_expense_templates', byCreatedAt, cb, err);
-}
-
-export async function addFixedTemplate(tmpl) {
-  const newRef = push(familyRef('fixed_expense_templates'));
-  await set(newRef, {
-    name: tmpl.name || '',
-    categoryId: tmpl.categoryId || '',
-    itemId: tmpl.itemId || '',
-    memberId: tmpl.memberId || RESERVED_IDS.SHARED_MEMBER,
-    amount: roundInt(tmpl.amount),
-    cycle: tmpl.cycle || '每月',
-    note: tmpl.note || '',
-    paymentMethodId: tmpl.paymentMethodId || '',
-    createdAt: Date.now(),
-  });
-  return newRef.key;
-}
-
-export async function updateFixedTemplate(id, patch) {
-  const clean = {};
-  const fields = ['name', 'categoryId', 'itemId', 'memberId', 'cycle', 'note', 'paymentMethodId'];
-  fields.forEach((f) => {
-    if (patch[f] !== undefined) clean[f] = patch[f];
-  });
-  if (patch.amount !== undefined) clean.amount = roundInt(patch.amount);
-  if (Object.keys(clean).length === 0) return;
-  await update(familyRef(`fixed_expense_templates/${id}`), clean);
-}
-
-export async function removeFixedTemplate(id) {
-  await remove(familyRef(`fixed_expense_templates/${id}`));
-}
-
-export async function deleteFixedTemplateAndMonths(templateId, templateName) {
-  const familyId = AppState.getFamilyId();
-  if (!familyId) throw new Error('尚未選擇家庭');
-  const updates = {};
-  updates[`families/${familyId}/fixed_expense_templates/${templateId}`] = null;
-
-  const snap = await get(ref(db, `families/${familyId}/fixed_expenses`));
-  const allExpenses = snap.val() || {};
-  Object.entries(allExpenses).forEach(([year, months]) => {
-    Object.entries(months || {}).forEach(([month, items]) => {
-      Object.entries(items || {}).forEach(([id, item]) => {
-        if (item.name === templateName) {
-          updates[`families/${familyId}/fixed_expenses/${year}/${month}/${id}`] = null;
-        }
-      });
-    });
-  });
-
-  await update(ref(db), updates);
-}
-
-/* ============================================
-   固定支出（每月）
-   ============================================ */
-
-export function listenFixedExpenses(year, month, cb, err) {
-  if (!year || !month) {
-    const ym = AppState.getYearMonth();
-    year = ym.year; month = ym.month;
-  }
-  return listenList(`fixed_expenses/${year}/${month}`, byCreatedAt, cb, err);
-}
-
-export async function addFixedExpense(year, month, data) {
-  if (!year || !month) {
-    const ym = AppState.getYearMonth();
-    year = ym.year; month = ym.month;
-  }
-  const newRef = push(familyRef(`fixed_expenses/${year}/${month}`));
-  await set(newRef, {
-    name: data.name || '',
-    amount: roundInt(data.amount),
-    cycle: data.cycle || '每月',
-    note: data.note || '',
-    categoryId: data.categoryId || '',
-    itemId: data.itemId || '',
-    memberId: data.memberId || RESERVED_IDS.SHARED_MEMBER,
-    paymentMethodId: data.paymentMethodId || '',
-    status: data.status || '未付款',
-    paidDate: data.paidDate || '',
-    createdAt: Date.now(),
-  });
-  return newRef.key;
-}
-
-export async function updateFixedExpense(year, month, id, patch) {
-  const clean = { ...patch };
-  if (clean.amount != null) clean.amount = roundInt(clean.amount);
-  await update(familyRef(`fixed_expenses/${year}/${month}/${id}`), clean);
-}
-
-export async function removeFixedExpense(year, month, id) {
-  await remove(familyRef(`fixed_expenses/${year}/${month}/${id}`));
-}
-
-export async function getFixedExpensesOnce(year, month) {
-  const snap = await get(familyRef(`fixed_expenses/${year}/${month}`));
-  const val = snap.val() || {};
-  const list = Object.entries(val).map(([id, x]) => ({ id, ...x }));
-  list.sort(byCreatedAt);
-  return list;
-}
-
-/* ============================================
-   🆕 v101.5：跨來源改狀態通用函式
-   ============================================ */
-
-/**
- * 更新實體狀態（跨來源）
- * @param {'personal'|'fixed'|'insurance'} source
- * @param {Object} row - 結算 row（含 _ref）
- * @param {string} newStatus
- * @param {boolean} isDone
- * @returns {Promise<void>}
- */
 export async function updateEntityStatus(source, row, newStatus, isDone) {
   const today = new Date().toISOString().slice(0, 10);
 
@@ -1044,21 +917,30 @@ export async function updateEntityStatus(source, row, newStatus, isDone) {
       return;
     }
     case 'fixed': {
+      // 🆕 v101.6：固定支出廢除，但保留相容性
       const { id } = row._ref;
-      await updateFixedExpense(row.year, row.month, id, {
+      await updateFixedExpenseCompat(row.year, row.month, id, {
         status: newStatus,
         paidDate: isDone ? today : '',
       });
       return;
     }
     case 'insurance': {
-      const { policyId, memberId } = row._ref;
-      // 保險的邏輯由呼叫端處理（需要 api.insuranceSync）
       throw new Error('保險狀態請使用 settlements/render.js 的 updateRowStatus');
     }
     default:
       throw new Error('未知的來源：' + source);
   }
+}
+
+/**
+ * 🆕 v101.6：固定支出相容函式（僅供 updateEntityStatus 使用）
+ * 主 UI 已廢除固定支出，但為避免舊資料操作錯誤，保留此函式
+ */
+async function updateFixedExpenseCompat(year, month, id, patch) {
+  const clean = { ...patch };
+  if (clean.amount != null) clean.amount = roundInt(clean.amount);
+  await update(familyRef(`fixed_expenses/${year}/${month}/${id}`), clean);
 }
 
 /* ============================================

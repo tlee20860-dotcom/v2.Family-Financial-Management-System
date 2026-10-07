@@ -1,11 +1,11 @@
 // ============================================
-// sync.js — 保險支出同步模組（v101.5）
+// sync.js — 保險支出同步模組（v101.6）
 // 位置：js/pages/insurance/sync.js
 // ============================================
-// v101.5 修正：
-//   ✅ _resolveMonthlyAmount 改 import shared/insurance-calc.js
-//   ✅ memberId 統一使用 getPolicyHolderId
-//   ✅ 改 import getPeriodInfo from shared/insurance-calc.js
+// v101.6 修正：
+//   ✅ 使用 buildLinkedKey 統一
+//   ✅ 使用 getPolicyHolderId 統一
+//   ✅ 保留 syncSinglePayment / unsyncSinglePayment
 // ============================================
 
 import { getInsurancePaymentsOnce } from '../../core/db.js';
@@ -36,7 +36,6 @@ export async function autoSyncPolicyExpenses(policy, payments) {
 
   if (!payments || Object.keys(payments).length === 0) return 0;
 
-  // 🆕 v101.5：統一使用 getPolicyHolderId
   const effectiveMemberId = getPolicyHolderId(policy);
 
   const promises = [];
@@ -49,7 +48,6 @@ export async function autoSyncPolicyExpenses(policy, payments) {
       const y = Number(year);
       const m = Number(month);
 
-      // 🆕 v101.5：使用 shared/insurance-calc.js 的 resolveMonthlyAmount
       const amount = resolveMonthlyAmount(policy, y, m, data);
 
       promises.push(
@@ -74,7 +72,7 @@ export async function autoSyncPolicyExpenses(policy, payments) {
 }
 
 /* ============================================
-   2. 批次同步（所有保單）
+   2. 批次同步
    ============================================ */
 export async function syncAllPolicyExpenses(policies, paymentsCache = {}) {
   if (!policies || policies.length === 0) return 0;
@@ -96,7 +94,7 @@ export async function autoSyncAfterEdit(policy) {
 }
 
 /* ============================================
-   4. 單筆扣款同步
+   4. 單筆同步
    ============================================ */
 export async function syncSinglePayment({
   policyId, memberId, policyName, year, month, amount,

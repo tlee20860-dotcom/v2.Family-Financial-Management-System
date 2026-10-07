@@ -1,26 +1,15 @@
 // ============================================
-// entity-modal.js — 通用實體編輯 Modal（v101.5 🆕）
+// entity-modal.js — 通用實體編輯 Modal（v101.6）
 // 位置：js/shared/entity-modal.js
 // ============================================
-// 職責：
-//   提供全站統一的「新增 / 編輯」Modal。
-//   所有呼叫端只需呼叫 openEntityModal，不自行建立 Modal DOM。
+// v101.6 修正：
+//   ✅ 新增 openEntityAddModal（簡化新增）
+//   ✅ 新增 openEntityEditModal（簡化編輯）
+//   ✅ 支援 initialData
+//   ✅ 支援 onSuccess / onCancel
+//   ✅ 移除 fixedTemplate 相關處理
 //
-// 內部流程：
-//   1. 從 entity-definitions.js 讀取 entity 定義
-//   2. 用 form-builder.js 建立表單
-//   3. 用 modal.js 開啟 Modal
-//   4. 提交時呼叫 entity-helpers.js 的 createEntity / updateEntity
-//   5. 成功 → Toast + onSuccess + 關閉
-//
-// 使用範例：
-//   import { openEntityModal } from '../shared/entity-modal.js';
-//
-//   await openEntityModal({
-//     entity: 'bank',
-//     mode: 'add',
-//     onSuccess: () => refresh(),
-//   });
+// API 凍結：v101.6 發布後只加不改
 // ============================================
 
 import { buildForm } from './form-builder.js';
@@ -52,7 +41,7 @@ const TITLE_ID = 'entity-modal-title';
  * @param {string} options.entity - entityKey
  * @param {'add'|'edit'} options.mode
  * @param {string} [options.id] - edit 時必填
- * @param {Object} [options.initialData] - 預填資料（edit 時通常不用傳）
+ * @param {Object} [options.initialData] - 預填資料
  * @param {Array} [options.allRows] - 現有資料（供 validate 用）
  * @param {Function} [options.onSuccess] - (result) => {}
  * @param {Function} [options.onCancel] - () => {}
@@ -75,10 +64,8 @@ export async function openEntityModal(options) {
     return null;
   }
 
-  // 建立 / 重設 Modal DOM
   _ensureModal();
 
-  // 設定標題
   const titleEl = document.getElementById(TITLE_ID);
   if (titleEl) {
     const action = mode === 'edit' ? '編輯' : '新增';
@@ -88,7 +75,6 @@ export async function openEntityModal(options) {
   // 準備初始資料
   let initData = initialData;
   if (mode === 'edit' && id && !initData) {
-    // 從 allRows 找
     const row = allRows.find((r) => r.id === id);
     if (row) initData = buildInitialData(entity, row);
   }
@@ -137,10 +123,8 @@ export async function openEntityModal(options) {
     },
   });
 
-  // 開啟 Modal
   openModal(MODAL_ID);
 
-  // 自動聚焦第一個欄位
   setTimeout(() => {
     const firstInput = document.querySelector(`#${FORM_ROOT_ID} input, #${FORM_ROOT_ID} select`);
     if (firstInput) firstInput.focus();
@@ -150,16 +134,46 @@ export async function openEntityModal(options) {
 }
 
 /* ============================================
-   內部工具
+   便利函式
    ============================================ */
 
 /**
- * 確保 Modal DOM 存在（不存在則建立，存在則保留）
+ * 開啟「新增」Modal
  */
+export function openEntityAddModal(entity, options = {}) {
+  return openEntityModal({
+    entity,
+    mode: 'add',
+    ...options,
+  });
+}
+
+/**
+ * 開啟「編輯」Modal
+ */
+export function openEntityEditModal(entity, id, options = {}) {
+  return openEntityModal({
+    entity,
+    mode: 'edit',
+    id,
+    ...options,
+  });
+}
+
+/**
+ * 關閉實體 Modal
+ */
+export function closeEntityModal() {
+  closeModal(MODAL_ID);
+}
+
+/* ============================================
+   內部工具
+   ============================================ */
+
 function _ensureModal() {
   let overlay = document.getElementById(MODAL_ID);
   if (overlay) {
-    // 清空表單容器
     const formRoot = document.getElementById(FORM_ROOT_ID);
     if (formRoot) formRoot.innerHTML = '';
     return;
@@ -176,21 +190,9 @@ function _ensureModal() {
   `;
   document.body.appendChild(overlay);
 
-  // 點擊 backdrop 關閉
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) {
       closeModal(MODAL_ID);
     }
   });
-}
-
-/* ============================================
-   便利方法
-   ============================================ */
-
-/**
- * 關閉實體 Modal
- */
-export function closeEntityModal() {
-  closeModal(MODAL_ID);
 }

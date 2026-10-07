@@ -1,12 +1,12 @@
 // ============================================
-// sidebar-order.js — 側邊欄排序管理（v101）
+// sidebar-order.js — 側邊欄排序管理（v101.6）
 // 位置：js/shared/sidebar-order.js
 // ============================================
-// v101 修正：
-//   ✅ SSOT：ALL_MENU_ITEMS 從 sidebar-groups.js 動態取得（不再重複定義）
-//   ✅ DEFAULT_ORDER 從 sidebar-groups.js 攤平
+// v101.6 修正：
+//   ✅ ALL_MENU_ITEMS 從 sidebar-groups.js 動態取得（不再重複定義）
 //   ✅ 保留排序邏輯（sortByOrder / moveOrderItem / watchSidebarOrder）
 //   ✅ 補齊新選單自動加入機制
+//   ✅ 移除「成員子群組」相關邏輯（已廢除）
 // ============================================
 
 import { listenSidebarOrder, saveSidebarOrder } from '../core/db.js';

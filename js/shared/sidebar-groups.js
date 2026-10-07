@@ -1,11 +1,11 @@
 // ============================================
-// sidebar-groups.js — 側邊欄分類群組工具（v101）
+// sidebar-groups.js — 側邊欄分類群組工具（v101.6）
 // 位置：js/shared/sidebar-groups.js
 // ============================================
-// 用途：
-//   1. 查詢工具（href ↔ 群組對應）
-//   2. 展開狀態管理（localStorage）
-//   3. 攤平工具（給 sidebar-order.js 用）
+// v101.6 修正：
+//   ✅ 移除 getMembersGroup（「成員與收入」群組已廢除）
+//   ✅ 移除 hasMembersSub 相關邏輯
+//   ✅ SIDEBAR_GROUPS 改由 constants.js 提供（v101.6 新結構）
 // ============================================
 
 import { SIDEBAR_GROUPS, STORAGE_KEYS } from '../config/constants.js';
@@ -50,15 +50,7 @@ export function getGroupKeyByHref(href) {
 }
 
 /**
- * 取得「成員與收入」群組（含成員子群組的群組）
- */
-export function getMembersGroup() {
-  return SIDEBAR_GROUPS.find((g) => g.hasMembersSub) || null;
-}
-
-/**
  * 攤平所有群組的項目成 href 陣列
- * （不含「成員版面」子群組項目，那些由 members 動態產生）
  */
 export function flattenAllHrefs() {
   const result = [];
@@ -71,7 +63,7 @@ export function flattenAllHrefs() {
 }
 
 /**
- * 攤平所有群組的項目成 {icon, label, href} 陣列
+ * 攤平所有群組的項目成 {icon, label, href, groupKey} 陣列
  */
 export function flattenAllItems() {
   const result = [];
@@ -124,11 +116,6 @@ export function saveOpenGroupSet(set) {
 export function ensureGroupOpenFor(set, activeHref) {
   const g = getGroupByHref(activeHref);
   if (g) set.add(g.key);
-  // 成員頁面 → 展開 members 群組
-  if (activeHref.includes('member') || activeHref.includes('members')) {
-    const mg = getMembersGroup();
-    if (mg) set.add(mg.key);
-  }
   return set;
 }
 

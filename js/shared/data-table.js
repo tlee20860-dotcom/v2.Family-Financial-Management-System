@@ -1,70 +1,67 @@
 // ============================================
-// data-card.js — 通用卡片渲染（v101.6 重寫）
-// 位置：js/shared/data-card.js
+// data-table.js — 通用表格渲染（v101.6 🆕）
+// 位置：js/shared/data-table.js
 // ============================================
-// v101.6 重寫：
-//   ✅ 從 entity-definitions.js 讀取 UI 配置
-//   ✅ 支援 hooks（customHeader / customBody / customFooter / customActions）
-//   ✅ 支援 onEdit / onDelete
-//   ✅ 支援 resolvers（欄位解析器）
+// 職責：
+//   1. 從 entity-definitions.js 讀取 UI 配置
+//   2. 整合 column-settings.js（欄位調整）
+//   3. 支援 hooks（自訂 cell / actions / 事件）
+//   4. 自動處理型別格式化（text / number / date / select）
 //
 // API 凍結：v101.6 發布後只加不改
 // ============================================
 
 import { getEntityDef, getEntityUi } from '../config/entity-definitions.js';
 import { escapeHtml, formatHKD, formatNumber } from '../core/utils.js';
+import { initColumnSettings } from './column-settings.js';
 
 /* ============================================
    主函式
    ============================================ */
 
 /**
- * 渲染資料卡片
+ * 渲染資料表格
  * @param {Object} options
  * @param {HTMLElement|string} options.container - 容器
  * @param {string} options.entityKey - 實體 key
  * @param {Array} options.rows - 資料陣列
+ * @param {string} [options.tableId] - 表格 ID（用於欄位設定持久化，預設 = entityKey）
  * @param {Object} [options.options] - 選項
  * @param {Object} [options.options.resolvers] - 欄位解析器 { [colId]: (val, row) => string }
- * @param {string} [options.options.gridClass='grid grid-3'] - 外層 grid class
+ * @param {Array} [options.options.columns] - 自訂欄位（若未提供，從 entity-definitions 讀）
  * @param {Object} [options.hooks] - Hook
  * @param {Function} [options.hooks.beforeRender] - (rows) => rows
  * @param {Function} [options.hooks.afterRender] - (container) => void
- * @param {Function} [options.hooks.customHeader] - (row) => string | null
- * @param {Function} [options.hooks.customBody] - (row) => string | null
- * @param {Function} [options.hooks.customFooter] - (row) => string | null
+ * @param {Function} [options.hooks.customCellRender] - (column, row) => string | null
  * @param {Function} [options.hooks.customActions] - (row) => Array<{label, icon, onClick, className}>
- * @param {Function} [options.hooks.onEdit] - (row) => void
- * @param {Function} [options.hooks.onDelete] - (row) => void
- * @param {Function} [options.hooks.onCardClick] - (row) => void
- * @returns {Object} { container, refresh, destroy }
+ * @param {Function} [options.hooks.onRowClick] - (row) => void
+ * @returns {Object} { container, table, refresh, destroy }
  */
-export function renderDataCard(options) {
+export function renderDataTable(options) {
   const {
     container,
     entityKey,
     rows,
+    tableId,
     options: extraOptions = {},
     hooks = {},
   } = options;
 
   const root = _resolveElement(container);
   if (!root) {
-    console.warn('⚠️ renderDataCard: 找不到容器', container);
+    console.warn('⚠️ renderDataTable: 找不到容器', container);
     return null;
   }
 
   const def = getEntityDef(entityKey);
   if (!def) {
-    console.warn(`⚠️ renderDataCard: 找不到實體 ${entityKey}`);
+    console.warn(`⚠️ renderDataTable: 找不到實體 ${entityKey}`);
     return null;
   }
 
   const ui = getEntityUi(entityKey) || {};
-  const {
-    gridClass = 'grid grid-3',
-    resolvers = {},
-  } = extraOptions;
+  const _tableId = tableId || entityKey;
+  const { resolvers = {}, columns: customColumns } = extraOptions;
 
   /* ============================================
      準備欄位定義
@@ -72,13 +69,42 @@ export function renderDataCard(options) {
   const fieldMap = {};
   (def.fields || []).forEach((f) => { fieldMap[f.id] = f; });
 
-  const primaryColumn = ui.primaryColumn || null;
-  const cardFields = ui.cardFields || (def.fields || [])
-    .filter((f) => f.id !== primaryColumn)
-    .slice(0, 3)
-    .map((f) => f.id);
+  // 決定欄位清單
+  let allColumns;
+  if (customColumns) {
+    allColumns = customColumns;
+  } else {
+    const listCols = ui.listColumns || (def.fields || []).map((f) => f.id);
+    allColumns = listCols.map((id) => {
+      const field = fieldMap[id];
+      return {
+        id,
+        label: field?.label || id,
+        type: field?.type || 'text',
+        defaultVisible: true,
+      };
+    });
+  }
 
+  // 加入操作欄位
   const hasActions = (ui.canEdit !== false) || (ui.canDelete !== false);
+  if (hasActions && !allColumns.some((c) => c.id === '__actions__')) {
+    allColumns.push({
+      id: '__actions__',
+      label: '操作',
+      type: 'actions',
+      defaultVisible: true,
+      defaultWidth: 160,
+    });
+  }
+
+  /* ============================================
+     初始化欄位設定
+     ============================================ */
+  const colSettings = initColumnSettings({
+    tableId: _tableId,
+    columns: allColumns,
+  });
 
   /* ============================================
      渲染
@@ -90,14 +116,38 @@ export function renderDataCard(options) {
   _render();
 
   function _render() {
+    const visibleCols = colSettings.getVisibleColumns();
+
     if (!_beforeRows || _beforeRows.length === 0) {
       _renderEmpty(root);
       return;
     }
 
     root.innerHTML = `
-      <div class="${gridClass}" style="gap:12px;">
-        ${_beforeRows.map((row, i) => _renderCard(row, i)).join('')}
+      <div class="data-table-header">
+        <div class="data-table-header-left">
+          <span class="text-muted" style="font-size:12px;">共 ${_beforeRows.length} 筆</span>
+        </div>
+        <div class="data-table-header-right">
+          <button class="btn btn-sm btn-ghost" data-action="column-settings" title="欄位設定">
+            <i data-lucide="columns" style="width:14px;height:14px;"></i>
+            <span class="hide-mobile">欄位</span>
+          </button>
+        </div>
+      </div>
+      <div class="glass-card collapsible-card collapsible-card-flat" style="padding:0;">
+        <div style="overflow-x:auto;">
+          <table class="data-table mobile-cards">
+            <thead>
+              <tr>
+                ${visibleCols.map((col) => _renderTh(col, colSettings)).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${_beforeRows.map((row, i) => _renderRow(row, i, visibleCols)).join('')}
+            </tbody>
+          </table>
+        </div>
       </div>
     `;
 
@@ -106,74 +156,52 @@ export function renderDataCard(options) {
     if (typeof hooks.afterRender === 'function') hooks.afterRender(root);
   }
 
-  function _renderCard(row, index) {
-    // 自訂 header
-    const headerHtml = typeof hooks.customHeader === 'function'
-      ? (hooks.customHeader(row) || _defaultHeader(row))
-      : _defaultHeader(row);
+  /* ============================================
+     thead / tbody 渲染
+     ============================================ */
+  function _renderTh(col, settings) {
+    const width = settings.getWidth(col.id);
+    const style = width ? `style="width:${width}px;"` : '';
+    const cls = col.type === 'number' ? 'num' : '';
+    return `<th class="${cls}" ${style}>${escapeHtml(col.label)}</th>`;
+  }
 
-    // 自訂 body
-    const bodyHtml = typeof hooks.customBody === 'function'
-      ? (hooks.customBody(row) || _defaultBody(row))
-      : _defaultBody(row);
-
-    // 自訂 footer
-    const footerHtml = typeof hooks.customFooter === 'function'
-      ? (hooks.customFooter(row) || _defaultFooter(row))
-      : _defaultFooter(row);
-
+  function _renderRow(row, index, visibleCols) {
     return `
-      <div class="glass-card data-card" data-row-index="${index}">
-        ${headerHtml}
-        ${bodyHtml}
-        ${footerHtml}
-      </div>
+      <tr data-row-index="${index}">
+        ${visibleCols.map((col, colIdx) => _renderTd(col, row, colIdx === 0)).join('')}
+      </tr>
     `;
   }
 
-  function _defaultHeader(row) {
-    const primaryField = primaryColumn ? fieldMap[primaryColumn] : null;
-    const primaryValue = primaryColumn ? row[primaryColumn] : (row.name || '（未命名）');
-    const primaryLabel = primaryField?.label || '';
+  function _renderTd(col, row, isFirst) {
+    // 操作欄位
+    if (col.id === '__actions__') {
+      return `<td data-label="操作">${_renderActions(col, row)}</td>`;
+    }
 
-    return `
-      <div class="data-card-primary" style="font-size:15px; font-weight:700; color:var(--neon-cyan); margin-bottom:10px; word-break:break-word;">
-        ${escapeHtml(primaryValue || '（未命名）')}
-      </div>
-    `;
+    // 自訂 cell
+    if (typeof hooks.customCellRender === 'function') {
+      const custom = hooks.customCellRender(col, row);
+      if (custom !== null && custom !== undefined) {
+        return `<td data-label="${escapeHtml(col.label)}" ${isFirst ? 'data-primary="1"' : ''}>${custom}</td>`;
+      }
+    }
+
+    // 解析值
+    const val = row[col.id];
+    const resolver = resolvers[col.id];
+    const content = resolver
+      ? resolver(val, row)
+      : _formatCell(val, col.type);
+
+    const cls = col.type === 'number' ? 'num' : '';
+    const dataLabel = isFirst ? 'data-primary="1"' : `data-label="${escapeHtml(col.label)}"`;
+
+    return `<td class="${cls}" ${dataLabel}>${content}</td>`;
   }
 
-  function _defaultBody(row) {
-    if (!cardFields.length) return '';
-
-    return `
-      <div class="data-card-fields" style="display:flex; flex-direction:column; gap:6px; font-size:13px;">
-        ${cardFields.map((id) => {
-          const field = fieldMap[id];
-          if (!field) return '';
-          const val = row[id];
-          const resolver = resolvers[id];
-          const content = resolver
-            ? resolver(val, row)
-            : _formatCell(val, field.type);
-          return `
-            <div class="data-card-field" style="display:flex; justify-content:space-between; gap:12px;">
-              <span class="data-card-label" style="color:var(--text-muted); font-size:11px; flex-shrink:0;">
-                ${escapeHtml(field.label)}
-              </span>
-              <span class="data-card-value" style="text-align:right; word-break:break-word;">
-                ${content}
-              </span>
-            </div>
-          `;
-        }).join('')}
-      </div>
-    `;
-  }
-
-  function _defaultFooter(row) {
-    if (!hasActions) return '';
-
+  function _renderActions(col, row) {
     let actionsHtml = '';
 
     // 自訂 actions
@@ -188,6 +216,8 @@ export function renderDataCard(options) {
       `).join('');
     }
 
+    // 內建編輯 / 刪除（若無 customActions 定義）
+    const ui = getEntityUi(entityKey) || {};
     if (ui.canEdit !== false) {
       actionsHtml += `<button class="btn btn-sm btn-ghost" data-action="edit">
         <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
@@ -199,11 +229,7 @@ export function renderDataCard(options) {
       </button>`;
     }
 
-    return `
-      <div class="data-card-footer" style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.08); display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
-        ${actionsHtml}
-      </div>
-    `;
+    return actionsHtml;
   }
 
   /* ============================================
@@ -212,18 +238,29 @@ export function renderDataCard(options) {
   let _listener = null;
 
   function _bindEvents() {
+    // 移除舊 listener
     if (_listener) {
       root.removeEventListener('click', _listener);
     }
 
     _listener = (e) => {
+      // 欄位設定按鈕
+      const settingsBtn = e.target.closest('button[data-action="column-settings"]');
+      if (settingsBtn) {
+        colSettings.openPanel({
+          onChange: () => _render(),
+        });
+        return;
+      }
+
+      // 操作按鈕
       const actionBtn = e.target.closest('button[data-action]');
       if (actionBtn) {
         const action = actionBtn.dataset.action;
-        const card = actionBtn.closest('[data-row-index]');
-        if (!card) return;
+        const tr = actionBtn.closest('tr');
+        if (!tr) return;
 
-        const index = Number(card.dataset.rowIndex);
+        const index = Number(tr.dataset.rowIndex);
         const row = _beforeRows[index];
         if (!row) return;
 
@@ -238,6 +275,7 @@ export function renderDataCard(options) {
           }
         }
 
+        // 內建 edit / delete
         if (action === 'edit' && typeof hooks.onEdit === 'function') {
           e.stopPropagation();
           hooks.onEdit(row);
@@ -251,12 +289,12 @@ export function renderDataCard(options) {
         return;
       }
 
-      // 點擊卡片
-      const card = e.target.closest('.data-card[data-row-index]');
-      if (card && typeof hooks.onCardClick === 'function') {
-        const index = Number(card.dataset.rowIndex);
+      // 點擊 row
+      const tr = e.target.closest('tr[data-row-index]');
+      if (tr && typeof hooks.onRowClick === 'function') {
+        const index = Number(tr.dataset.rowIndex);
         const row = _beforeRows[index];
-        if (row) hooks.onCardClick(row);
+        if (row) hooks.onRowClick(row);
       }
     };
 
@@ -268,9 +306,16 @@ export function renderDataCard(options) {
      ============================================ */
   return {
     container: root,
+    table: root.querySelector('table'),
 
+    /**
+     * 重新渲染（用於資料更新後）
+     */
     refresh: () => _render(),
 
+    /**
+     * 銷毀
+     */
     destroy: () => {
       if (_listener) {
         root.removeEventListener('click', _listener);
@@ -308,6 +353,7 @@ function _formatCell(val, type) {
     case 'number-plain':
       return formatNumber(val);
     case 'date':
+      return escapeHtml(String(val));
     case 'select':
     case 'text':
     default:

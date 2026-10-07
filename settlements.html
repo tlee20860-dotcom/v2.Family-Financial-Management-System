@@ -22,7 +22,6 @@
             <p class="page-subtitle" id="settlement-month"></p>
           </div>
           <div class="flex items-center gap-12 flex-wrap">
-            <div id="view-toggle-root"></div>
             <select class="select" id="settlement-sort" style="width:auto; padding:8px 12px;">
               <option value="pending-first">未處理置頂</option>
               <option value="date-desc">日期（新→舊）</option>
@@ -33,39 +32,17 @@
         </div>
 
         <div class="banner mb-16">
-          ℹ️ 整合「個人支出 / 固定支出 / 保險扣款」三大來源。
+          ℹ️ 整合「個人支出 / 家庭共用支出 / 保險扣款」三大來源。
           可直接於此變更狀態，會自動連動各來源頁面。
         </div>
 
         <div id="page-filter-root" class="mb-16"></div>
 
-        <!-- 統計卡 -->
-        <div class="grid grid-3 mb-20">
-          <div class="glass-card">
-            <div class="glass-card-title">待處理</div>
-            <div class="glass-card-value magenta mono" id="settlement-pending-total">HK$ 0</div>
-            <div class="glass-card-hint" id="settlement-pending-count">0 筆</div>
-          </div>
-          <div class="glass-card">
-            <div class="glass-card-title">已處理</div>
-            <div class="glass-card-value emerald mono" id="settlement-done-total">HK$ 0</div>
-            <div class="glass-card-hint" id="settlement-done-count">0 筆</div>
-          </div>
-          <div class="glass-card">
-            <div class="glass-card-title">總計</div>
-            <div class="glass-card-value cyan mono" id="settlement-grand-total">HK$ 0</div>
-            <div class="glass-card-hint">
-              <span id="settlement-grand-count">0 筆</span>
-              ｜ <span id="settlement-count" style="color:var(--text-muted);"></span>
-            </div>
-          </div>
-        </div>
+        <!-- 統計卡（動態） -->
+        <div id="settlement-stats-root"></div>
 
-        <!-- 卡片模式 -->
-        <div id="settlements-card-view"></div>
-
-        <!-- 表格模式 -->
-        <div id="settlements-table-view" style="display:none;"></div>
+        <!-- 表格 -->
+        <div id="settlement-table-root"></div>
       </main>
     </div>
   </div>

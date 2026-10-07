@@ -1,10 +1,11 @@
 // ============================================
-// tab-dropdowns.js — 基礎資料庫：下拉選項 Tab（v101.5）
+// tab-dropdowns.js — 基礎資料庫：下拉選項 Tab（v101.6）
 // 位置：js/pages/database/tab-dropdowns.js
 // ============================================
-// v101.5 修正：
-//   ✅ 保留 GROUPS 定義（用於分組顯示，非 SSOT）
-//   ✅ 新增 / 編輯改用 openConfirm + 專屬 Modal（因選項結構特殊）
+// v101.6 修正：
+//   ✅ 移除「cycles」（付款週期）群組（固定支出廢除）
+//   ✅ 保留 memberRoles / policyTypes / insurancePaymentTypes / categoryOrder
+//   ✅ 選項結構特殊（非 entity），保留專屬 Modal
 //   ✅ 使用 _container.querySelector + 完整清理
 // ============================================
 
@@ -14,27 +15,51 @@ import { escapeHtml } from '../../core/utils.js';
 import { showToast } from '../../shared/toast.js';
 import { openModal, closeModal, openConfirm } from '../../shared/modal.js';
 import { buildForm } from '../../shared/form-builder.js';
+import { createListenerGroup } from '../../shared/listener-group.js';
 
 /* ============================================
    Module 狀態
    ============================================ */
 let _container = null;
 let _options = {};
-let _unsubOptions = null;
-let _listHandler = null;
 let _editFormApi = null;
+let _listHandler = null;
 
+const listenerGroup = createListenerGroup();
 const EDIT_MODAL_ID = 'db-dropdown-edit-modal';
 
 /* ============================================
-   選項群組定義
+   選項群組定義（v101.6：移除 cycles）
    ============================================ */
 const GROUPS = [
-  { key: 'memberRoles',           label: '成員角色',     icon: 'users',        type: 'value-label', hint: '用於成員的角色選項' },
-  { key: 'cycles',                label: '付款週期',     icon: 'repeat',       type: 'value-label', hint: '固定支出的付款週期' },
-  { key: 'policyTypes',           label: '保單類型',     icon: 'shield',       type: 'value-label', hint: '保險保單的類型' },
-  { key: 'insurancePaymentTypes', label: '保險付款類型', icon: 'credit-card',  type: 'value-label', hint: '保單的付款方式（年繳 / 月繳 / 一次付款）' },
-  { key: 'categoryOrder',         label: '類別順序',     icon: 'list-ordered', type: 'string',      hint: '年度報表中類別的顯示順序' },
+  {
+    key: 'memberRoles',
+    label: '成員角色',
+    icon: 'users',
+    type: 'value-label',
+    hint: '用於成員的角色選項',
+  },
+  {
+    key: 'policyTypes',
+    label: '保單類型',
+    icon: 'shield',
+    type: 'value-label',
+    hint: '保險保單的類型',
+  },
+  {
+    key: 'insurancePaymentTypes',
+    label: '保險付款類型',
+    icon: 'credit-card',
+    type: 'value-label',
+    hint: '保單的付款方式（年繳 / 月繳 / 一次付款）',
+  },
+  {
+    key: 'categoryOrder',
+    label: '類別順序',
+    icon: 'list-ordered',
+    type: 'string',
+    hint: '年度報表中類別的顯示順序',
+  },
 ];
 
 /* ============================================
@@ -51,10 +76,12 @@ export function initDropdownsTab(containerId) {
   _renderEditModal();
   _bindEvents();
 
-  _unsubOptions = listenFamilyOptions((data) => {
-    _options = _normalizeOptions(data);
-    _render();
-  });
+  listenerGroup.add(
+    listenFamilyOptions((data) => {
+      _options = _normalizeOptions(data);
+      _render();
+    })
+  );
 
   return {
     refresh: _render,
@@ -104,7 +131,6 @@ function _renderEditModal() {
 function _normalizeOptions(data) {
   const fallback = {
     memberRoles: getOptions('memberRoles'),
-    cycles: getOptions('cycles'),
     policyTypes: getOptions('policyTypes'),
     insurancePaymentTypes: getOptions('insurancePaymentTypes'),
     categoryOrder: getOptions('categoryOrder'),
@@ -113,11 +139,10 @@ function _normalizeOptions(data) {
   if (!data || Object.keys(data).length === 0) return fallback;
 
   return {
-    memberRoles: Array.isArray(data.memberRoles) ? data.memberRoles : fallback.memberRoles,
-    cycles: Array.isArray(data.cycles) ? data.cycles : fallback.cycles,
-    policyTypes: Array.isArray(data.policyTypes) ? data.policyTypes : fallback.policyTypes,
+    memberRoles:           Array.isArray(data.memberRoles)           ? data.memberRoles           : fallback.memberRoles,
+    policyTypes:           Array.isArray(data.policyTypes)           ? data.policyTypes           : fallback.policyTypes,
     insurancePaymentTypes: Array.isArray(data.insurancePaymentTypes) ? data.insurancePaymentTypes : fallback.insurancePaymentTypes,
-    categoryOrder: Array.isArray(data.categoryOrder) ? data.categoryOrder : fallback.categoryOrder,
+    categoryOrder:         Array.isArray(data.categoryOrder)         ? data.categoryOrder         : fallback.categoryOrder,
   };
 }
 
@@ -421,10 +446,7 @@ async function _saveGroup(groupKey, newList) {
    銷毀
    ============================================ */
 function _destroy() {
-  if (_unsubOptions) {
-    try { _unsubOptions(); } catch (e) { /* noop */ }
-    _unsubOptions = null;
-  }
+  listenerGroup.destroy();
 
   if (_listHandler && _container) {
     _container.querySelector('#db-dropdowns-list')?.removeEventListener('click', _listHandler);
@@ -436,4 +458,5 @@ function _destroy() {
   }
 
   document.getElementById(EDIT_MODAL_ID)?.remove();
+  _container = null;
 }

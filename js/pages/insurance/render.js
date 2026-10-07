@@ -1,10 +1,11 @@
 // ============================================
-// render.js — 保險渲染模組（v101.5）
+// render.js — 保險渲染模組（v101.6）
 // 位置：js/pages/insurance/render.js
 // ============================================
-// v101.5 修正：
-//   ✅ 改 import shared/insurance-calc.js（calc.js 已刪除）
-//   ✅ 持有人 / 受保人 fallback 使用 getPolicyHolderId
+// v101.6 修正：
+//   ✅ 卡片 / 表格新增「編輯 / 刪除」按鈕（data-action）
+//   ✅ 移除「更新扣款」按鈕（改為結算清單編輯）
+//   ✅ 保留「恢復供款」按鈕（data-action="restore"）
 // ============================================
 
 import { escapeHtml, formatHKD } from '../../core/utils.js';
@@ -28,25 +29,16 @@ export function isExpanded(key) {
   return _expandedKeys.has(key);
 }
 
-/**
- * 清除展開狀態（供 index.js 的 _destroy 呼叫）
- */
 export function clearExpanded() {
   _expandedKeys.clear();
 }
 
 /* ============================================
-   1. 統計卡
+   1. 統計卡（已由 index.js 使用 stats-cards 處理，此函式保留相容）
    ============================================ */
-export function renderStats({ enriched, year }) {
-  const yearTotal = (enriched || []).reduce((s, p) => s + (p._currentAnnualPremium || 0), 0);
-  const activeCount = (enriched || []).filter((p) => !p._isCompleted).length;
-  const completedCount = (enriched || []).filter((p) => p._isCompleted).length;
-
-  _setText('grand-total-premium', formatHKD(yearTotal));
-  _setText('grand-total-hint', `${year} 年度 · 共 ${(enriched || []).length} 張保單`);
-  _setText('active-policy-count', `${activeCount} 張`);
-  _setText('stat-completed-policies', `${completedCount} 張`);
+export function renderStats() {
+  // v101.6：已由 index.js 的 _renderStats 使用 stats-cards.js
+  // 保留空函式供相容
 }
 
 /* ============================================
@@ -115,9 +107,6 @@ function _memberName(members, memberId) {
   return m ? m.name : '（未指定）';
 }
 
-/**
- * v101.5：統一使用 getPolicyHolderId
- */
 function _holderName(members, p) {
   return _memberName(members, getPolicyHolderId(p));
 }
@@ -158,7 +147,12 @@ function _renderFundInsuranceCard(p, members) {
       </div>
     </div>
     <div class="policy-actions">
-      <a class="btn btn-sm btn-ghost" href="database.html">編輯</a>
+      <button class="btn btn-sm btn-ghost" data-action="edit-policy" data-id="${p.id}">
+        <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+      </button>
+      <button class="btn btn-sm btn-danger" data-action="delete-policy" data-id="${p.id}">
+        <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
+      </button>
     </div>
   `;
 }
@@ -242,9 +236,15 @@ function _renderNormalPolicyCard(p, members, isCompleted) {
     </div>
 
     <div class="policy-actions">
-      <a class="btn btn-sm btn-ghost" href="input-center.html">更新扣款</a>
-      <a class="btn btn-sm btn-ghost" href="database.html">編輯</a>
-      ${isCompleted ? `<button class="btn btn-sm btn-ghost" data-action="restore" data-id="${p.id}">恢復供款</button>` : ''}
+      <button class="btn btn-sm btn-ghost" data-action="edit-policy" data-id="${p.id}">
+        <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+      </button>
+      <button class="btn btn-sm btn-danger" data-action="delete-policy" data-id="${p.id}">
+        <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
+      </button>
+      ${isCompleted ? `<button class="btn btn-sm btn-ghost" data-action="restore" data-id="${p.id}">
+        <i data-lucide="rotate-ccw" style="width:14px;height:14px;"></i> 恢復供款
+      </button>` : ''}
     </div>
   `;
 }
@@ -336,8 +336,12 @@ function _renderTableRow(p, members) {
         <div class="progress"><div class="progress-bar" style="width:${pct}%;"></div></div>
       </td>
       <td>
-        <a class="btn btn-sm btn-ghost" href="input-center.html">更新</a>
-        <a class="btn btn-sm btn-ghost" href="database.html">編輯</a>
+        <button class="btn btn-sm btn-ghost" data-action="edit-policy" data-id="${p.id}" title="編輯">
+          <i data-lucide="pencil" style="width:14px;height:14px;"></i>
+        </button>
+        <button class="btn btn-sm btn-danger" data-action="delete-policy" data-id="${p.id}" title="刪除">
+          <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
+        </button>
       </td>
     </tr>
     <tr class="insurance-table-detail-row" style="display:${isOpen ? 'table-row' : 'none'};">

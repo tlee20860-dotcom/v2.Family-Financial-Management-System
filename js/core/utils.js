@@ -1,13 +1,13 @@
 // ============================================
-// utils.js — 通用工具函式（v101）
+// utils.js — 通用工具函式（v101.6）
 // 位置：js/core/utils.js
 // ============================================
-// v101 修正：
-//   ✅ 新增 roundHKD（統一四捨五入）
-//   ✅ 新增 truncate（名稱截斷，讀 constants 長度）
-//   ✅ 新增 debounce / throttle
-//   ✅ 新增 parseDate / dateToStr
-//   ✅ escapeHtml 強化（處理 null / undefined）
+// v101.6 修正：
+//   ✅ 新增 setText（取代各頁面的 _setText）
+//   ✅ 新增 renderEmptyState（統一空狀態）
+//   ✅ 新增 safeParseInt / safeParseFloat
+//   ✅ 新增 formatPercent
+//   ✅ 保留所有 v101.5 函式
 // ============================================
 
 import { LIMITS, RESERVED_IDS } from '../config/constants.js';
@@ -16,43 +16,23 @@ import { LIMITS, RESERVED_IDS } from '../config/constants.js';
    金額格式化
    ============================================ */
 
-/**
- * 格式化為 HK$ 顯示（整數）
- * @param {number} amount
- * @returns {string}
- */
 export function formatHKD(amount) {
   if (amount == null || isNaN(amount)) return 'HK$ 0';
   const rounded = Math.round(Number(amount));
   return 'HK$ ' + rounded.toLocaleString('zh-HK');
 }
 
-/**
- * 格式化數字（整數，無貨幣符號）
- * @param {number} amount
- * @returns {string}
- */
 export function formatNumber(amount) {
   if (amount == null || isNaN(amount)) return '0';
   const rounded = Math.round(Number(amount));
   return rounded.toLocaleString('zh-HK');
 }
 
-/**
- * 四捨五入為整數
- * @param {number|string} value
- * @returns {number}
- */
 export function roundHKD(value) {
   const n = Number(value);
   return isNaN(n) ? 0 : Math.round(n);
 }
 
-/**
- * 限制金額範圍
- * @param {number} value
- * @returns {number}
- */
 export function clampAmount(value) {
   const n = roundHKD(value);
   if (n < 0) return 0;
@@ -60,21 +40,23 @@ export function clampAmount(value) {
   return n;
 }
 
+/**
+ * 🆕 v101.6：格式化百分比
+ */
+export function formatPercent(value, digits = 2) {
+  const n = Number(value);
+  if (isNaN(n)) return '0%';
+  return `${n.toFixed(digits)}%`;
+}
+
 /* ============================================
    日期工具
    ============================================ */
 
-/**
- * 今日 ISO 日期（YYYY-MM-DD）
- */
 export function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-/**
- * 當前年月
- * @returns {{year: string, month: string}}
- */
 export function currentYearMonth() {
   const d = new Date();
   return {
@@ -83,9 +65,6 @@ export function currentYearMonth() {
   };
 }
 
-/**
- * Date → YYYY-MM-DD
- */
 export function dateToStr(date) {
   if (!date) return '';
   const d = date instanceof Date ? date : new Date(date);
@@ -96,9 +75,6 @@ export function dateToStr(date) {
   return `${y}-${m}-${dd}`;
 }
 
-/**
- * 字串 → Date（容錯）
- */
 export function parseDate(str) {
   if (!str) return null;
   const d = new Date(str);
@@ -109,11 +85,6 @@ export function parseDate(str) {
    字串工具
    ============================================ */
 
-/**
- * HTML escape
- * @param {*} s
- * @returns {string}
- */
 export function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({
     '&': '&amp;',
@@ -124,12 +95,6 @@ export function escapeHtml(s) {
   }[c]));
 }
 
-/**
- * 名稱截斷（依螢幕寬度選擇長度）
- * @param {string} name
- * @param {number} [maxLen] - 若未提供，依螢幕寬度自動選擇
- * @returns {string}
- */
 export function truncate(name, maxLen) {
   if (!name) return '';
   const s = String(name);
@@ -141,6 +106,22 @@ export function truncate(name, maxLen) {
   }
   if (s.length <= len) return s;
   return s.slice(0, len) + '…';
+}
+
+/**
+ * 🆕 v101.6：安全解析整數
+ */
+export function safeParseInt(value, fallback = 0) {
+  const n = parseInt(value, 10);
+  return isNaN(n) ? fallback : n;
+}
+
+/**
+ * 🆕 v101.6：安全解析浮點
+ */
+export function safeParseFloat(value, fallback = 0) {
+  const n = parseFloat(value);
+  return isNaN(n) ? fallback : n;
 }
 
 /* ============================================
@@ -155,13 +136,48 @@ export function qsa(sel, parent = document) {
   return [...parent.querySelectorAll(sel)];
 }
 
+/**
+ * 🆕 v101.6：安全設定 textContent
+ * @param {string|HTMLElement} target - ID 或元素
+ * @param {string} text
+ */
+export function setText(target, text) {
+  const el = typeof target === 'string' ? document.getElementById(target) : target;
+  if (el) el.textContent = text;
+}
+
+/**
+ * 🆕 v101.6：渲染空狀態
+ * @param {string|HTMLElement} container - ID 或元素
+ * @param {string} message - 訊息
+ * @param {Object} [options]
+ * @param {string} [options.icon] - Lucide icon 名稱
+ * @param {string} [options.actionHtml] - 額外動作按鈕 HTML
+ */
+export function renderEmptyState(container, message, options = {}) {
+  const el = typeof container === 'string' ? document.getElementById(container) : container;
+  if (!el) return;
+
+  const { icon, actionHtml } = options;
+  const iconHtml = icon
+    ? `<i data-lucide="${escapeHtml(icon)}" style="width:48px;height:48px;opacity:0.4;"></i>`
+    : '';
+
+  el.innerHTML = `
+    <div class="empty-state">
+      ${iconHtml}
+      <p style="margin-top:12px;">${escapeHtml(message)}</p>
+      ${actionHtml || ''}
+    </div>
+  `;
+
+  if (window.lucide) window.lucide.createIcons();
+}
+
 /* ============================================
    成員排序
    ============================================ */
 
-/**
- * 成員排序（依 order，其次 createdAt）
- */
 export function sortMembers(members) {
   return [...(members || [])].sort((a, b) => {
     const oa = a.order != null ? a.order : Number.MAX_SAFE_INTEGER;
@@ -171,29 +187,20 @@ export function sortMembers(members) {
   });
 }
 
-/**
- * 判斷是否為「額外收入」保留鍵
- */
 export function isExtraIncome(memberId) {
   return memberId === RESERVED_IDS.EXTRA_INCOME;
 }
 
-/**
- * 判斷是否為「家庭共用」保留鍵
- */
 export function isSharedMember(memberId) {
   return memberId === RESERVED_IDS.SHARED_MEMBER;
 }
 
 /**
- * 取得成員顯示名稱（含保留鍵處理）
- * @param {string} memberId
- * @param {Array} members
- * @returns {string}
+ * 🆕 v101.6：取得成員顯示名稱（含家庭共用）
  */
 export function getMemberDisplayName(memberId, members = []) {
   if (isExtraIncome(memberId)) return '額外收入';
-  if (isSharedMember(memberId)) return '家庭共用支出';
+  if (isSharedMember(memberId)) return '家庭共用';
   const m = members.find((x) => x.id === memberId);
   return m ? m.name : '（未知）';
 }
@@ -202,12 +209,6 @@ export function getMemberDisplayName(memberId, members = []) {
    效能工具
    ============================================ */
 
-/**
- * Debounce
- * @param {Function} fn
- * @param {number} wait - 毫秒
- * @returns {Function}
- */
 export function debounce(fn, wait = 300) {
   let timer = null;
   return function (...args) {
@@ -216,12 +217,6 @@ export function debounce(fn, wait = 300) {
   };
 }
 
-/**
- * Throttle
- * @param {Function} fn
- * @param {number} wait - 毫秒
- * @returns {Function}
- */
 export function throttle(fn, wait = 300) {
   let last = 0;
   return function (...args) {
@@ -237,28 +232,40 @@ export function throttle(fn, wait = 300) {
    雜項
    ============================================ */
 
-/**
- * 深拷貝（僅支援純資料）
- */
 export function deepClone(obj) {
   if (obj == null || typeof obj !== 'object') return obj;
   return JSON.parse(JSON.stringify(obj));
 }
 
-/**
- * 產生唯一 ID（前端暫用）
- */
 export function uid(prefix = 'id') {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/**
- * 將陣列轉為 key-value 物件
- */
 export function arrayToMap(arr, keyField = 'id') {
   const map = {};
   (arr || []).forEach((item) => {
     if (item && item[keyField] != null) map[item[keyField]] = item;
   });
   return map;
+}
+
+/**
+ * 🆕 v101.6：排序比較函式產生器
+ */
+export function makeSortFn(sortKey, order = 'asc') {
+  const dir = order === 'desc' ? -1 : 1;
+  return (a, b) => {
+    const va = a[sortKey];
+    const vb = b[sortKey];
+
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;
+    if (vb == null) return -1;
+
+    if (typeof va === 'number' && typeof vb === 'number') {
+      return (va - vb) * dir;
+    }
+
+    return String(va).localeCompare(String(vb), 'zh-HK') * dir;
+  };
 }

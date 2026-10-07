@@ -1,10 +1,11 @@
 // ============================================
-// index.js — 基礎資料庫入口（v101.5）
+// index.js — 基礎資料庫入口（v101.6）
 // 位置：js/pages/database/index.js
 // ============================================
-// v101.5 修正：
-//   ✅ 使用 registerPageCleanup 註冊清理
-//   ✅ Tab 定義從 entity-definitions.js 的概念延伸
+// v101.6 修正：
+//   ✅ 從 8 Tab 縮減為 6 Tab
+//   ✅ 移除「保單」「基金」Tab（已移到輸入中心）
+//   ✅ 所有 Tab 使用 entity-list-page.js 統一骨架
 // ============================================
 
 import { initTabPanel } from '../../shared/tab-panel.js';
@@ -17,8 +18,6 @@ import { registerPageCleanup } from '../../core/app.js';
 let _tabInstances = {
   members:    null,
   banks:      null,
-  policies:   null,
-  funds:      null,
   categories: null,
   options:    null,
   dropdowns:  null,
@@ -28,13 +27,11 @@ let _tabInstances = {
 let _tabPanel = null;
 
 /* ============================================
-   Tab 定義（8 個，兩行）
+   Tab 定義（6 個）
    ============================================ */
 const TABS = [
   { key: 'members',    label: '成員',       icon: 'users',        panelId: 'db-panel-members'    },
   { key: 'banks',      label: '銀行',       icon: 'landmark',     panelId: 'db-panel-banks'      },
-  { key: 'policies',   label: '保單',       icon: 'shield',       panelId: 'db-panel-policies'   },
-  { key: 'funds',      label: '基金',       icon: 'line-chart',   panelId: 'db-panel-funds'      },
   { key: 'categories', label: '支出結構',   icon: 'tags',         panelId: 'db-panel-categories' },
   { key: 'options',    label: '支付/狀態',  icon: 'credit-card',  panelId: 'db-panel-options'    },
   { key: 'dropdowns',  label: '下拉選項',   icon: 'list-ordered', panelId: 'db-panel-dropdowns'  },
@@ -134,16 +131,6 @@ async function _initTabModule(key, containerId) {
       initFn = module.initBanksTab;
       break;
 
-    case 'policies':
-      module = await import('./tab-policies.js');
-      initFn = module.initPoliciesTab;
-      break;
-
-    case 'funds':
-      module = await import('./tab-funds.js');
-      initFn = module.initFundsTab;
-      break;
-
     case 'categories':
       module = await import('./tab-categories.js');
       initFn = module.initCategoriesTab;
@@ -189,8 +176,8 @@ function _destroy() {
   });
 
   _tabInstances = {
-    members: null, banks: null, policies: null, funds: null,
-    categories: null, options: null, dropdowns: null, yearrange: null,
+    members: null, banks: null, categories: null,
+    options: null, dropdowns: null, yearrange: null,
   };
 
   if (_tabPanel) {

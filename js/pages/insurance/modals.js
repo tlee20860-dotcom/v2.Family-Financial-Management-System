@@ -1,11 +1,11 @@
 // ============================================
-// modals.js — 保險頁面事件綁定（v101.5）
+// modals.js — 保險頁面事件綁定（v101.6）
 // 位置：js/pages/insurance/modals.js
 // ============================================
-// v101.5 修正：
-//   ✅ _handleRestore 改用 openConfirm
-//   ✅ _bound 改為 module 層級可重置（unbindGlobalListeners 會重置）
-//   ✅ 補 autoSyncAfterEdit 的 policyHolderId 處理
+// v101.6 修正：
+//   ✅ 移除 edit-policy / delete-policy（已由 index.js 處理）
+//   ✅ 保留展開 / 收合 / 恢復供款 / 同步
+//   ✅ 使用 openConfirm
 // ============================================
 
 import { updateInsurancePolicy } from '../../core/db.js';
@@ -54,20 +54,22 @@ async function _handleClick(e) {
     return;
   }
 
-  /* ---------- 2. 動作按鈕 ---------- */
-  const actionBtn = e.target.closest('button[data-action]');
-  if (!actionBtn) return;
+  /* ---------- 2. 恢復供款 ---------- */
+  const restoreBtn = e.target.closest('button[data-action="restore"]');
+  if (restoreBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    await _handleRestore(restoreBtn.dataset.id);
+    return;
+  }
 
-  const action = actionBtn.dataset.action;
-  const id = actionBtn.dataset.id;
-
-  switch (action) {
-    case 'restore':
-      await _handleRestore(id);
-      break;
-    case 'sync-one':
-      await _handleSyncOne(id);
-      break;
+  /* ---------- 3. 單一保單同步（若未來新增） ---------- */
+  const syncBtn = e.target.closest('button[data-action="sync-one"]');
+  if (syncBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    await _handleSyncOne(syncBtn.dataset.id);
+    return;
   }
 }
 
@@ -82,7 +84,6 @@ async function _handleRestore(policyId) {
     return;
   }
 
-  // 🆕 v101.5：改用 openConfirm
   const ok = await openConfirm(`確定要恢復保單「${policy.name}」的供款狀態嗎？`, {
     title: '恢復供款',
     okText: '恢復',
