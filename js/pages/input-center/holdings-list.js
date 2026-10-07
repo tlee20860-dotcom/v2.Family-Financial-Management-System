@@ -1,10 +1,10 @@
 // ============================================
-// holdings-list.js — 輸入中心：保單 / 基金 / 銀行（v101.6.3）
+// holdings-list.js — 輸入中心：保單 / 基金 / 銀行（v101.6.4）
 // 位置：js/pages/input-center/holdings-list.js
 // ============================================
-// v101.6.3 修正：
-//   ✅ 統一使用 .input-center-table class
-//   ✅ 保單 / 基金 / 銀行表格填滿容器（不加 min-width）
+// v101.6.4 修正：
+//   ✅ 表格外層加 .input-center-table-wrapper（可橫向滑動）
+//   ✅ 長文字不再被截斷（移除 overflow: hidden）
 // ============================================
 
 import {
@@ -139,18 +139,20 @@ function _renderSection(config) {
         <span class="text-muted" style="font-size:12px;">（${rows.length}）</span>
       </div>
       <div class="glass-card" style="padding:0; overflow:hidden;">
-        <table class="input-center-table">
-          <thead>
-            <tr>
-              ${columns.map((c) => `<th>${escapeHtml(c.label)}</th>`).join('')}
-              ${hasAmount ? `<th class="num" style="width:110px;">${escapeHtml(amountLabel)}</th>` : ''}
-              <th style="width:130px;">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.map((row) => _renderRow(key, row, columns, amountFn, hasAmount)).join('')}
-          </tbody>
-        </table>
+        <div class="input-center-table-wrapper">
+          <table class="input-center-table">
+            <thead>
+              <tr>
+                ${columns.map((c) => `<th>${escapeHtml(c.label)}</th>`).join('')}
+                ${hasAmount ? `<th class="num" style="width:110px;">${escapeHtml(amountLabel)}</th>` : ''}
+                <th style="width:130px;">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map((row) => _renderRow(key, row, columns, amountFn, hasAmount)).join('')}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   `;
@@ -161,7 +163,7 @@ function _renderRow(entityKey, row, columns, amountFn, hasAmount) {
     <tr data-entity="${entityKey}" data-id="${escapeHtml(row.id)}">
       ${columns.map((c) => {
         const val = row[c.key];
-        return `<td title="${escapeHtml(String(val || ''))}">${val != null && val !== '' ? escapeHtml(String(val)) : '<span class="text-muted">—</span>'}</td>`;
+        return `<td>${val != null && val !== '' ? escapeHtml(String(val)) : '<span class="text-muted">—</span>'}</td>`;
       }).join('')}
       ${hasAmount ? `
         <td class="num text-emerald">${formatHKD(amountFn(row))}</td>
