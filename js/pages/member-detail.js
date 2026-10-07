@@ -1,28 +1,24 @@
 // ============================================
-// member-detail.js — 成員個人版面（v101 只讀化）
+// member-detail.js — 成員個人版面（v101.3 只讀化）
 // 位置：js/pages/member-detail.js
 // ============================================
-// v101 改動：
-//   ✅ 只讀化（不編輯）
-//   ✅ 統一由 AppState ym-change 載入
-//   ✅ 底部加快速摘要（近 3 月趨勢）
-//   ✅ 顯示狀態 badge（依 app-config）
-//   ✅ 移除 api.fetchAnnualSummary 過度使用
-//     → 直接讀 RTDB 全年 expenses
+// v101.3 修正：
+//   ✅ 移除未使用的 getIncomeOnce / getMemberDisplayName import
+//   ✅ 移除直接 import firebase-database，改用 db.js 封裝
+//   ✅ 改用 getMemberExpensesOnce（v101.3 新增到 db.js）
 // ============================================
 
 import {
-  getMembersOnce, listenExpenses,
-  getIncomeOnce,
+  getMembersOnce,
+  listenExpenses,
+  getMemberExpensesForYear,
 } from '../core/db.js';
 import { AppState } from '../core/state.js';
 import { getStatusesByCategory } from '../config/app-config.js';
-import { formatHKD, escapeHtml, getMemberDisplayName } from '../core/utils.js';
+import { formatHKD, escapeHtml } from '../core/utils.js';
 import { renderPageFilter } from '../shared/page-filter.js';
 import { renderQuickSummary } from '../shared/quick-summary.js';
 import { QUICK_SUMMARY_TYPES } from '../config/constants.js';
-import { db } from '../config/firebase-config.js';
-import { ref, get } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
 
 /* ============================================
    Module 狀態
@@ -110,17 +106,15 @@ async function loadData() {
    ============================================ */
 async function _loadAnnual(year) {
   try {
-    const familyId = AppState.getFamilyId();
-    const snap = await get(ref(db, `families/${familyId}/expenses/${year}`));
-    const data = snap.val() || {};
+    // 🆕 v101.3：用 db.js 封裝取得整年資料
+    const yearData = await getMemberExpensesForYear(year, _memberId);
 
     const monthlyData = [];
     let total = 0;
 
     for (let m = 1; m <= 12; m++) {
       const mm = String(m).padStart(2, '0');
-      const memberExpenses = data[mm]?.member_expenses?.[_memberId] || {};
-      const items = Object.entries(memberExpenses).map(([id, e]) => ({ id, ...e }));
+      const items = yearData[mm] || [];
       items.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
       const sum = items.reduce((s, x) => s + (Number(x.amount) || 0), 0);
@@ -239,7 +233,7 @@ function _renderExpenses() {
 }
 
 /* ============================================
-   狀態 badge（依 app-config）
+   狀態 badge
    ============================================ */
 function _renderStatusBadge(status) {
   const statuses = getStatusesByCategory('personal');
@@ -261,22 +255,20 @@ async function _renderQuickSummary(year, month, isAnnual) {
     return;
   }
 
-  // 取近 3 個月
   const months = _getLast3Months(year, month);
 
   try {
-    const familyId = AppState.getFamilyId();
-    const data = {};
+    // 🆕 v101.3：用 db.js 封裝讀取每月資料
+    const results = await Promise.all(
+      months.map(({ year: y, month: mm }) =>
+        getMemberExpensesForYear(y, _memberId).then((data) => data[mm] || [])
+          .catch(() => [])
+      )
+    );
 
-    await Promise.all(months.map(async ({ year: y, month: mm }) => {
-      const snap = await get(ref(db, `families/${familyId}/expenses/${y}/${mm}/member_expenses/${_memberId}`));
-      data[`${y}-${mm}`] = snap.val() || {};
-    }));
-
-    const values = months.map(({ year: y, month: mm }) => {
-      const items = Object.values(data[`${y}-${mm}`] || {});
-      return items.reduce((s, x) => s + (Number(x.amount) || 0), 0);
-    });
+    const values = results.map((items) =>
+      items.reduce((s, x) => s + (Number(x.amount) || 0), 0)
+    );
 
     const monthLabels = months.map(({ year: y, month: mm }) => `${y}-${mm}`);
 
