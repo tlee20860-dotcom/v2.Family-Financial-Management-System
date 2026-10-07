@@ -1,13 +1,10 @@
 /* ============================================
    components.css — 卡片、按鈕、表格、Modal、表單
    -------------------------------------------------
-   v101.6 更新：
-     ✅ 補基礎 .collapsible-card 樣式
-     ✅ 刪除重複的 .form-stack 定義
-     ✅ 統一 .view-toggle-group
-     ✅ 補 .collapsible-card-flat 樣式
-     ✅ 新增 .input-center-table（綜合輸入中心共用表格）
-     ✅ 新增 .input-center-table-wrapper（橫向滑動容器）
+   v101.6.5 更新：
+     ✅ 統一圓角為 --radius-sm（小圓角 6px）
+     ✅ Tab 多行改為 grid 3 欄（手機 2 欄）
+     ✅ 保留所有既有樣式
    ============================================ */
 
 /* ================= GlassCard ================= */
@@ -16,7 +13,7 @@
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
   border: 1px solid var(--glass-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);       /* 統一：--radius-lg → --radius-sm */
   padding: 20px;
   transition: all var(--transition);
   position: relative;
@@ -228,7 +225,7 @@
 
 .banner {
   padding: 12px 16px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--glass-border);
   background: rgba(0, 240, 255, 0.05);
   font-size: 13px;
@@ -274,7 +271,7 @@
   max-width: 440px;
   background: rgba(15, 23, 42, 0.95);
   border: 1px solid var(--glass-border-hover);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);       /* 統一：--radius-lg → --radius-sm */
   padding: 24px;
   box-shadow: 0 0 30px rgba(0, 240, 255, 0.15);
   animation: modalIn 0.2s ease-out;
@@ -346,7 +343,6 @@
   padding-top: 16px;
 }
 
-/* 表格專用變體（body padding: 0） */
 .collapsible-card-flat .collapsible-body {
   padding: 0;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
@@ -845,7 +841,7 @@
 }
 
 /* ============================================
-   🆕 v101.6：綜合輸入中心共用表格
+   綜合輸入中心共用表格
    ============================================ */
 .input-center-table {
   width: 100%;
@@ -882,16 +878,104 @@
   font-family: var(--font-mono);
 }
 
-/* 寬表格變體：7 欄以上需要橫向滾動 */
 .input-center-table.wide {
   min-width: 720px;
 }
 
-/* wrapper：允許表格橫向滑動 */
 .input-center-table-wrapper {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   width: 100%;
+}
+
+/* ============================================
+   🆕 Tab 相關（v101.6.5：3 欄 grid + 統一圓角）
+   ============================================ */
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);       /* 統一：--radius-md → --radius-sm */
+  overflow-x: auto;
+  margin-bottom: 16px;
+  scrollbar-width: thin;
+}
+
+.tab-bar .tab-btn {
+  flex: 1;
+  min-width: 100px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition);
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.tab-bar .tab-btn:hover {
+  color: var(--neon-cyan);
+  background: rgba(0, 240, 255, 0.04);
+}
+
+.tab-bar .tab-btn.active {
+  background: rgba(0, 240, 255, 0.15);
+  color: var(--neon-cyan);
+  font-weight: 700;
+}
+
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+/* 🆕 多行 Tab：使用 grid 3 欄（桌面）/ 2 欄（手機） */
+.tab-bar.tab-bar-wrap {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.tab-bar.tab-bar-wrap .tab-btn {
+  flex: none;
+  min-width: 0;
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .tab-bar {
+    gap: 2px;
+    padding: 3px;
+  }
+  .tab-bar .tab-btn {
+    padding: 7px 10px;
+    font-size: 12px;
+    min-width: 80px;
+  }
+
+  /* 🆕 手機版：多行 Tab 改為 2 欄 */
+  .tab-bar.tab-bar-wrap {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .tab-bar.tab-bar-wrap .tab-btn {
+    padding: 8px 6px;
+    font-size: 11px;
+    min-width: 0;
+  }
 }
 
 /* ============================================
@@ -999,7 +1083,6 @@
     font-size: 10px;
   }
 
-  /* 手機版：保險每月 row */
   .insurance-month-row {
     gap: 8px;
     padding: 4px 0;
@@ -1022,7 +1105,6 @@
     transform: scale(0.9);
   }
 
-  /* 手機版：固定支出每月 row */
   .fixed-month-row {
     gap: 6px;
     padding: 4px 0;
@@ -1044,7 +1126,6 @@
     transform: scale(0.9);
   }
 
-  /* 可摺疊卡片手機版 */
   .collapsible-card .collapsible-header {
     padding: 12px 16px;
   }
@@ -1053,14 +1134,12 @@
     padding-top: 14px;
   }
 
-  /* 綜合輸入中心表格手機版 */
   .input-center-table th,
   .input-center-table td {
     padding: 8px 8px;
     font-size: 12px;
   }
 
-  /* data-card 卡片樣式 */
   .data-card { padding: 16px; }
   .data-card-primary {
     font-size: 15px;
