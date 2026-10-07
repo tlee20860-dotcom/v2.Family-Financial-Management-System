@@ -1,11 +1,10 @@
 // ============================================
-// holdings-list.js — 輸入中心：保單 / 基金 / 銀行（v101.6 🆕）
+// holdings-list.js — 輸入中心：保單 / 基金 / 銀行（v101.6.1）
 // 位置：js/pages/input-center/holdings-list.js
 // ============================================
-// 職責：
-//   顯示全部保單 / 基金 / 銀行
-//   每筆提供「編輯 / 刪除」按鈕
-//   使用 entity-modal 統一編輯
+// v101.6.1 修正：
+//   ✅ 表格加 mobile-cards 類（手機版卡片化）
+//   ✅ 每個 td 加 data-label / data-primary
 // ============================================
 
 import {
@@ -39,10 +38,8 @@ export function initHoldingsList(containerId, options = {}) {
   }
 
   const listenerGroup = createListenerGroup();
-
   root.innerHTML = '<div class="empty-state">載入中…</div>';
 
-  // 監聽三種資料
   listenerGroup.add(listenInsurancePolicies((list) => {
     _policies = list || [];
     _render(root);
@@ -58,7 +55,6 @@ export function initHoldingsList(containerId, options = {}) {
     _render(root);
   }));
 
-  // 綁定事件
   const clickHandler = (e) => _handleClick(e, root);
   root.addEventListener('click', clickHandler);
 
@@ -80,7 +76,6 @@ function _render(root) {
 
   const sections = [];
 
-  // 保單
   sections.push(_renderSection({
     key: 'policy',
     title: '保單',
@@ -97,7 +92,6 @@ function _render(root) {
     amountLabel: '本期年繳',
   }));
 
-  // 基金
   sections.push(_renderSection({
     key: 'fund',
     title: '基金',
@@ -111,7 +105,6 @@ function _render(root) {
     amountLabel: '現值',
   }));
 
-  // 銀行
   sections.push(_renderSection({
     key: 'bank',
     title: '銀行',
@@ -160,28 +153,28 @@ function _renderSection(config) {
         <span class="text-muted" style="font-size:12px;">（${rows.length}）</span>
       </div>
       <div class="glass-card" style="padding:0; overflow:hidden;">
-        <table class="data-table" style="font-size:13px;">
-          <thead>
-            <tr>
-              ${columns.map((c) => `
-                <th class="${c.hideMobile ? 'hide-mobile' : ''}">${escapeHtml(c.label)}</th>
-              `).join('')}
-              ${hasAmount ? `<th class="num" style="width:120px;">${escapeHtml(amountLabel)}</th>` : ''}
-              <th style="width:150px;">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.map((row) => _renderRow(key, row, columns, amountFn, hasAmount)).join('')}
-          </tbody>
-        </table>
+        <div style="overflow-x:auto;">
+          <table class="data-table mobile-cards" style="font-size:13px;">
+            <thead>
+              <tr>
+                ${columns.map((c) => `
+                  <th class="${c.hideMobile ? 'hide-mobile' : ''}">${escapeHtml(c.label)}</th>
+                `).join('')}
+                ${hasAmount ? `<th class="num" style="width:120px;">${escapeHtml(amountLabel)}</th>` : ''}
+                <th style="width:150px;">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map((row) => _renderRow(key, row, columns, amountFn, hasAmount)).join('')}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   `;
 }
 
 function _renderRow(entityKey, row, columns, amountFn, hasAmount) {
-  const primaryCol = columns.find((c) => c.primary);
-
   return `
     <tr data-entity="${entityKey}" data-id="${escapeHtml(row.id)}">
       ${columns.map((c) => {
@@ -198,7 +191,7 @@ function _renderRow(entityKey, row, columns, amountFn, hasAmount) {
         </td>`;
       }).join('')}
       ${hasAmount ? `
-        <td class="num text-emerald" data-label="${amountFn ? '金額' : ''}">
+        <td class="num text-emerald" data-label="${escapeHtml(amountFn ? '金額' : '')}">
           ${formatHKD(amountFn(row))}
         </td>
       ` : ''}
@@ -274,7 +267,6 @@ async function _handleDelete(entityKey, id) {
   const label = _getEntityLabel(entityKey);
   let confirmText = `確定要刪除「${row.name || id}」嗎？`;
 
-  // 特殊確認訊息
   if (entityKey === ENTITY_KEYS.POLICY) {
     confirmText = `⚠️ 確定要刪除保單「${row.name}」嗎？\n\n這將會一併刪除所有相關的扣款紀錄與成員支出，此操作無法復原。`;
   } else if (entityKey === ENTITY_KEYS.BANK) {

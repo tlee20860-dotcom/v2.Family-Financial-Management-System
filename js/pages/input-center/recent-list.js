@@ -1,11 +1,10 @@
 // ============================================
-// recent-list.js — 輸入中心：最近 20 筆（v101.6 🆕）
+// recent-list.js — 輸入中心：最近 20 筆（v101.6.1）
 // 位置：js/pages/input-center/recent-list.js
 // ============================================
-// 職責：
-//   顯示最近 20 筆新增的資料（支出 + 收入混合）
-//   每筆提供「編輯 / 刪除」按鈕
-//   無年月區分（依 createdAt 排序）
+// v101.6.1 修正：
+//   ✅ 表格加 mobile-cards 類（手機版卡片化）
+//   ✅ 每個 td 加 data-label / data-primary
 // ============================================
 
 import {
@@ -31,9 +30,6 @@ let _expenses = [];
 let _incomes = [];
 let _members = [];
 let _membersMap = {};
-let _itemsMap = {};
-let _categoriesMap = {};
-let _paymentsMap = {};
 
 /* ============================================
    主函式
@@ -46,13 +42,10 @@ export function initRecentList(containerId, options = {}) {
   }
 
   const listenerGroup = createListenerGroup();
-
   root.innerHTML = '<div class="empty-state">載入中…</div>';
 
-  // 載入成員
   _loadMembers().then(() => _render(root));
 
-  // 監聽資料
   listenerGroup.add(listenAllExpenses((list) => {
     _expenses = list || [];
     _render(root);
@@ -63,7 +56,6 @@ export function initRecentList(containerId, options = {}) {
     _render(root);
   }));
 
-  // 綁定事件
   const clickHandler = (e) => _handleClick(e, root);
   root.addEventListener('click', clickHandler);
 
@@ -97,13 +89,8 @@ async function _loadMembers() {
 function _render(root) {
   if (!root) return;
 
-  // 合併支出 + 收入
   const items = _mergeItems();
-
-  // 依 createdAt 降序
   items.sort((a, b) => b._ts - a._ts);
-
-  // 取前 N 筆
   const limited = items.slice(0, LIMITS.RECENT_LIST_LIMIT);
 
   if (limited.length === 0) {
@@ -117,7 +104,7 @@ function _render(root) {
         共 ${items.length} 筆，顯示最近 ${limited.length} 筆
       </div>
       <div style="overflow-x:auto;">
-        <table class="data-table">
+        <table class="data-table mobile-cards">
           <thead>
             <tr>
               <th style="width:70px;">類型</th>
@@ -144,7 +131,6 @@ function _render(root) {
 function _mergeItems() {
   const items = [];
 
-  // 支出
   _expenses.forEach((e) => {
     items.push({
       type: 'expense',
@@ -163,7 +149,6 @@ function _mergeItems() {
     });
   });
 
-  // 收入
   _incomes.forEach((inc, idx) => {
     const ts = new Date(Number(inc.year), Number(inc.month) - 1, 1).getTime() + idx;
     const memberName = inc.memberId === RESERVED_IDS.EXTRA_INCOME
@@ -252,7 +237,6 @@ function _handleClick(e, root) {
    編輯支出
    ============================================ */
 async function _openEditExpenseModal(key) {
-  // key 格式：{year}-{month}-{memberId}-{id}
   const parts = key.split('-');
   if (parts.length < 4) return;
   const [year, month, memberId, id] = parts;
@@ -345,7 +329,6 @@ async function _handleDeleteExpense(key) {
    編輯收入
    ============================================ */
 async function _openEditIncomeModal(key) {
-  // key 格式：income-{year}-{month}-{memberId}
   const parts = key.split('-');
   if (parts.length < 4) return;
   const [, year, month, memberId] = parts;
@@ -354,7 +337,6 @@ async function _openEditIncomeModal(key) {
     ? '額外收入'
     : (_membersMap[memberId] || '（未知）');
 
-  // 讀取當前值
   let currentAmount = 0;
   try {
     const allIncome = await getIncomeOnce(year, month) || {};
