@@ -1,13 +1,19 @@
 // ============================================
-// _helpers.js — API 共用輔助函式（v101）
+// _helpers.js — API 共用輔助函式（v101.1）
 // 位置：functions/api/_helpers.js
 // ============================================
 // v101.1 修正：
 //   ✅ 補上 Firebase Web API Key（verifyToken 需要）
 //   ✅ 加 token 快取（同一請求內避免重複驗證）
+//   ✅ re-export handleOptions（從 _config.js）
 // ============================================
 
 import { SUPERADMIN_EMAIL, jsonResponse } from './_config.js';
+
+/* ============================================
+   Re-export（其他 API 從此處匯入）
+   ============================================ */
+export { handleOptions } from './_config.js';
 
 /* ============================================
    常數
