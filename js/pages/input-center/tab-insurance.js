@@ -1,22 +1,23 @@
 // ============================================
-// tab-insurance.js — 綜合輸入中心：保險扣款 Tab（v101）
+// tab-insurance.js — 綜合輸入中心：保險扣款 Tab（v101.4）
 // 位置：js/pages/input-center/tab-insurance.js
 // ============================================
-// 用途：
-//   為保單輸入每月扣款狀態
-//   未扣款 → 不建立紀錄（刪除既有）
-//   已扣款 → 建立 insurance_payments 紀錄 + 同步到成員支出
+// v101.4 修正：
+//   ✅ 保單下拉顯示「保單名稱（保單持有人）」
+//   ✅ 加入 listenMembers 取得真實成員名稱
+//   ✅ 使用 policyHolderId（fallback memberId）
 // ============================================
 
 import {
   listenInsurancePolicies,
+  listenMembers,
   getInsurancePaymentsOnce,
   saveInsurancePaymentBatch,
   removeInsurancePaymentBatch,
 } from '../../core/db.js';
 import { AppState } from '../../core/state.js';
 import { getStatusesByCategory } from '../../config/app-config.js';
-import { escapeHtml, formatHKD } from '../../core/utils.js';
+import { escapeHtml, formatHKD, sortMembers } from '../../core/utils.js';
 import { api } from '../../core/api.js';
 import { showToast } from '../../shared/toast.js';
 import { buildForm } from '../../shared/form-builder.js';
@@ -29,8 +30,8 @@ import { fillYearSelect, fillMonthSelect } from '../../shared/date-helpers.js';
 let _container = null;
 let _formApi = null;
 let _policies = [];
-let _payments = {};            // { policyId: { year: { month: {...} } } }
-let _currentPolicyId = '';
+let _members = [];
+let _payments = {};
 
 let _filterYear = '';
 let _filterMonth = '';
@@ -112,9 +113,7 @@ function _buildForm() {
       { type: 'select', id: 'ic-ins-policy', label: '保單', required: true, includeEmpty: true, emptyText: '— 請選擇保單 —' },
       { type: 'select', id: 'ic-ins-year',   label: '所屬年份', required: true, includeEmpty: false },
       { type: 'select', id: 'ic-ins-month',  label: '所屬月份', required: true, includeEmpty: false },
-      {
-        type: 'select', id: 'ic-ins-status', label: '狀態', includeEmpty: false,
-      },
+      { type: 'select', id: 'ic-ins-status', label: '狀態', includeEmpty: false },
       { type: 'number', id: 'ic-ins-amount', label: '金額（HK$）', required: true, min: 0, step: 1, placeholder: '0' },
       { type: 'hidden', id: 'ic-ins-original-status', value: '' },
     ],
@@ -132,20 +131,18 @@ function _buildForm() {
 
   fillStatusSelect('ic-ins-status', statusList, { includeEmpty: false });
 
-  // 保單切換 → 載入該月份的預設金額 + 狀態
   _formApi.onFieldChange('ic-ins-policy', _loadCurrentPayment);
   _formApi.onFieldChange('ic-ins-year', _loadCurrentPayment);
   _formApi.onFieldChange('ic-ins-month', _loadCurrentPayment);
 }
 
 /* ============================================
-   載入當前選中保單 + 年月的扣款狀態
+   載入當前選中的扣款狀態
    ============================================ */
 async function _loadCurrentPayment() {
   const policyId = _formApi.getFieldValue('ic-ins-policy');
   const year = _formApi.getFieldValue('ic-ins-year');
   const month = _formApi.getFieldValue('ic-ins-month');
-  _currentPolicyId = policyId;
 
   if (!policyId || !year || !month) {
     _formApi.setFieldValue('ic-ins-amount', 0);
@@ -155,7 +152,6 @@ async function _loadCurrentPayment() {
   const policy = _policies.find((p) => p.id === policyId);
   if (!policy) return;
 
-  // 讀取現有扣款紀錄
   let payments = {};
   try {
     payments = await getInsurancePaymentsOnce(policyId);
@@ -170,7 +166,6 @@ async function _loadCurrentPayment() {
     _formApi.setFieldValue('ic-ins-amount', existing.amount || 0);
     _formApi.setFieldValue('ic-ins-original-status', existing.status || '已扣款');
   } else {
-    // 預設：未扣款 + 該月分攤金額
     _formApi.setFieldValue('ic-ins-status', '未扣款');
     _formApi.setFieldValue('ic-ins-amount', _getMonthlyAmount(policy, year, month));
     _formApi.setFieldValue('ic-ins-original-status', '');
@@ -203,7 +198,6 @@ function _getMonthlyAmount(policy, year, month) {
     return Math.round(Number(periodData.monthlyAverage) || 0);
   }
 
-  // fallback：沿用前一個設定
   const periodKeys = Object.keys(policy.periods || {})
     .map(Number)
     .filter((n) => !isNaN(n) && n > 0)
@@ -234,18 +228,20 @@ async function _handleSubmit(data) {
     return { field: 'ic-ins-policy', message: '請選擇有效的保單' };
   }
 
+  // 🆕 v101.4：用保單持有人作為 memberId（fallback 受保人）
+  const effectiveMemberId = policy.policyHolderId || policy.memberId;
+
   const isDoneStatus = _isDoneInsuranceStatus(status);
 
   try {
     if (isDoneStatus) {
-      // 已扣款：寫入 payment + 同步成員支出
       await saveInsurancePaymentBatch(policyId, year, month, {
         status,
         amount,
       });
       await api.insuranceSync({
         policyId,
-        memberId: policy.memberId,
+        memberId: effectiveMemberId,
         policyName: policy.name,
         monthlyAverage: amount,
         year,
@@ -253,20 +249,17 @@ async function _handleSubmit(data) {
       });
       showToast(`✅ 已記錄扣款（${year}-${month}）`, 'success');
     } else {
-      // 未扣款：刪除既有紀錄 + 移除成員支出
       await removeInsurancePaymentBatch(policyId, year, month);
       await api.insuranceUnsync({
         policyId,
-        memberId: policy.memberId,
+        memberId: effectiveMemberId,
         year,
         month,
       });
       showToast('✅ 已標記為未扣款', 'success');
     }
 
-    // 重載當前狀態
     await _loadCurrentPayment();
-    // 觸發清單重繪
     _renderList();
   } catch (err) {
     console.error('[tab-insurance] 提交失敗：', err);
@@ -285,21 +278,46 @@ function _isDoneInsuranceStatus(statusName) {
    資料監聽
    ============================================ */
 function _bindListeners() {
+  // 成員
+  _unsubscribers.push(
+    listenMembers((list) => {
+      _members = sortMembers(list);
+      _refreshPolicySelect();
+      _renderList();
+    })
+  );
+
+  // 保單
   _unsubscribers.push(
     listenInsurancePolicies(async (list) => {
       _policies = list;
-
-      // 更新保單下拉
-      _formApi.updateOptions('ic-ins-policy', _policies.map((p) => ({
-        value: p.id,
-        label: `${p.name}（${_memberName(p.memberId)}）`,
-      })), { includeEmpty: true, emptyText: '— 請選擇保單 —' });
-
-      // 載入所有扣款紀錄（用於清單）
+      _refreshPolicySelect();
       await _loadAllPayments();
       _renderList();
     })
   );
+}
+
+/**
+ * 🆕 v101.4：更新保單下拉（顯示「保單名稱（保單持有人）」）
+ */
+function _refreshPolicySelect() {
+  _formApi.updateOptions('ic-ins-policy', _policies.map((p) => {
+    const holderName = _memberName(p.policyHolderId || p.memberId);
+    return {
+      value: p.id,
+      label: `${p.name}（${holderName}）`,
+    };
+  }), { includeEmpty: true, emptyText: '— 請選擇保單 —' });
+}
+
+/**
+ * 取得成員名稱
+ */
+function _memberName(memberId) {
+  if (!memberId) return '（未指定）';
+  const m = _members.find((x) => x.id === memberId);
+  return m ? m.name : '（已刪除成員）';
 }
 
 async function _loadAllPayments() {
@@ -313,11 +331,6 @@ async function _loadAllPayments() {
     }
   });
   await Promise.all(promises);
-}
-
-function _memberName(memberId) {
-  // 這裡不額外監聽成員，從 AppState 或 policy 資料判斷
-  return '保單持有人';
 }
 
 /* ============================================
@@ -345,7 +358,6 @@ function _renderList() {
   const countEl = document.getElementById('ic-ins-count');
   if (!listEl) return;
 
-  // 收集所有保單在指定年月的扣款紀錄
   const rows = [];
   _policies.forEach((p) => {
     const payment = _payments[p.id]?.[_filterYear]?.[_filterMonth];
@@ -353,7 +365,8 @@ function _renderList() {
       rows.push({
         policyId: p.id,
         policyName: p.name,
-        memberId: p.memberId,
+        memberId: p.policyHolderId || p.memberId,
+        memberName: _memberName(p.policyHolderId || p.memberId),
         amount: payment.amount || 0,
         status: payment.status || '已扣款',
         date: payment.date || '',
@@ -386,7 +399,7 @@ function _renderRow(r) {
             ${escapeHtml(r.policyName)}
           </div>
           <div style="font-size:11px; color:var(--text-muted);">
-            ${r.date ? escapeHtml(r.date) : `${_filterYear}-${_filterMonth}`}
+            ${escapeHtml(r.memberName)} · ${r.date ? escapeHtml(r.date) : `${_filterYear}-${_filterMonth}`}
           </div>
         </div>
         <div style="text-align:right;">
@@ -407,10 +420,10 @@ function _statusBadge(status) {
 }
 
 /* ============================================
-   清單事件（快速切換扣款狀態）
+   清單事件
    ============================================ */
 function _bindListEvents() {
-  // 未來擴充：點擊可快速切換狀態
+  // 未來擴充
 }
 
 /* ============================================
