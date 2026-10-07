@@ -1,18 +1,14 @@
 // ============================================
-// render.js — 保險渲染模組（v101.2）
+// render.js — 保險渲染模組（v101.4）
 // 位置：js/pages/insurance/render.js
 // ============================================
-// v101.2 修正：
-//   ✅ 移除未使用的 paymentsCache 參數（改用 p._payments）
-//   ✅ 移除未使用的 companies 參數
-//   ✅ 保留 _expandedKeys / toggleExpand / isExpanded
+// v101.4 修正：
+//   ✅ 卡片顯示「保單持有人」+「受保人」
+//   ✅ fallback：若 policyHolderId 為空，用 memberId
 // ============================================
 
 import { escapeHtml, formatHKD } from '../../core/utils.js';
-import {
-  getPeriodRange,
-  calcProgress,
-} from './calc.js';
+import { getPeriodRange, calcProgress } from './calc.js';
 
 /* ============================================
    全域展開狀態
@@ -103,9 +99,25 @@ function _renderCardInner(p, members, isCompleted) {
   return _renderNormalPolicyCard(p, members, isCompleted);
 }
 
+/**
+ * 取得成員名稱
+ */
+function _memberName(members, memberId) {
+  const m = members.find((x) => x.id === memberId);
+  return m ? m.name : '（未指定）';
+}
+
+/**
+ * 🆕 v101.4：取得持有人（fallback 受保人）
+ */
+function _holderName(members, p) {
+  const holderId = p.policyHolderId || p.memberId;
+  return _memberName(members, holderId);
+}
+
 function _renderFundInsuranceCard(p, members) {
-  const member = members.find((m) => m.id === p.memberId);
-  const memberName = member ? member.name : '（未指定）';
+  const insuredName = _memberName(members, p.memberId);
+  const holderName = _holderName(members, p);
 
   return `
     <div class="policy-header">
@@ -116,15 +128,19 @@ function _renderFundInsuranceCard(p, members) {
     </div>
     <div class="policy-info-grid">
       <div class="policy-info-item">
-        <span class="policy-info-label">受保成員</span>
-        <span class="policy-info-value">${escapeHtml(memberName)}</span>
+        <span class="policy-info-label">保單持有人</span>
+        <span class="policy-info-value">${escapeHtml(holderName)}</span>
       </div>
+      <div class="policy-info-item">
+        <span class="policy-info-label">受保人</span>
+        <span class="policy-info-value">${escapeHtml(insuredName)}</span>
+      </div>
+    </div>
+    <div class="policy-info-grid" style="margin-top:10px; padding-top:10px; border-top:1px dashed rgba(255,255,255,0.08);">
       <div class="policy-info-item">
         <span class="policy-info-label">每月供款</span>
         <span class="policy-info-value text-cyan">${formatHKD(p.monthlyPremium)}</span>
       </div>
-    </div>
-    <div class="policy-info-grid" style="margin-top:10px; padding-top:10px; border-top:1px dashed rgba(255,255,255,0.08);">
       <div class="policy-info-item">
         <span class="policy-info-label">保單總供款</span>
         <span class="policy-info-value text-magenta">${formatHKD(p._totalPremium)}</span>
@@ -141,8 +157,8 @@ function _renderFundInsuranceCard(p, members) {
 }
 
 function _renderNormalPolicyCard(p, members, isCompleted) {
-  const member = members.find((m) => m.id === p.memberId);
-  const memberName = member ? member.name : '（未指定）';
+  const insuredName = _memberName(members, p.memberId);
+  const holderName = _holderName(members, p);
   const totalPeriods = p.totalPolicyPeriods || 0;
   const done = p.completedPeriods || 0;
   const pct = calcProgress(p);
@@ -166,8 +182,12 @@ function _renderNormalPolicyCard(p, members, isCompleted) {
 
     <div class="policy-info-grid">
       <div class="policy-info-item">
-        <span class="policy-info-label">受保成員</span>
-        <span class="policy-info-value">${escapeHtml(memberName)}</span>
+        <span class="policy-info-label">保單持有人</span>
+        <span class="policy-info-value">${escapeHtml(holderName)}</span>
+      </div>
+      <div class="policy-info-item">
+        <span class="policy-info-label">受保人</span>
+        <span class="policy-info-value">${escapeHtml(insuredName)}</span>
       </div>
       <div class="policy-info-item">
         <span class="policy-info-label">開始日期</span>
@@ -247,6 +267,7 @@ export function renderPolicyTable(container, list, { members }) {
             <tr>
               <th style="width:36px;"></th>
               <th class="hide-mobile">開始日期</th>
+              <th class="hide-mobile">持有人</th>
               <th class="hide-mobile">受保人</th>
               <th>保單名稱</th>
               <th class="hide-mobile">保險公司</th>
@@ -270,8 +291,8 @@ export function renderPolicyTable(container, list, { members }) {
 }
 
 function _renderTableRow(p, members) {
-  const member = members.find((m) => m.id === p.memberId);
-  const memberName = member ? member.name : '（未指定）';
+  const insuredName = _memberName(members, p.memberId);
+  const holderName = _holderName(members, p);
   const isFund = p.type === 'fund_insurance';
   const totalPeriods = p.totalPolicyPeriods || 0;
   const done = p.completedPeriods || 0;
@@ -295,7 +316,8 @@ function _renderTableRow(p, members) {
         </button>
       </td>
       <td class="mono hide-mobile" style="font-size:12px;">${startDateText}</td>
-      <td class="hide-mobile">${escapeHtml(memberName)}</td>
+      <td class="hide-mobile">${escapeHtml(holderName)}</td>
+      <td class="hide-mobile">${escapeHtml(insuredName)}</td>
       <td class="policy-name-cell">${escapeHtml(p.name || '')}</td>
       <td class="hide-mobile" style="font-size:12px; color:var(--text-muted);">${escapeHtml(p.company || '—')}</td>
       <td class="num text-cyan">${formatHKD(currentAnnual)}</td>
@@ -312,7 +334,7 @@ function _renderTableRow(p, members) {
       </td>
     </tr>
     <tr class="insurance-table-detail-row" style="display:${isOpen ? 'table-row' : 'none'};">
-      <td colspan="11">
+      <td colspan="12">
         <div class="detail-wrapper">
           ${_renderPolicyDetail(p, p._payments || {})}
         </div>
