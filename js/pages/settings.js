@@ -1,18 +1,14 @@
 // ============================================
-// settings.js — 系統設定（v101，2 分頁）
+// settings.js — 系統設定（v101.3，2 分頁）
 // 位置：js/pages/settings.js
 // ============================================
-// 分頁 1：平台設定（僅 superadmin 可見）
-//   - UI 常數（名稱截斷長度 / Toast 時間）
-// 分頁 2：個人化（所有人可見）
-//   - 帳號資訊 / 登出 / 側邊欄排序
-//
-// 註：平台預設資料庫（成員/類別/項目...）已移至 admin.html
+// v101.3 修正：
+//   ✅ 移除未使用的 formatHKD import（死 import）
+//   ✅ 移除未使用的 DEFAULT_ORDER import（死 import）
 // ============================================
 
 import {
   ALL_MENU_ITEMS,
-  DEFAULT_ORDER,
   watchSidebarOrder,
   persistSidebarOrder,
   resetSidebarOrder,
@@ -20,7 +16,7 @@ import {
   sortByOrder,
 } from '../shared/sidebar-order.js';
 import { showToast } from '../shared/toast.js';
-import { escapeHtml, formatHKD } from '../core/utils.js';
+import { escapeHtml } from '../core/utils.js';
 import { getDisplayName, logout } from '../core/auth.js';
 import { AppState } from '../core/state.js';
 import { getUIConstants, initAppConfig } from '../config/app-config.js';
@@ -34,7 +30,7 @@ import { openConfirm } from '../shared/modal.js';
    ============================================ */
 let _tabPanel = null;
 let _uiFormApi = null;
-let _currentOrder = [...DEFAULT_ORDER];
+let _currentOrder = [];
 let _unsubOrder = null;
 
 /* ============================================
@@ -75,7 +71,6 @@ export function initSettingsPage() {
   if (isSuper) {
     _renderPlatformPanel();
   } else {
-    // 非 superadmin 隱藏 panel
     const panel = document.getElementById('settings-panel-platform');
     if (panel) panel.style.display = 'none';
   }
@@ -176,7 +171,6 @@ function _renderPlatformPanel() {
     onSubmit: _handlePlatformSave,
   });
 
-  // 載入目前值
   _reloadUIConstants();
 }
 
