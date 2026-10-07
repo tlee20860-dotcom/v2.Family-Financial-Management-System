@@ -7,6 +7,7 @@
 //   ✅ 每個實體新增 ui 配置（listColumns / cardFields / sortOptions 等）
 //   ✅ 支援 8 個實體（移除 fixedTemplate）
 //   ✅ 所有欄位依配置驅動原則設計
+//   ✅ 排序欄位 type 改為 number-plain（避免被格式化為 HK$）
 // ============================================
 
 import {
@@ -53,14 +54,14 @@ const ENTITY_DEFS = {
         required: true, optionsSource: 'memberRoles',
       },
       {
-        id: 'order', label: '排序', type: 'number',
+        id: 'order', label: '排序', type: 'number-plain',
         min: 0, defaultValue: 0,
       },
     ],
 
     ui: {
       listColumns: ['name', 'role', 'order'],
-      cardFields: ['role'],
+      cardFields: ['role', 'order'],
       primaryColumn: 'name',
       searchFields: ['name'],
       sortOptions: [
@@ -173,7 +174,7 @@ const ENTITY_DEFS = {
         required: false, optionsSource: 'companies',
       },
       {
-        id: 'firstStartYear', label: '保單開始年份', type: 'number',
+        id: 'firstStartYear', label: '保單開始年份', type: 'number-plain',
         required: true, min: 2000, max: 2100,
         defaultValue: () => new Date().getFullYear(),
       },
@@ -182,11 +183,11 @@ const ENTITY_DEFS = {
         required: true, optionsSource: 'months', defaultValue: '01',
       },
       {
-        id: 'totalPolicyYears', label: '總供款年期', type: 'number',
+        id: 'totalPolicyYears', label: '總供款年期', type: 'number-plain',
         required: true, min: 1, max: 50, defaultValue: 5,
       },
       {
-        id: 'currentPeriodIndex', label: '當前第幾年度', type: 'number',
+        id: 'currentPeriodIndex', label: '當前第幾年度', type: 'number-plain',
         required: true, min: 1, max: 50, defaultValue: 1,
       },
       {
@@ -295,7 +296,7 @@ const ENTITY_DEFS = {
         required: true, min: 0, step: 1, defaultValue: 0,
       },
       {
-        id: 'units', label: '持有單位數（可選）', type: 'number',
+        id: 'units', label: '持有單位數（可選）', type: 'number-plain',
         required: false, min: 0, step: 0.0001, defaultValue: 0,
       },
       {
@@ -344,7 +345,7 @@ const ENTITY_DEFS = {
         required: true, maxlength: 20, placeholder: '例如：醫療類',
       },
       {
-        id: 'order', label: '排序', type: 'number',
+        id: 'order', label: '排序', type: 'number-plain',
         min: 0, defaultValue: 0,
       },
     ],
@@ -441,7 +442,7 @@ const ENTITY_DEFS = {
         required: true, maxlength: 20, placeholder: '例如：現金、中銀',
       },
       {
-        id: 'order', label: '排序', type: 'number',
+        id: 'order', label: '排序', type: 'number-plain',
         min: 0, defaultValue: 0,
       },
     ],
@@ -502,14 +503,14 @@ const ENTITY_DEFS = {
         required: true, optionsSource: 'booleanOptions', defaultValue: 'false',
       },
       {
-        id: 'order', label: '排序', type: 'number',
+        id: 'order', label: '排序', type: 'number-plain',
         min: 0, defaultValue: 0,
       },
     ],
 
     ui: {
       listColumns: ['name', 'category', 'isDone', 'order'],
-      cardFields: ['category', 'isDone'],
+      cardFields: ['category', 'isDone', 'order'],
       primaryColumn: 'name',
       searchFields: ['name'],
       sortOptions: [
