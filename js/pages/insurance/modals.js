@@ -1,14 +1,11 @@
 // ============================================
-// modals.js — 保險頁面事件綁定（v101）
+// modals.js — 保險頁面事件綁定（v101.2）
 // 位置：js/pages/insurance/modals.js
 // ============================================
-// v101 說明：
-//   保險「編輯」功能已移至 database.html → 保單 Tab
-//   本檔案只保留：
-//     1. 全域事件委派（展開/收合明細）
-//     2. 恢復供款
-//     3. 單一保單同步
-//     4. 按鈕導向（前往輸入中心 / 資料庫）
+// v101.2 修正：
+//   ✅ 移除未使用的 _getMembers / _getCompanies / _getEnriched
+//   ✅ 只保留實際使用的 getter（getPolicies / refresh）
+//   ✅ 對應 index.js 的 bindGlobalListeners 參數變更
 // ============================================
 
 import {
@@ -26,9 +23,6 @@ import {
    ============================================ */
 let _bound = false;
 let _getPolicies = null;
-let _getMembers = null;
-let _getCompanies = null;
-let _getEnriched = null;
 let _refresh = null;
 
 /* ============================================
@@ -36,9 +30,6 @@ let _refresh = null;
    ============================================ */
 export function bindGlobalListeners(config) {
   _getPolicies = config.getPolicies;
-  _getMembers = config.getMembers;
-  _getCompanies = config.getCompanies;
-  _getEnriched = config.getEnriched;
   _refresh = config.refresh;
 
   if (_bound) return;
@@ -51,9 +42,7 @@ export function bindGlobalListeners(config) {
    全域點擊處理
    ============================================ */
 async function _handleClick(e) {
-  /* ============================================
-     1. 展開 / 收合明細（卡片模式或表格模式）
-     ============================================ */
+  /* ---------- 1. 展開 / 收合明細 ---------- */
   const toggleBtn = e.target.closest('[data-toggle-key]');
   if (toggleBtn) {
     e.preventDefault();
@@ -66,9 +55,7 @@ async function _handleClick(e) {
     return;
   }
 
-  /* ============================================
-     2. 動作按鈕
-     ============================================ */
+  /* ---------- 2. 動作按鈕 ---------- */
   const actionBtn = e.target.closest('button[data-action]');
   if (!actionBtn) return;
 
