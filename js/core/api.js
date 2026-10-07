@@ -1,16 +1,14 @@
 // ============================================
-// api.js — Cloudflare Functions 呼叫封裝（v101）
+// api.js — Cloudflare Functions 呼叫封裝（v101.2）
 // 位置：js/core/api.js
 // ============================================
-// v101 修正：
-//   ✅ 加入 401 處理（自動登出 + 導向 login）
-//   ✅ 統一錯誤物件
-//   ✅ 新增 3 個 API：platformSettings / platformDefaults / familySettings
-//   ✅ 匯出 callApi 供其他模組使用
+// v101.2 修正：
+//   ✅ localStorage key 改用 STORAGE_KEYS 常數（避免硬編碼）
 // ============================================
 
 import { AppState } from './state.js';
 import { auth } from '../config/firebase-config.js';
+import { STORAGE_KEYS } from '../config/constants.js';
 
 /* ============================================
    基礎呼叫
@@ -40,8 +38,9 @@ export async function callApi(path, options = {}) {
 
   // 401 → 未授權，強制登出
   if (res.status === 401) {
-    localStorage.removeItem('fin_family_id');
-    localStorage.removeItem('fin_family_name');
+    // 🆕 v101.2：改用 STORAGE_KEYS
+    localStorage.removeItem(STORAGE_KEYS.FAMILY_ID);
+    localStorage.removeItem(STORAGE_KEYS.FAMILY_NAME);
     window.location.href = 'login.html';
     throw new Error('登入已過期，請重新登入');
   }
@@ -163,7 +162,7 @@ export const api = {
     }),
 
   /* ============================================
-     🆕 v101：平台設定（UI 常數）
+     v101：平台設定（UI 常數）
      ============================================ */
   platformSettings: {
     get: () => callApi('/api/platform-settings'),
@@ -177,12 +176,12 @@ export const api = {
   },
 
   /* ============================================
-     🆕 v101：平台預設資料庫
+     v101：平台預設資料庫
      ============================================ */
   platformDefaults: {
     /**
      * 列出某個資源
-     * @param {'members'|'banks'|'companies'|'payments'|'categories'|'items'|'statuses'|'options'|'year_range'|'ui_constants'} resource
+     * @param {'members'|'banks'|'companies'|'payments'|'categories'|'items'|'statuses'|'options'|'yearRange'|'uiConstants'} resource
      */
     list: (resource) =>
       callApi(`/api/platform-defaults?action=list&resource=${resource}`),
@@ -208,7 +207,7 @@ export const api = {
       }),
 
     /**
-     * 批次儲存（用於 options / year_range / ui_constants 這種單物件）
+     * 批次儲存（用於 options / yearRange / uiConstants 這種單物件）
      */
     set: (resource, data) =>
       callApi('/api/platform-defaults', {
@@ -219,11 +218,11 @@ export const api = {
   },
 
   /* ============================================
-     🆕 v101：家庭設定
+     v101：家庭設定
      ============================================ */
   familySettings: {
     /**
-     * 取得家庭的所有設定（options / year_range / ui_constants / statuses）
+     * 取得家庭的所有設定（options / yearRange / uiConstants / statuses）
      */
     get: () =>
       callApi(`/api/family-settings?familyId=${getFamilyId()}`),
