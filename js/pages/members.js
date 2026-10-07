@@ -1,20 +1,17 @@
 // ============================================
-// members.js — 成員清單（v101 只讀化）
+// members.js — 成員清單（v101.3 只讀化）
 // 位置：js/pages/members.js
 // ============================================
-// v101 改動：
-//   ✅ 移除新增 / 編輯 / 刪除 / 排序（移至 database.html → 成員 Tab）
-//   ✅ 保留卡片 / 表格雙模式
-//   ✅ 加「管理成員」按鈕（跳 database.html）
-//   ✅ 底部快速摘要（每位成員近 3 月支出）
+// v101.3 修正：
+//   ✅ 移除未使用的 renderDataCards / renderDataTable import（死 import）
+//   ✅ 移除未使用的 _buildColumns() 函式
+//   ✅ _renderQuickSummary 移除 async（無 await）
 // ============================================
 
 import { listenMembers } from '../core/db.js';
-import { AppState } from '../core/state.js';
-import { escapeHtml, sortMembers, formatHKD } from '../core/utils.js';
+import { escapeHtml, sortMembers } from '../core/utils.js';
 import { getOptions } from '../config/app-config.js';
 import { initViewToggle } from '../shared/view-toggle.js';
-import { renderDataCards, renderDataTable } from '../shared/data-card.js';
 import { renderQuickSummary } from '../shared/quick-summary.js';
 import { QUICK_SUMMARY_TYPES } from '../config/constants.js';
 
@@ -36,7 +33,7 @@ export async function initMembersPage() {
     defaultView: 'card',
     cardText: '卡片',
     tableText: '表格',
-    autoApply: false,   // 我們自己控制渲染
+    autoApply: false,
     onChange: () => _render(),
   });
 
@@ -63,12 +60,11 @@ export async function initMembersPage() {
    ============================================ */
 function _render() {
   const view = _viewToggle?.getView() || 'card';
-  const columns = _buildColumns();
 
   if (view === 'card') {
-    _renderCards(columns);
+    _renderCards();
   } else {
-    _renderTable(columns);
+    _renderTable();
   }
 
   _renderQuickSummary();
@@ -78,7 +74,7 @@ function _render() {
 /* ============================================
    卡片模式
    ============================================ */
-function _renderCards(columns) {
+function _renderCards() {
   const cardEl = document.getElementById('members-card-view');
   const tableEl = document.getElementById('members-table-view');
   if (!cardEl || !tableEl) return;
@@ -133,7 +129,7 @@ function _renderCard(m, roleMap) {
 /* ============================================
    表格模式
    ============================================ */
-function _renderTable(columns) {
+function _renderTable() {
   const cardEl = document.getElementById('members-card-view');
   const tableEl = document.getElementById('members-table-view');
   if (!cardEl || !tableEl) return;
@@ -185,9 +181,9 @@ function _renderTable(columns) {
 }
 
 /* ============================================
-   快速摘要（成員 + 近 3 個月趨勢）
+   快速摘要（成員概覽）
    ============================================ */
-async function _renderQuickSummary() {
+function _renderQuickSummary() {
   const root = document.getElementById('quick-summary-root');
   if (!root) return;
 
@@ -196,7 +192,6 @@ async function _renderQuickSummary() {
     return;
   }
 
-  // 顯示每位成員的角色摘要
   const roleMap = _buildRoleMap();
   const items = _members.map((m) => ({
     key: m.id,
@@ -221,13 +216,6 @@ async function _renderQuickSummary() {
 /* ============================================
    工具
    ============================================ */
-function _buildColumns() {
-  return [
-    { key: 'name', label: '名稱', primary: true },
-    { key: 'role', label: '角色' },
-  ];
-}
-
 function _buildRoleMap() {
   const roles = getOptions('memberRoles');
   const map = {};
