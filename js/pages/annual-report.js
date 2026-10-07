@@ -1,23 +1,16 @@
 // ============================================
-// annual-report.js — 年度報表（v101）
+// annual-report.js — 年度報表（v101.3）
 // 位置：js/pages/annual-report.js
 // ============================================
-// v101 修正（重大）：
-//   ✅ 分類邏輯改為 categoryId 精確比對（原版用字串比對，全部分到「其他」）
-//   ✅ CATEGORY_ORDER 改讀 app-config（家庭可自訂）
-//   ✅ 支付方式統計併入總表
-//   ✅ 匯出 Excel 支援 categoryId 分類
-//   ✅ 全年資料平行載入（Promise.all）
+// v101.3 修正：
+//   ✅ 移除未使用的 getStatuses import（死 import）
+//   ✅ 移除未使用的 _membersCache / _categoriesCache（死變數）
 // ============================================
 
 import { api } from '../core/api.js';
 import { AppState } from '../core/state.js';
-import {
-  formatHKD, formatNumber, escapeHtml,
-} from '../core/utils.js';
-import {
-  getOptions, getStatuses,
-} from '../config/app-config.js';
+import { formatHKD, formatNumber, escapeHtml } from '../core/utils.js';
+import { getOptions } from '../config/app-config.js';
 import { initCollapsibleCard } from '../shared/collapsible-card.js';
 
 /* ============================================
@@ -27,9 +20,6 @@ let _currentYear = '';
 let _currentView = 'summary';
 let _currentDisplayMonth = '01';
 let _annualData = null;
-let _membersCache = [];
-let _categoriesCache = [];
-let _unsubscribers = [];
 
 /* ============================================
    主入口
@@ -186,14 +176,10 @@ async function _loadAnnual() {
    建立年度資料結構
    ============================================ */
 function _buildAnnualData(year, monthlyResults) {
-  const memberMap = {};       // { memberId: { id, name, order, income[12], expenses: { catId: { name, amounts[12] } } } }
-  const fixedMap = {};        // { catId: { catName, items: { itemName, amounts[12] } } }
-  const paymentMap = {};      // { pmName: [12] }
+  const memberMap = {};
+  const fixedMap = {};
+  const paymentMap = {};
   const monthlyTotals = { income: Array(12).fill(0), expense: Array(12).fill(0) };
-
-  // 快取成員與類別
-  _membersCache = [];
-  _categoriesCache = [];
 
   monthlyResults.forEach((monthData, idx) => {
     /* ============ 收入 ============ */
@@ -212,7 +198,7 @@ function _buildAnnualData(year, monthlyResults) {
           name: displayName,
           order: memberId === 'extra' ? Number.MAX_SAFE_INTEGER : 0,
           income: Array(12).fill(0),
-          expenses: {},   // { catId: { name, amounts[12] } }
+          expenses: {},
         };
       }
       memberMap[memberId].income[idx] = num;
@@ -233,7 +219,6 @@ function _buildAnnualData(year, monthlyResults) {
       memberMap[memberId].order = mData.order != null ? mData.order : memberMap[memberId].order;
 
       (mData.items || []).forEach((item) => {
-        // ✅ v101：改用 categoryId 精確比對
         const catId = item.categoryId || '__none__';
         const catName = item.categoryName || '（未分類）';
 
@@ -287,7 +272,7 @@ function _buildAnnualData(year, monthlyResults) {
   return {
     year,
     members: membersArr,
-    fixedExpenses: fixedMap,        // { catId: { catId, catName, items } }
+    fixedExpenses: fixedMap,
     paymentBreakdown: paymentMap,
     monthly: monthlyTotals,
   };
@@ -356,7 +341,6 @@ function _renderSummary() {
 
     const totalIncome = m.income.reduce((s, x) => s + x, 0);
 
-    // ✅ v101：依 categoryId 精確對應到 categoryOrder
     const catTotals = Object.fromEntries(catOrder.map((c) => [c, 0]));
     let totalExpense = 0;
     let unmatchedTotal = 0;
@@ -373,7 +357,6 @@ function _renderSummary() {
       }
     });
 
-    // 未對應的歸到「其他」欄位
     if (unmatchedTotal > 0 && catTotals['其他'] != null) {
       catTotals['其他'] += unmatchedTotal;
     }
@@ -395,7 +378,7 @@ function _renderSummary() {
     `);
   });
 
-  // 家庭共用支出列（依 categoryId → catName）
+  // 家庭共用支出列
   const sharedCatTotals = Object.fromEntries(catOrder.map((c) => [c, 0]));
   let sharedTotal = 0;
 
@@ -473,7 +456,6 @@ function _renderPaymentStatsCard() {
 
   container.style.display = 'block';
 
-  // 依總額排序
   entries.sort((a, b) => {
     const sa = a[1].reduce((s, x) => s + x, 0);
     const sb = b[1].reduce((s, x) => s + x, 0);
@@ -560,7 +542,6 @@ function _renderMonthly() {
     let currentMemberSum = 0;
     let annualMemberSum = 0;
 
-    // 依類別分組
     const byCat = {};
     catIds.forEach((catId) => {
       const catData = m.expenses[catId];
@@ -575,7 +556,6 @@ function _renderMonthly() {
 
     rows.push(`<tr class="group-header"><td>【${escapeHtml(m.name)}】</td><td class="num"></td><td class="num"></td></tr>`);
 
-    // 依分類順序列出
     const catOrder = _getCategoryOrder();
     const sortedCatNames = Object.keys(byCat).sort((a, b) => {
       const ia = catOrder.indexOf(a);
@@ -584,10 +564,7 @@ function _renderMonthly() {
     });
 
     sortedCatNames.forEach((catName) => {
-      const catTotal = {
-        current: 0,
-        annual: 0,
-      };
+      const catTotal = { current: 0, annual: 0 };
       byCat[catName].forEach(({ catData }) => {
         catTotal.current += catData.amounts[monthIdx] || 0;
         catTotal.annual += sumArr(catData.amounts);
@@ -791,8 +768,5 @@ function _exportToExcel() {
    銷毀
    ============================================ */
 function _destroy() {
-  _unsubscribers.forEach((fn) => {
-    try { fn(); } catch (e) { /* noop */ }
-  });
-  _unsubscribers = [];
+  // 無監聽需清理
 }
