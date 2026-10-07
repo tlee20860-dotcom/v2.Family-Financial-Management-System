@@ -1,10 +1,11 @@
 // ============================================
-// sw.js — Service Worker（v101）
+// sw.js — Service Worker（v101.2）
 // ============================================
-// v101 更新：
-//   ✅ CACHE_NAME 升級至 family-fin-v101
-//   ✅ STATIC_ASSETS 全面改為新目錄結構（config / core / shared / pages）
-//   ✅ 新增 input-center / database / settlements / insurance 等新檔
+// v101.2 更新：
+//   ✅ CACHE_NAME = family-fin-v102
+//     （改動：修正 P0 致命 Bug + 結算清單重構 + 表單 0 值 + page-filter）
+//   ✅ STATIC_ASSETS 保持新目錄結構
+//   ✅ 加入保險模組的子檔案
 // ============================================
 
 const CACHE_NAME = 'family-fin-v102';
