@@ -1,17 +1,16 @@
 // ============================================
-// index.js — 保險付款入口（v101.2）
+// index.js — 保險付款入口（v101.3）
 // 位置：js/pages/insurance/index.js
 // ============================================
-// v101.2 修正：
-//   ✅ 移除重複的 getInsurancePaymentsOnce import
-//   ✅ 移除未使用的 getCurrentPolicies / getCurrentMembers 等 export
-//   ✅ modals.js 只用必要的 getter
+// v101.3 修正：
+//   ✅ 移除未使用的 listenInsuranceCompanies 監聽（死監聽）
+//   ✅ 移除未使用的 _companies 變數
+//   ✅ 簡化 renderCompletedSection 呼叫
 // ============================================
 
 import {
   listenInsurancePolicies,
   listenMembers,
-  listenInsuranceCompanies,
   getInsurancePaymentsOnce,
 } from '../../core/db.js';
 import { AppState } from '../../core/state.js';
@@ -19,9 +18,7 @@ import { renderPageFilter } from '../../shared/page-filter.js';
 import { initViewToggle } from '../../shared/view-toggle.js';
 import { showToast } from '../../shared/toast.js';
 
-import {
-  computeEnrichedPolicies,
-} from './calc.js';
+import { computeEnrichedPolicies } from './calc.js';
 import {
   renderPolicyGrid,
   renderPolicyTable,
@@ -35,9 +32,8 @@ import { bindGlobalListeners } from './modals.js';
    ============================================ */
 let _policies = [];
 let _members = [];
-let _companies = [];
-let _paymentsCache = {};        // { policyId: paymentsObj }
-let _enriched = [];              // 含計算結果的保單
+let _paymentsCache = {};
+let _enriched = [];
 let _viewToggle = null;
 let _filterInstance = null;
 let _unsubscribers = [];
@@ -78,7 +74,6 @@ export async function initInsurancePage() {
   // 綁定全域事件（展開 / 恢復供款 / 單一同步）
   bindGlobalListeners({
     getPolicies: () => _policies,
-    getMembers: () => _members,
     refresh: () => _reloadAndRender(),
   });
 
@@ -94,13 +89,6 @@ export async function initInsurancePage() {
     listenMembers((list) => {
       _members = list;
       _reloadAndRender();
-    })
-  );
-
-  _unsubscribers.push(
-    listenInsuranceCompanies((list) => {
-      _companies = list;
-      // 註：公司清單目前未在 render 使用，保留監聽供未來擴充
     })
   );
 
@@ -123,7 +111,6 @@ async function _reloadAndRender() {
     return;
   }
 
-  // 載入所有保單的付款紀錄
   const paymentsArr = await Promise.all(
     _policies.map(async (p) => {
       try {
@@ -139,7 +126,6 @@ async function _reloadAndRender() {
     _paymentsCache[id] = data || {};
   });
 
-  // 計算 enriched
   _enriched = computeEnrichedPolicies(_policies, _paymentsCache);
 
   _render();
@@ -155,19 +141,16 @@ function _render() {
     monthEl.textContent = month === 'all' ? `${year} 年 全年總覽` : `${year} 年 ${month} 月`;
   }
 
-  // 統計卡
   renderStats({
     enriched: _enriched,
     year,
   });
 
-  // 已供滿保單
   const completed = _enriched.filter((p) => p._isCompleted);
   const active = _enriched.filter((p) => !p._isCompleted);
 
-  renderCompletedSection(completed, _members, _companies);
+  renderCompletedSection(completed, _members);
 
-  // 主要清單
   const view = _viewToggle?.getView() || 'card';
   const cardEl = document.getElementById('insurance-card-view');
   const tableEl = document.getElementById('insurance-table-view');
@@ -195,17 +178,11 @@ function _render() {
   if (view === 'card') {
     cardEl.style.display = 'block';
     tableEl.style.display = 'none';
-    renderPolicyGrid(cardEl, active, {
-      members: _members,
-      paymentsCache: _paymentsCache,
-    });
+    renderPolicyGrid(cardEl, active, { members: _members });
   } else {
     cardEl.style.display = 'none';
     tableEl.style.display = 'block';
-    renderPolicyTable(tableEl, active, {
-      members: _members,
-      paymentsCache: _paymentsCache,
-    });
+    renderPolicyTable(tableEl, active, { members: _members });
   }
 
   if (window.lucide) window.lucide.createIcons();
