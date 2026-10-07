@@ -1,6 +1,10 @@
 // ============================================
-// tab-banks.js — 綜合輸入中心：銀行結餘 Tab（v101）
+// tab-banks.js — 綜合輸入中心：銀行結餘 Tab（v101.1）
 // 位置：js/pages/input-center/tab-banks.js
+// ============================================
+// v101.1 修正：
+//   ✅ 在 initBanksTab 內正確呼叫 _bindFilterEvents()（致命 Bug）
+//   ✅ 移除底部無效的 initBanksTab 重新賦值
 // ============================================
 
 import {
@@ -44,6 +48,7 @@ export function initBanksTab(containerId) {
   _container.innerHTML = _buildSkeleton();
 
   _buildForm();
+  _bindFilterEvents();   // ✅ 修正：正確呼叫
   _bindListeners();
 
   return {
@@ -205,16 +210,6 @@ function _bindFilterEvents() {
     _watchMonth();
   });
 }
-
-// 在 initBanksTab 內呼叫（補上 _buildFilterEvents 到主入口）
-const _originalInit = initBanksTab;
-initBanksTab = function(containerId) {
-  const result = _originalInit(containerId);
-  if (result) {
-    _bindFilterEvents();
-  }
-  return result;
-};
 
 /* ============================================
    清單渲染
