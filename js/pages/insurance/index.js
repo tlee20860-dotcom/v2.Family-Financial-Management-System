@@ -1,11 +1,9 @@
 // ============================================
-// index.js — 保險付款入口（v101.3）
+// index.js — 保險付款入口（v101.4）
 // 位置：js/pages/insurance/index.js
 // ============================================
-// v101.3 修正：
-//   ✅ 移除未使用的 listenInsuranceCompanies 監聽（死監聽）
-//   ✅ 移除未使用的 _companies 變數
-//   ✅ 簡化 renderCompletedSection 呼叫
+// v101.4 修正：
+//   ✅ 無實質變更，維持 v101.3 版本（相容新 render.js）
 // ============================================
 
 import {
@@ -42,7 +40,6 @@ let _unsubscribers = [];
    主入口
    ============================================ */
 export async function initInsurancePage() {
-  // 檢視切換
   _viewToggle = initViewToggle({
     containerId: 'view-toggle-root',
     storageKey: 'insurance-view',
@@ -53,7 +50,6 @@ export async function initInsurancePage() {
     onChange: () => _render(),
   });
 
-  // 同步所有支出按鈕
   document.getElementById('sync-all-btn')?.addEventListener('click', async () => {
     if (!confirm('確定要重新同步所有保單的已扣款支出嗎？')) return;
     try {
@@ -65,19 +61,16 @@ export async function initInsurancePage() {
     }
   });
 
-  // 頁面篩選
   _filterInstance = renderPageFilter({
     containerId: 'page-filter-root',
     fields: ['year', 'month'],
   });
 
-  // 綁定全域事件（展開 / 恢復供款 / 單一同步）
   bindGlobalListeners({
     getPolicies: () => _policies,
     refresh: () => _reloadAndRender(),
   });
 
-  // 監聽資料
   _unsubscribers.push(
     listenInsurancePolicies((list) => {
       _policies = list;
@@ -92,7 +85,6 @@ export async function initInsurancePage() {
     })
   );
 
-  // AppState 變更 → 重繪
   _unsubscribers.push(AppState.on('ym-change', () => _reloadAndRender()));
 
   return {
@@ -141,10 +133,7 @@ function _render() {
     monthEl.textContent = month === 'all' ? `${year} 年 全年總覽` : `${year} 年 ${month} 月`;
   }
 
-  renderStats({
-    enriched: _enriched,
-    year,
-  });
+  renderStats({ enriched: _enriched, year });
 
   const completed = _enriched.filter((p) => p._isCompleted);
   const active = _enriched.filter((p) => !p._isCompleted);
