@@ -290,19 +290,22 @@
   .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
   .content { padding: 16px; }
 
-  /* Sidebar 抽屜模式（最高層級） */
+  /* Sidebar 抽屜模式（明確 fixed + 最高 z-index） */
   .sidebar {
     position: fixed !important;
     top: 0 !important;
     left: -260px !important;
     height: 100vh !important;
     width: 260px !important;
-    z-index: 10001 !important;   /* 🔧 高於 navbar 與 backdrop */
+    z-index: 10001 !important;
+    pointer-events: auto !important;   /* 🆕 確保可點擊 */
     transition: left 0.3s ease !important;
   }
-  .sidebar.mobile-open { left: 0 !important; }
+  .sidebar.mobile-open {
+    left: 0 !important;
+  }
 
-  /* 手機版取消摺疊狀態（一律全展開） */
+  /* 取消摺疊狀態 */
   .sidebar.collapsed {
     width: 260px !important;
   }
@@ -320,27 +323,29 @@
     padding-left: 52px;
   }
 
-  /* Backdrop（低於 sidebar 一階） */
+  /* Backdrop（低一階） */
   .sidebar-backdrop {
     display: none;
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.6);
-    z-index: 10000 !important;   /* 🔧 低於 sidebar、高於 navbar */
+    z-index: 10000 !important;
+    pointer-events: auto !important;
+    cursor: pointer;
   }
-  .sidebar-backdrop.active { display: block; }
+  .sidebar-backdrop.active {
+    display: block;
+  }
 
-  /* Navbar 手機版優化 */
+  /* Navbar 手機版 */
   .navbar {
     padding: 0 12px;
     gap: 8px;
     z-index: 100 !important;
   }
-
   .navbar-title {
     display: none !important;
   }
-
   .navbar-user {
     margin-left: auto;
   }
