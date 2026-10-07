@@ -1,12 +1,11 @@
 // ============================================
-// app.js — 每個頁面共用的初始化（v101）
+// app.js — 每個頁面共用的初始化（v101.2）
 // 位置：js/core/app.js
 // ============================================
-// v101 修正：
-//   ✅ 移除重複的 familyId 設定（統一由 auth-guard 處理）
-//   ✅ 整合 app-config 載入（平台預設 + 家庭覆蓋）
-//   ✅ 移除 navbar-user 重複設定（統一由 navbar.js 處理）
-//   ✅ 新增 destroy / cleanup 機制
+// v101.2 修正：
+//   ✅ 呼叫 watchPlatformDefaults() / watchFamilySettings()
+//      → 平台預設或家庭設定變更時，自動同步到前端
+//   ✅ 整合 watch 機制，避免重整頁面才生效
 // ============================================
 
 import { renderSidebar } from '../shared/sidebar.js';
@@ -14,7 +13,11 @@ import { renderNavbar } from '../shared/navbar.js';
 import { requireLogin } from './auth-guard.js';
 import { initPWA } from './pwa.js';
 import { AppState } from './state.js';
-import { initAppConfig } from '../config/app-config.js';
+import {
+  initAppConfig,
+  watchPlatformDefaults,
+  watchFamilySettings,
+} from '../config/app-config.js';
 
 /**
  * 頁面初始化
@@ -56,6 +59,14 @@ export async function initApp({
   // 4. 載入 app-config（平台預設 + 家庭覆蓋）
   try {
     await initAppConfig(AppState.getFamilyId());
+
+    // 🆕 v101.2：啟動即時同步監聽
+    // 1) 平台預設變更（superadmin 改設定時，家庭端即時反映）
+    watchPlatformDefaults();
+    // 2) 家庭設定變更（跨裝置即時同步）
+    if (AppState.getFamilyId()) {
+      watchFamilySettings();
+    }
   } catch (err) {
     console.warn('[app] app-config 載入失敗（使用常數 fallback）：', err);
   }
@@ -70,7 +81,7 @@ export async function initApp({
     }
   }
 
-  // 6. Navbar 渲染（navbar.js 內部會處理使用者資訊顯示）
+  // 6. Navbar 渲染
   try {
     renderNavbar('navbar-root', title);
   } catch (err) {
