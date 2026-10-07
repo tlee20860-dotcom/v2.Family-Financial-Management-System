@@ -1,13 +1,14 @@
 // ============================================
-// render.js — 結算清單渲染（v101）
+// render.js — 結算清單渲染（v101.3）
 // 位置：js/pages/settlements/render.js
 // ============================================
-// 用途：
-//   渲染 3 種來源的結算清單（表格 / 卡片）
-//   支援「狀態下拉改狀態」→ 即時寫回來源
+// v101.3 修正：
+//   ✅ 移除未使用的 bindStatusChangeEvents export
+//   ✅ 移除未使用的 AppState import
+//   ✅ 移除未使用的 renderSummary export
+//   ✅ 新增 setMembersCache / 修正 _getMemberName（顯示真實成員名）
 // ============================================
 
-import { AppState } from '../../core/state.js';
 import {
   updateExpense,
   updateFixedExpense,
@@ -17,7 +18,19 @@ import {
 import { api } from '../../core/api.js';
 import { getStatusesByCategory } from '../../config/app-config.js';
 import { escapeHtml, formatHKD } from '../../core/utils.js';
-import { showToast } from '../../shared/toast.js';
+
+/* ============================================
+   🆕 v101.3：成員快取（由 index.js 注入）
+   ============================================ */
+let _membersCache = [];
+
+/**
+ * 設定成員快取
+ * @param {Array} members - [{ id, name, ... }]
+ */
+export function setMembersCache(members) {
+  _membersCache = members || [];
+}
 
 /* ============================================
    對外：表格渲染
@@ -134,35 +147,6 @@ function _renderCard(r) {
 }
 
 /* ============================================
-   對外：統計摘要
-   ============================================ */
-export function renderSummary(container, stats) {
-  if (!container) return;
-
-  const { pending, done, grand } = stats;
-
-  container.innerHTML = `
-    <div class="grid grid-3" style="gap:12px; margin-bottom:16px;">
-      <div class="glass-card">
-        <div class="glass-card-title">待處理</div>
-        <div class="glass-card-value magenta mono">${formatHKD(pending.total)}</div>
-        <div class="glass-card-hint">${pending.count} 筆</div>
-      </div>
-      <div class="glass-card">
-        <div class="glass-card-title">已處理</div>
-        <div class="glass-card-value emerald mono">${formatHKD(done.total)}</div>
-        <div class="glass-card-hint">${done.count} 筆</div>
-      </div>
-      <div class="glass-card">
-        <div class="glass-card-title">總計</div>
-        <div class="glass-card-value cyan mono">${formatHKD(grand.total)}</div>
-        <div class="glass-card-hint">${grand.count} 筆</div>
-      </div>
-    </div>
-  `;
-}
-
-/* ============================================
    來源 Badge
    ============================================ */
 function _renderSourceBadge(r) {
@@ -181,7 +165,6 @@ function _renderSourceBadge(r) {
 function _renderStatusCell(r) {
   const statuses = getStatusesByCategory(r.source);
   if (statuses.length === 0) {
-    // 沒有可用狀態 → 只顯示 badge
     return _renderStatusBadge(r.status, r.isDone);
   }
 
@@ -203,34 +186,19 @@ function _renderStatusBadge(status, isDone) {
 }
 
 /* ============================================
-   成員名稱
+   成員名稱（🆕 v101.3：使用 membersCache）
    ============================================ */
 function _getMemberName(r) {
   if (r.source === 'fixed') {
     return r.memberId === 'shared' ? '家庭共用' : '（成員）';
   }
-  // personal / insurance：由外部 lookup
-  // 為避免每次都查表，這裡簡單處理
+
+  if (r.source === 'personal' || r.source === 'insurance') {
+    const m = _membersCache.find((x) => x.id === r.memberId);
+    if (m) return m.name;
+  }
+
   return r._memberName || '（未知）';
-}
-
-/* ============================================
-   狀態變更事件綁定（給 index.js 呼叫）
-   ============================================ */
-export function bindStatusChangeEvents(container, onUpdate) {
-  if (!container) return;
-
-  container.addEventListener('change', async (e) => {
-    const sel = e.target.closest('.settlement-status-select');
-    if (!sel) return;
-
-    const key = sel.dataset.key;
-    const newStatus = sel.value;
-
-    if (typeof onUpdate === 'function') {
-      await onUpdate(key, newStatus, sel);
-    }
-  });
 }
 
 /* ============================================
@@ -276,7 +244,6 @@ async function _updateInsuranceStatus(row, newStatus, isDone) {
   const month = row.month;
 
   if (isDone) {
-    // 寫入 payment + 同步成員支出
     await saveInsurancePaymentBatch(policyId, year, month, {
       status: newStatus,
       amount: row.amount,
@@ -290,7 +257,6 @@ async function _updateInsuranceStatus(row, newStatus, isDone) {
       month,
     });
   } else {
-    // 刪除 payment + 移除成員支出
     await removeInsurancePaymentBatch(policyId, year, month);
     await api.insuranceUnsync({
       policyId,
