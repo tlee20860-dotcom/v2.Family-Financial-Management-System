@@ -827,3 +827,182 @@ export function listenAllIncome(cb, err) {
         });
       });
     });
+    cb(flat);
+  }, err);
+}
+
+export async function updateIncomeEntry(year, month, memberId, amount) {
+  const num = roundInt(amount);
+  if (num > 0) {
+    await update(familyRef(`income/${year}/${month}`), { [memberId]: num });
+  } else {
+    await remove(familyRef(`income/${year}/${month}/${memberId}`));
+  }
+}
+
+export async function removeIncomeEntry(year, month, memberId) {
+  await remove(familyRef(`income/${year}/${month}/${memberId}`));
+}
+
+/* ============================================
+   基金
+   ============================================ */
+
+export function listenFunds(cb, err) {
+  return listenList('funds', byCreatedAt, cb, err);
+}
+
+export async function addFund(fund) {
+  const newRef = push(familyRef('funds'));
+  await set(newRef, {
+    name: fund.name || '',
+    cost: roundInt(fund.cost),
+    currentValue: roundInt(fund.currentValue),
+    units: Number(fund.units) || 0,
+    note: fund.note || '',
+    createdAt: Date.now(),
+  });
+  return newRef.key;
+}
+
+export async function updateFund(id, patch) {
+  await update(familyRef(`funds/${id}`), {
+    name: patch.name || '',
+    cost: roundInt(patch.cost),
+    currentValue: roundInt(patch.currentValue),
+    units: Number(patch.units) || 0,
+    note: patch.note || '',
+  });
+}
+
+export async function removeFund(id) {
+  await remove(familyRef(`funds/${id}`));
+}
+
+/* ============================================
+   固定支出模板
+   ============================================ */
+
+export function listenFixedTemplates(cb, err) {
+  return listenList('fixed_expense_templates', byCreatedAt, cb, err);
+}
+
+export async function addFixedTemplate(tmpl) {
+  const newRef = push(familyRef('fixed_expense_templates'));
+  await set(newRef, {
+    name: tmpl.name || '',
+    categoryId: tmpl.categoryId || '',
+    itemId: tmpl.itemId || '',
+    memberId: tmpl.memberId || RESERVED_IDS.SHARED_MEMBER,
+    amount: roundInt(tmpl.amount),
+    cycle: tmpl.cycle || '每月',
+    note: tmpl.note || '',
+    paymentMethodId: tmpl.paymentMethodId || '',
+    createdAt: Date.now(),
+  });
+  return newRef.key;
+}
+
+export async function updateFixedTemplate(id, patch) {
+  await update(familyRef(`fixed_expense_templates/${id}`), {
+    name: patch.name || '',
+    amount: roundInt(patch.amount),
+    cycle: patch.cycle || '每月',
+    note: patch.note || '',
+  });
+}
+
+export async function removeFixedTemplate(id) {
+  await remove(familyRef(`fixed_expense_templates/${id}`));
+}
+
+export async function deleteFixedTemplateAndMonths(templateId, templateName) {
+  const familyId = AppState.getFamilyId();
+  if (!familyId) throw new Error('尚未選擇家庭');
+  const updates = {};
+  updates[`families/${familyId}/fixed_expense_templates/${templateId}`] = null;
+
+  const snap = await get(ref(db, `families/${familyId}/fixed_expenses`));
+  const allExpenses = snap.val() || {};
+  Object.entries(allExpenses).forEach(([year, months]) => {
+    Object.entries(months || {}).forEach(([month, items]) => {
+      Object.entries(items || {}).forEach(([id, item]) => {
+        if (item.name === templateName) {
+          updates[`families/${familyId}/fixed_expenses/${year}/${month}/${id}`] = null;
+        }
+      });
+    });
+  });
+
+  await update(ref(db), updates);
+}
+
+/* ============================================
+   固定支出（每月）
+   ============================================ */
+
+export function listenFixedExpenses(year, month, cb, err) {
+  if (!year || !month) {
+    const ym = AppState.getYearMonth();
+    year = ym.year; month = ym.month;
+  }
+  return listenList(`fixed_expenses/${year}/${month}`, byCreatedAt, cb, err);
+}
+
+export async function addFixedExpense(year, month, data) {
+  if (!year || !month) {
+    const ym = AppState.getYearMonth();
+    year = ym.year; month = ym.month;
+  }
+  const newRef = push(familyRef(`fixed_expenses/${year}/${month}`));
+  await set(newRef, {
+    name: data.name || '',
+    amount: roundInt(data.amount),
+    cycle: data.cycle || '每月',
+    note: data.note || '',
+    categoryId: data.categoryId || '',
+    itemId: data.itemId || '',
+    memberId: data.memberId || RESERVED_IDS.SHARED_MEMBER,
+    paymentMethodId: data.paymentMethodId || '',
+    status: data.status || '未付款',
+    paidDate: data.paidDate || '',
+    createdAt: Date.now(),
+  });
+  return newRef.key;
+}
+
+export async function updateFixedExpense(year, month, id, patch) {
+  const clean = { ...patch };
+  if (clean.amount != null) clean.amount = roundInt(clean.amount);
+  await update(familyRef(`fixed_expenses/${year}/${month}/${id}`), clean);
+}
+
+export async function removeFixedExpense(year, month, id) {
+  await remove(familyRef(`fixed_expenses/${year}/${month}/${id}`));
+}
+
+export async function getFixedExpensesOnce(year, month) {
+  const snap = await get(familyRef(`fixed_expenses/${year}/${month}`));
+  const val = snap.val() || {};
+  const list = Object.entries(val).map(([id, x]) => ({ id, ...x }));
+  list.sort(byCreatedAt);
+  return list;
+}
+
+/* ============================================
+   側邊欄排序
+   ============================================ */
+
+export function listenSidebarOrder(cb, err) {
+  return listen('settings/sidebar_order', (snap) => {
+    const val = snap.val();
+    if (!val) { cb(null); return; }
+    const arr = Array.isArray(val) ? val : Object.values(val);
+    cb(arr.filter((x) => typeof x === 'string'));
+  }, err);
+}
+
+export async function saveSidebarOrder(order) {
+  if (!Array.isArray(order)) throw new Error('order 必須是陣列');
+  await set(familyRef('settings/sidebar_order'), order);
+}
