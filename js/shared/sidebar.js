@@ -1,22 +1,21 @@
 // ============================================
-// sidebar.js — 左側導覽選單（v101.5）
+// sidebar.js — 左側導覽選單（v101.6）
 // 位置：js/shared/sidebar.js
 // ============================================
-// v101.5 修正：
-//   ✅ 成員子群組改為「只在成員變更時重建」，避免每次重繪
-//   ✅ 抽出 _renderMembersSubGroupHtml
-//   ✅ _renderNav 保留全量重建（避免 diff 複雜度）
-//   ✅ 移除 ROLE_ICON 未使用變數
-//   ✅ destroy 補齊事件解除
+// v101.6 修正：
+//   ✅ 移除 getMembersGroup import（v101.6 已廢除「成員與收入」群組）
+//   ✅ 移除所有「成員子群組」相關邏輯
+//   ✅ 移除 _isMembersGroupOpen / MEMBERS_GROUP_OPEN
+//   ✅ 移除 hasMembersSub 判斷
+//   ✅ 移除 data-members-toggle 事件處理
+//   ✅ 保留群組展開 / 收合功能
 // ============================================
 
-import { listenMembers } from '../core/db.js';
-import { escapeHtml, sortMembers } from '../core/utils.js';
+import { escapeHtml } from '../core/utils.js';
 import { STORAGE_KEYS } from '../config/constants.js';
 import {
   getAllGroups,
   getGroupByHref,
-  getMembersGroup,
   loadOpenGroupSet,
   saveOpenGroupSet,
   ensureGroupOpenFor,
@@ -26,9 +25,7 @@ import { sortByOrder, watchSidebarOrder, DEFAULT_ORDER } from './sidebar-order.j
 /* ============================================
    Module 狀態
    ============================================ */
-let _isMembersGroupOpen = null;
 let _currentOrder = [...DEFAULT_ORDER];
-let _currentMembers = [];
 let _currentGroups = [];
 let _activeHref = '';
 let _unsubscribers = [];
@@ -58,21 +55,6 @@ export async function renderSidebar(containerId = 'sidebar-root', activeHref = '
 
   _navEl = root.querySelector('#sidebar-nav-inner');
 
-  // 讀取成員群組展開狀態
-  if (_isMembersGroupOpen === null) {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.MEMBERS_GROUP_OPEN);
-      _isMembersGroupOpen = saved === 'true';
-    } catch (e) {
-      _isMembersGroupOpen = false;
-    }
-  }
-
-  // 成員頁面 → 強制展開
-  const isMemberPage =
-    activeHref.includes('member-detail') || activeHref.includes('members.html');
-  if (isMemberPage) _isMembersGroupOpen = true;
-
   // 讀取群組展開狀態
   _currentGroups = getAllGroups().map((g) => ({
     ...g,
@@ -95,12 +77,8 @@ export async function renderSidebar(containerId = 'sidebar-root', activeHref = '
   });
   _unsubscribers.push(unsubOrder);
 
-  // 監聽成員
-  const unsubMembers = listenMembers((members) => {
-    _currentMembers = sortMembers(members);
-    _renderNav();
-  });
-  _unsubscribers.push(unsubMembers);
+  // 初次渲染
+  _renderNav();
 
   // 桌面版摺疊狀態
   try {
@@ -118,9 +96,6 @@ function _renderNav() {
   const html = _currentGroups.map((g) => _renderGroup(g)).join('');
   _navEl.innerHTML = html;
 
-  // 更新成員子群組顯示
-  _updateMembersGroupUI();
-
   if (window.lucide && typeof window.lucide.createIcons === 'function') {
     window.lucide.createIcons();
   }
@@ -130,13 +105,8 @@ function _renderGroup(group) {
   const arrowIcon = group.isOpen ? 'chevron-down' : 'chevron-right';
   const openClass = group.isOpen ? 'open' : '';
 
-  let innerHtml = '';
-  if (group.hasMembersSub) {
-    innerHtml += _renderMembersSubGroupHtml();
-  }
-
   const sortedItems = sortByOrder(group.items || [], _currentOrder);
-  innerHtml += sortedItems.map((item) => _renderNavItem(item)).join('');
+  const innerHtml = sortedItems.map((item) => _renderNavItem(item)).join('');
 
   return `
     <div class="nav-group ${openClass}" data-group-key="${group.key}">
@@ -149,41 +119,6 @@ function _renderGroup(group) {
       </div>
       <div class="nav-group-body" style="display:${group.isOpen ? 'block' : 'none'};">
         ${innerHtml}
-      </div>
-    </div>
-  `;
-}
-
-function _renderMembersSubGroupHtml() {
-  const openClass = _isMembersGroupOpen ? 'open' : '';
-  const arrowIcon = _isMembersGroupOpen ? 'chevron-down' : 'chevron-right';
-
-  const memberItems = _currentMembers.map((m) =>
-    _renderNavItem({
-      icon: 'user',
-      label: m.name,
-      href: `member-detail.html?id=${m.id}`,
-    })
-  ).join('');
-
-  const manageItem = _renderNavItem({
-    icon: 'plus',
-    label: '管理成員',
-    href: 'members.html',
-  });
-
-  return `
-    <div class="nav-sub-group">
-      <div class="nav-group-title collapsible nav-sub-title ${openClass}" data-members-toggle="1">
-        <span class="nav-group-label">
-          <i data-lucide="users" class="nav-group-icon"></i>
-          <span>成員版面</span>
-        </span>
-        <i data-lucide="${arrowIcon}" class="nav-group-arrow"></i>
-      </div>
-      <div class="nav-sub" id="members-group-sub" style="display:${_isMembersGroupOpen ? 'block' : 'none'};">
-        ${memberItems}
-        ${manageItem}
       </div>
     </div>
   `;
@@ -214,13 +149,6 @@ function _globalClickHandler(e) {
   if (groupToggle) {
     e.preventDefault();
     _toggleGroup(groupToggle.dataset.groupToggle);
-    return;
-  }
-
-  const membersToggle = e.target.closest('[data-members-toggle]');
-  if (membersToggle) {
-    e.preventDefault();
-    _toggleMembersSub();
     return;
   }
 }
@@ -262,37 +190,6 @@ function _toggleGroup(key) {
   }
 
   if (window.lucide) window.lucide.createIcons();
-}
-
-function _toggleMembersSub() {
-  _isMembersGroupOpen = !_isMembersGroupOpen;
-
-  try {
-    localStorage.setItem(STORAGE_KEYS.MEMBERS_GROUP_OPEN, String(_isMembersGroupOpen));
-  } catch (e) { /* noop */ }
-
-  _updateMembersGroupUI();
-}
-
-function _updateMembersGroupUI() {
-  if (!_navEl) return;
-  const sub = _navEl.querySelector('#members-group-sub');
-  const title = _navEl.querySelector('.nav-sub-title');
-  if (!sub || !title) return;
-
-  if (_isMembersGroupOpen) {
-    title.classList.add('open');
-    sub.style.display = 'block';
-  } else {
-    title.classList.remove('open');
-    sub.style.display = 'none';
-  }
-
-  const arrow = title.querySelector('.nav-group-arrow');
-  if (arrow) {
-    arrow.setAttribute('data-lucide', _isMembersGroupOpen ? 'chevron-down' : 'chevron-right');
-    if (window.lucide) window.lucide.createIcons();
-  }
 }
 
 /* ============================================
