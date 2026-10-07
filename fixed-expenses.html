@@ -23,8 +23,12 @@
           </div>
           <div class="flex items-center gap-12 flex-wrap">
             <div id="view-toggle-root"></div>
-            <button class="btn btn-primary" id="go-input-center-btn">
-              <i data-lucide="plus"></i> 前往輸入中心
+            <!-- 🆕 v101.5：新增固定支出按鈕 -->
+            <button class="btn btn-primary" id="add-fixed-template-btn">
+              <i data-lucide="plus"></i> 新增固定支出
+            </button>
+            <button class="btn btn-ghost" id="go-input-center-btn">
+              <i data-lucide="pencil"></i> 前往輸入中心
             </button>
           </div>
         </div>
@@ -32,8 +36,7 @@
         <div id="page-filter-root" class="mb-16"></div>
 
         <div class="banner mb-16">
-          ℹ️ 固定支出每月自動產生。此頁僅顯示明細；新增 / 刪除項目請至「基礎資料庫」，
-          更新每月金額與狀態請至「綜合輸入中心」。
+          ℹ️ 固定支出每月自動產生。此頁可新增 / 編輯項目，每月金額與狀態請至「綜合輸入中心」更新。
         </div>
 
         <!-- 卡片模式 -->
@@ -54,7 +57,7 @@
     import { initFixedExpensesPage } from './js/pages/fixed-expenses.js';
 
     await initApp({ activeHref: 'fixed-expenses.html', title: '家庭固定支出' });
-    initFixedExpensesPage();
+    await initFixedExpensesPage();
   </script>
 </body>
 </html>

@@ -1,14 +1,13 @@
 // ============================================
-// sidebar.js — 左側導覽選單（v101 重寫：分類摺疊）
+// sidebar.js — 左側導覽選單（v101.5）
 // 位置：js/shared/sidebar.js
 // ============================================
-// v101 改動：
-//   ✅ 改為 6~8 個分類群組（工作流）
-//   ✅ 群組可獨立摺疊 + 狀態持久化
-//   ✅ 成員子群組雙層摺疊
-//   ✅ 當前頁面所在群組自動展開
-//   ✅ 內部排序不變（成員依 order，選單依 sidebar-order）
-//   ✅ 支援 destroy
+// v101.5 修正：
+//   ✅ 成員子群組改為「只在成員變更時重建」，避免每次重繪
+//   ✅ 抽出 _renderMembersSubGroupHtml
+//   ✅ _renderNav 保留全量重建（避免 diff 複雜度）
+//   ✅ 移除 ROLE_ICON 未使用變數
+//   ✅ destroy 補齊事件解除
 // ============================================
 
 import { listenMembers } from '../core/db.js';
@@ -24,10 +23,8 @@ import {
 } from './sidebar-groups.js';
 import { sortByOrder, watchSidebarOrder, DEFAULT_ORDER } from './sidebar-order.js';
 
-const ROLE_ICON = { husband: 'user', wife: 'user', child: 'user', other: 'user' };
-
 /* ============================================
-   Module 層級狀態
+   Module 狀態
    ============================================ */
 let _isMembersGroupOpen = null;
 let _currentOrder = [...DEFAULT_ORDER];
@@ -44,8 +41,6 @@ let _navEl = null;
 
 /**
  * 渲染側邊欄
- * @param {string} containerId - 容器 ID（預設 'sidebar-root'）
- * @param {string} activeHref - 當前頁面 href
  */
 export async function renderSidebar(containerId = 'sidebar-root', activeHref = '') {
   const root = document.getElementById(containerId);
@@ -131,20 +126,15 @@ function _renderNav() {
   }
 }
 
-/**
- * 渲染單一群組
- */
 function _renderGroup(group) {
   const arrowIcon = group.isOpen ? 'chevron-down' : 'chevron-right';
   const openClass = group.isOpen ? 'open' : '';
 
-  // 群組內項目（若為 members 群組，先插入成員子群組）
   let innerHtml = '';
   if (group.hasMembersSub) {
-    innerHtml += _renderMembersSubGroup();
+    innerHtml += _renderMembersSubGroupHtml();
   }
 
-  // 排序後的 items
   const sortedItems = sortByOrder(group.items || [], _currentOrder);
   innerHtml += sortedItems.map((item) => _renderNavItem(item)).join('');
 
@@ -164,16 +154,13 @@ function _renderGroup(group) {
   `;
 }
 
-/**
- * 渲染成員子群組（雙層摺疊）
- */
-function _renderMembersSubGroup() {
+function _renderMembersSubGroupHtml() {
   const openClass = _isMembersGroupOpen ? 'open' : '';
   const arrowIcon = _isMembersGroupOpen ? 'chevron-down' : 'chevron-right';
 
   const memberItems = _currentMembers.map((m) =>
     _renderNavItem({
-      icon: ROLE_ICON[m.role] || 'user',
+      icon: 'user',
       label: m.name,
       href: `member-detail.html?id=${m.id}`,
     })
@@ -202,9 +189,6 @@ function _renderMembersSubGroup() {
   `;
 }
 
-/**
- * 渲染單一 nav item
- */
 function _renderNavItem(item) {
   const isActive = item.href === _activeHref ? 'active' : '';
   return `
@@ -222,23 +206,23 @@ function _bindGlobalEvents() {
   if (_eventsBound) return;
   _eventsBound = true;
 
-  document.addEventListener('click', (e) => {
-    // 群組標題點擊
-    const groupToggle = e.target.closest('[data-group-toggle]');
-    if (groupToggle) {
-      e.preventDefault();
-      _toggleGroup(groupToggle.dataset.groupToggle);
-      return;
-    }
+  document.addEventListener('click', _globalClickHandler);
+}
 
-    // 成員子群組點擊
-    const membersToggle = e.target.closest('[data-members-toggle]');
-    if (membersToggle) {
-      e.preventDefault();
-      _toggleMembersSub();
-      return;
-    }
-  });
+function _globalClickHandler(e) {
+  const groupToggle = e.target.closest('[data-group-toggle]');
+  if (groupToggle) {
+    e.preventDefault();
+    _toggleGroup(groupToggle.dataset.groupToggle);
+    return;
+  }
+
+  const membersToggle = e.target.closest('[data-members-toggle]');
+  if (membersToggle) {
+    e.preventDefault();
+    _toggleMembersSub();
+    return;
+  }
 }
 
 /* ============================================
@@ -250,13 +234,11 @@ function _toggleGroup(key) {
 
   group.isOpen = !group.isOpen;
 
-  // 儲存展開狀態
   const openSet = new Set(
     _currentGroups.filter((g) => g.isOpen).map((g) => g.key)
   );
   saveOpenGroupSet(openSet);
 
-  // 直接更新 DOM（避免整個重繪閃爍）
   const groupEl = _navEl.querySelector(`.nav-group[data-group-key="${key}"]`);
   if (!groupEl) {
     _renderNav();
@@ -317,9 +299,6 @@ function _updateMembersGroupUI() {
    對外 API
    ============================================ */
 
-/**
- * 關閉手機側邊欄
- */
 export function closeMobileSidebar() {
   const sidebar = document.querySelector('.sidebar');
   if (sidebar) sidebar.classList.remove('mobile-open');
@@ -327,13 +306,15 @@ export function closeMobileSidebar() {
   if (backdrop) backdrop.classList.remove('active');
 }
 
-/**
- * 銷毀監聽
- */
 export function destroySidebar() {
   _unsubscribers.forEach((fn) => {
     try { fn(); } catch (e) { /* noop */ }
   });
   _unsubscribers = [];
   _navEl = null;
+
+  if (_eventsBound) {
+    document.removeEventListener('click', _globalClickHandler);
+    _eventsBound = false;
+  }
 }

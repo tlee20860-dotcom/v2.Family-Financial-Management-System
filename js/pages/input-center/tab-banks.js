@@ -1,10 +1,11 @@
 // ============================================
-// tab-banks.js — 綜合輸入中心：銀行結餘 Tab（v101.1）
+// tab-banks.js — 綜合輸入中心：銀行結餘 Tab（v101.5）
 // 位置：js/pages/input-center/tab-banks.js
 // ============================================
-// v101.1 修正：
-//   ✅ 在 initBanksTab 內正確呼叫 _bindFilterEvents()（致命 Bug）
-//   ✅ 移除底部無效的 initBanksTab 重新賦值
+// v101.5 修正：
+//   ✅ 驗證改用 beforeSubmit
+//   ✅ 銀行下拉使用 entity-helpers 的動態選項
+//   ✅ 使用 registerPageCleanup 註冊清理
 // ============================================
 
 import {
@@ -48,7 +49,7 @@ export function initBanksTab(containerId) {
   _container.innerHTML = _buildSkeleton();
 
   _buildForm();
-  _bindFilterEvents();   // ✅ 修正：正確呼叫
+  _bindFilterEvents();
   _bindListeners();
 
   return {
@@ -104,6 +105,7 @@ function _buildForm() {
     submitText: '儲存結餘',
     showCancel: false,
     showReset: false,
+    beforeSubmit: _validateBalance,
     onSubmit: _handleSubmit,
   });
 
@@ -113,10 +115,15 @@ function _buildForm() {
     defaultValue: AppState.month === 'all' ? '01' : AppState.month,
   });
 
-  // 年月 / 銀行變更 → 載入該月該行現有值
   _formApi.onFieldChange('ic-bank-year', _loadCurrentBalance);
   _formApi.onFieldChange('ic-bank-month', _loadCurrentBalance);
   _formApi.onFieldChange('ic-bank-bank', _loadCurrentBalance);
+}
+
+function _validateBalance(data) {
+  const bankId = data['ic-bank-bank'];
+  if (!bankId) return { field: 'ic-bank-bank', message: '請選擇銀行' };
+  return true;
 }
 
 /* ============================================
@@ -153,10 +160,6 @@ async function _handleSubmit(data) {
   const month = data['ic-bank-month'];
   const bankId = data['ic-bank-bank'];
   const amount = Math.round(Number(data['ic-bank-amount']) || 0);
-
-  if (!bankId) {
-    return { field: 'ic-bank-bank', message: '請選擇銀行' };
-  }
 
   try {
     await saveBankBalance(year, month, bankId, amount);
@@ -237,7 +240,7 @@ function _renderList() {
   }
 
   if (_banks.length === 0) {
-    listEl.innerHTML = `<div class="empty-state">尚無銀行，請至「基礎資料庫」新增</div>`;
+    listEl.innerHTML = `<div class="empty-state">尚無銀行，請使用「+ 新增銀行」或至「基礎資料庫」新增</div>`;
     return;
   }
 

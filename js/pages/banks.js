@@ -1,10 +1,11 @@
 // ============================================
-// banks.js — 銀行管理明細（v101.2 只讀化）
+// banks.js — 銀行管理明細（v101.5）
 // 位置：js/pages/banks.js
 // ============================================
-// v101.2 修正：
-//   ✅ 移除未使用的 getBankBalancesOnceForYear import（致命 Bug）
-//   ✅ 統一由 AppState ym-change 載入
+// v101.5 修正：
+//   ✅ 年度折疊卡改用 annual-month-cards.js（統一）
+//   ✅ 使用 registerPageCleanup 註冊清理
+//   ✅ 雙重月份控制：保留「單月/全年」toggle（page-filter 仍可切換）
 // ============================================
 
 import {
@@ -15,7 +16,9 @@ import { escapeHtml, formatHKD } from '../core/utils.js';
 import { renderPageFilter } from '../shared/page-filter.js';
 import { initViewToggle } from '../shared/view-toggle.js';
 import { renderQuickSummary } from '../shared/quick-summary.js';
+import { renderAnnualMonthCards } from '../shared/annual-month-cards.js';
 import { QUICK_SUMMARY_TYPES } from '../config/constants.js';
+import { registerPageCleanup } from '../core/app.js';
 
 /* ============================================
    Module 狀態
@@ -24,9 +27,10 @@ let _banks = [];
 let _balances = {};
 let _prevBalances = {};
 let _filters = { year: '', month: 'all', bank: '' };
-let _currentMode = 'annual';  // 'monthly' | 'annual'
+let _currentMode = 'annual';
 let _viewToggle = null;
 let _filterInstance = null;
+let _annualCardsInstance = null;
 let _unsubBanks = null;
 let _unsubYM = null;
 
@@ -34,7 +38,6 @@ let _unsubYM = null;
    主入口
    ============================================ */
 export async function initBanksPage() {
-  // 檢視切換
   _viewToggle = initViewToggle({
     containerId: 'view-toggle-root',
     storageKey: 'banks-view',
@@ -45,12 +48,10 @@ export async function initBanksPage() {
     onChange: () => _render(),
   });
 
-  // 前往輸入中心
   document.getElementById('go-input-center-btn')?.addEventListener('click', () => {
     window.location.href = 'input-center.html';
   });
 
-  // 頁面篩選
   _filterInstance = renderPageFilter({
     containerId: 'page-filter-root',
     fields: ['year', 'month'],
@@ -69,7 +70,6 @@ export async function initBanksPage() {
         month: f.month || 'all',
         bank: f.bank || '',
       };
-      // 依月份決定模式
       if (_filters.month === 'all') {
         _currentMode = 'annual';
       } else {
@@ -80,18 +80,17 @@ export async function initBanksPage() {
     },
   });
 
-  // 監聽 AppState
   _unsubYM = AppState.on('ym-change', () => _loadBalances());
 
-  // 監聽銀行
   _unsubBanks = listenBanks((list) => {
     _banks = list;
     _updateFilterOptions();
     _loadBalances();
   });
 
-  // 綁定單月/全年切換
   _bindToggleButtons();
+
+  registerPageCleanup(_destroy);
 
   return {
     destroy: _destroy,
@@ -168,7 +167,6 @@ async function _loadMonthly(year, month) {
   const monthLabel = document.getElementById('banks-month');
   if (monthLabel) monthLabel.textContent = `${year} 年 ${month} 月 結餘`;
 
-  // 顯示單月檢視
   const summaryView = document.getElementById('banks-summary-view');
   const annualView = document.getElementById('banks-annual-view');
   if (summaryView) summaryView.style.display = 'block';
@@ -202,34 +200,85 @@ async function _getPrevMonthBalances(year, month) {
 }
 
 /* ============================================
-   全年模式
+   全年模式（使用 annual-month-cards）
    ============================================ */
 async function _loadAnnual(year) {
   const monthLabel = document.getElementById('banks-month');
   if (monthLabel) monthLabel.textContent = `${year} 年度總覽`;
 
-  // 顯示全年檢視
   const summaryView = document.getElementById('banks-summary-view');
   const annualView = document.getElementById('banks-annual-view');
   if (summaryView) summaryView.style.display = 'none';
   if (annualView) annualView.style.display = 'block';
 
   try {
-    const monthlyBalances = [];
     const promises = [];
     for (let m = 1; m <= 12; m++) {
       const mm = String(m).padStart(2, '0');
       promises.push(getBankBalancesOnce(year, mm));
     }
     const results = await Promise.all(promises);
-    results.forEach((r, i) => {
-      monthlyBalances.push({ monthNum: i + 1, month: String(i + 1).padStart(2, '0'), data: r || {} });
-    });
 
-    _renderAnnual(year, monthlyBalances);
+    const monthlyBalances = results.map((r, i) => ({
+      monthNum: i + 1,
+      month: String(i + 1).padStart(2, '0'),
+      data: r || {},
+    }));
+
+    _renderAnnualCards(year, monthlyBalances);
   } catch (err) {
     console.error('[banks] 全年載入失敗：', err);
   }
+}
+
+function _renderAnnualCards(year, monthlyBalances) {
+  const filteredBanks = _filteredBanks();
+
+  // 銷毀舊的實例
+  if (_annualCardsInstance) {
+    try { _annualCardsInstance.destroy(); } catch (e) { /* noop */ }
+    _annualCardsInstance = null;
+  }
+
+  const dataMap = {};
+  let lastTotal = 0;
+  monthlyBalances.forEach((mb) => {
+    const total = filteredBanks.reduce((s, b) => s + (Number(mb.data[b.id]?.amount) || 0), 0);
+    if (total > 0) lastTotal = total;
+    dataMap[mb.monthNum] = { monthNum: mb.monthNum, data: mb.data, total };
+  });
+
+  const totalEl = document.getElementById('annual-bank-total');
+  if (totalEl) totalEl.textContent = formatHKD(lastTotal);
+
+  _annualCardsInstance = renderAnnualMonthCards('annual-monthly-cards', {
+    storageKey: `banks-annual-${year}`,
+    getMonthData: (monthNum) => {
+      const mb = dataMap[monthNum];
+      if (!mb) return null;
+
+      const rows = filteredBanks.length === 0
+        ? '<div style="font-size:12px; color:var(--text-muted);">尚無銀行</div>'
+        : filteredBanks.map((b) => {
+          const amount = Number(mb.data[b.id]?.amount) || 0;
+          return `
+            <div class="annual-month-row">
+              <span>${escapeHtml(b.name)}</span>
+              <span class="mono text-emerald">${formatHKD(amount)}</span>
+            </div>
+          `;
+        }).join('');
+
+      return {
+        title: `${monthNum} 月`,
+        total: mb.total,
+        detailHtml: rows,
+      };
+    },
+    emptyText: '本年度尚無銀行結餘紀錄',
+  });
+
+  _renderQuickSummary(filteredBanks);
 }
 
 /* ============================================
@@ -246,12 +295,10 @@ function _render() {
   const countEl = document.getElementById('bank-count');
   if (countEl) countEl.textContent = `（共 ${filteredBanks.length} 間）`;
 
-  // 統計卡
   const total = filteredBanks.reduce((s, b) => s + (Number(_balances[b.id]?.amount) || 0), 0);
   const totalEl = document.getElementById('bank-total');
   if (totalEl) totalEl.textContent = formatHKD(total);
 
-  // 可用金額（上月結餘）
   const prevTotal = Object.values(_prevBalances).reduce((s, b) => s + (Number(b.amount) || 0), 0);
   const availEl = document.getElementById('bank-available');
   if (availEl) availEl.textContent = formatHKD(prevTotal);
@@ -383,62 +430,6 @@ function _renderTable(list, container) {
 }
 
 /* ============================================
-   全年模式渲染
-   ============================================ */
-function _renderAnnual(year, monthlyBalances) {
-  const container = document.getElementById('annual-monthly-cards');
-  if (!container) return;
-
-  const filteredBanks = _filteredBanks();
-  let lastTotal = 0;
-
-  const cards = monthlyBalances.map((mb) => {
-    const total = filteredBanks.reduce((s, b) => s + (Number(mb.data[b.id]?.amount) || 0), 0);
-    if (total > 0) lastTotal = total;
-
-    const rows = filteredBanks.length === 0
-      ? '<div style="font-size:12px; color:var(--text-muted);">尚無銀行</div>'
-      : filteredBanks.map((b) => {
-        const amount = Number(mb.data[b.id]?.amount) || 0;
-        return `
-          <div class="annual-month-row">
-            <span>${escapeHtml(b.name)}</span>
-            <span class="mono text-emerald">${formatHKD(amount)}</span>
-          </div>
-        `;
-      }).join('');
-
-    return `
-      <div class="annual-month-card">
-        <div class="annual-month-header">
-          <div class="month-title">${mb.monthNum} 月</div>
-          <div class="month-total">${formatHKD(total)}</div>
-        </div>
-        <div class="annual-month-detail" style="display:none;">
-          ${rows}
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  const annualTotalEl = document.getElementById('annual-bank-total');
-  if (annualTotalEl) annualTotalEl.textContent = formatHKD(lastTotal);
-
-  container.innerHTML = cards;
-
-  container.querySelectorAll('.annual-month-header').forEach((el) => {
-    el.addEventListener('click', () => {
-      const d = el.nextElementSibling;
-      d.style.display = d.style.display === 'none' ? 'block' : 'none';
-    });
-  });
-
-  _renderQuickSummary(filteredBanks);
-
-  if (window.lucide) window.lucide.createIcons();
-}
-
-/* ============================================
    快速摘要（資產配置）
    ============================================ */
 function _renderQuickSummary(filteredBanks) {
@@ -488,5 +479,9 @@ function _destroy() {
   if (_filterInstance) {
     try { _filterInstance.destroy(); } catch (e) { /* noop */ }
     _filterInstance = null;
+  }
+  if (_annualCardsInstance) {
+    try { _annualCardsInstance.destroy(); } catch (e) { /* noop */ }
+    _annualCardsInstance = null;
   }
 }

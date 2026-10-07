@@ -1,10 +1,10 @@
 // ============================================
-// admin.js — 平台管理入口（v101.3）
+// admin.js — 平台管理入口（v101.5）
 // 位置：js/admin/admin.js
 // ============================================
-// v101.3 修正：
-//   ✅ 移除未使用的 openModal / closeModal import
-//   ✅ 移除未使用的 FAMILY_MODAL_ID 變數
+// v101.5 修正：
+//   ✅ 使用 registerPageCleanup 註冊清理
+//   ✅ initPlatformDefaults 實例有完整 destroy
 // ============================================
 
 import { api } from '../core/api.js';
@@ -15,6 +15,7 @@ import { showToast } from '../shared/toast.js';
 import { openConfirm } from '../shared/modal.js';
 import { buildForm } from '../shared/form-builder.js';
 import { initTabPanel } from '../shared/tab-panel.js';
+import { registerPageCleanup } from '../core/app.js';
 import { initPlatformDefaults } from './platform-defaults.js';
 
 /* ============================================
@@ -24,33 +25,33 @@ let _families = [];
 let _familyInputApi = null;
 let _tabPanel = null;
 let _defaultsInstance = null;
+let _logoutHandler = null;
+let _familyListHandler = null;
 
 /* ============================================
    主入口
    ============================================ */
 export function initAdminPage() {
-  // 權限檢查
   if (!AppState.isSuperAdmin) {
     alert('您沒有權限存取此頁面');
     window.location.href = 'index.html';
     return;
   }
 
-  // 登出按鈕
-  document.getElementById('logout-btn')?.addEventListener('click', async () => {
+  _logoutHandler = async () => {
     const ok = await openConfirm('確定要登出嗎？', {
       title: '登出',
       okText: '登出',
       okClass: 'btn-danger',
     });
     if (ok) logout();
-  });
+  };
+  document.getElementById('logout-btn')?.addEventListener('click', _logoutHandler);
 
-  // 建立 2 層 Tab
   _tabPanel = initTabPanel({
     containerId: 'admin-tabs',
     tabs: [
-      { key: 'families', label: '家庭管理', icon: 'home',   panelId: 'admin-panel-families' },
+      { key: 'families', label: '家庭管理', icon: 'home',     panelId: 'admin-panel-families' },
       { key: 'defaults', label: '預設資料庫', icon: 'database', panelId: 'admin-panel-defaults' },
     ],
     defaultKey: 'families',
@@ -58,8 +59,9 @@ export function initAdminPage() {
     onChange: (key) => _onTabChange(key),
   });
 
-  // 初始化家庭管理面板
   _renderFamilyPanel();
+
+  registerPageCleanup(_destroy);
 
   return {
     destroy: _destroy,
@@ -98,7 +100,6 @@ function _renderFamilyPanel() {
     </div>
   `;
 
-  // 新增家庭表單
   _familyInputApi = buildForm({
     containerId: 'admin-family-form-root',
     fields: [
@@ -131,14 +132,21 @@ function _renderFamilyPanel() {
     showCancel: false,
     showReset: true,
     resetText: '重置',
+    beforeSubmit: _validateAddFamily,
     onSubmit: _handleAddFamily,
   });
 
-  // 清單事件
   _bindFamilyListEvents();
-
-  // 載入清單
   _loadFamilies();
+}
+
+function _validateAddFamily(data) {
+  const uid = (data['adm-fam-uid'] || '').trim();
+  const name = (data['adm-fam-name'] || '').trim();
+
+  if (!uid) return { field: 'adm-fam-uid', message: '請填寫 UID' };
+  if (!name) return { field: 'adm-fam-name', message: '請填寫家庭名稱' };
+  return true;
 }
 
 /* ============================================
@@ -148,10 +156,6 @@ async function _handleAddFamily(data) {
   const uid = (data['adm-fam-uid'] || '').trim();
   const name = (data['adm-fam-name'] || '').trim();
   const email = (data['adm-fam-email'] || '').trim();
-
-  if (!uid || !name) {
-    return { field: 'adm-fam-uid', message: '請填寫 UID 與家庭名稱' };
-  }
 
   try {
     await api.adminAddFamily(uid, name, email);
@@ -220,7 +224,7 @@ function _renderFamilies() {
                 ${escapeHtml(f.uid)}
               </td>
               <td class="hide-mobile" data-label="建立時間" style="font-size:11px; color:var(--text-muted);">
-                ${f.createdAt ? new Date(f.createdAt).toLocaleString('zh-HK') : '—'}
+                ${f.createdAt > 0 ? new Date(f.createdAt).toLocaleString('zh-HK') : '—'}
               </td>
               <td data-label="操作">
                 <button class="btn btn-sm btn-primary" data-action="enter" data-uid="${escapeHtml(f.uid)}">進入</button>
@@ -244,7 +248,7 @@ function _bindFamilyListEvents() {
   const listEl = document.getElementById('admin-family-list');
   if (!listEl) return;
 
-  listEl.addEventListener('click', async (e) => {
+  _familyListHandler = async (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
 
@@ -266,7 +270,9 @@ function _bindFamilyListEvents() {
         await _handleDelete(uid, family);
         break;
     }
-  });
+  };
+
+  listEl.addEventListener('click', _familyListHandler);
 }
 
 /* ============================================
@@ -329,5 +335,13 @@ function _destroy() {
   if (_defaultsInstance) {
     try { _defaultsInstance.destroy?.(); } catch (e) { /* noop */ }
     _defaultsInstance = null;
+  }
+  if (_logoutHandler) {
+    document.getElementById('logout-btn')?.removeEventListener('click', _logoutHandler);
+    _logoutHandler = null;
+  }
+  if (_familyListHandler) {
+    document.getElementById('admin-family-list')?.removeEventListener('click', _familyListHandler);
+    _familyListHandler = null;
   }
 }

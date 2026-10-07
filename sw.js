@@ -1,11 +1,16 @@
 // ============================================
-// sw.js — Service Worker（v101.4）
+// sw.js — Service Worker（v101.5）
 // ============================================
-// v101.4 更新：
-//   ✅ CACHE_NAME = family-fin-v104
+// v101.5 更新：
+//   ✅ CACHE_NAME = family-fin-v105
+//   ✅ 移除 input-form.js（已刪除）
+//   ✅ 移除 insurance/calc.js（已刪除）
+//   ✅ 新增 entity-definitions.js / entity-modal.js / entity-helpers.js
+//   ✅ 新增 shared/insurance-calc.js
+//   ✅ 移除未使用的 insurance/calc.js 路徑
 // ============================================
 
-const CACHE_NAME = 'family-fin-v104';
+const CACHE_NAME = 'family-fin-v105';
 
 const STATIC_ASSETS = [
   // ================= CSS =================
@@ -20,6 +25,7 @@ const STATIC_ASSETS = [
   './js/config/constants.js',
   './js/config/firebase-config.js',
   './js/config/app-config.js',
+  './js/config/entity-definitions.js',   // 🆕 v101.5
 
   // ================= JS — core =================
   './js/core/state.js',
@@ -36,7 +42,6 @@ const STATIC_ASSETS = [
   './js/shared/modal.js',
   './js/shared/page-filter.js',
   './js/shared/collapsible-card.js',
-  './js/shared/input-form.js',
   './js/shared/annual-month-cards.js',
   './js/shared/select-helpers.js',
   './js/shared/date-helpers.js',
@@ -49,6 +54,9 @@ const STATIC_ASSETS = [
   './js/shared/data-card.js',
   './js/shared/quick-summary.js',
   './js/shared/form-builder.js',
+  './js/shared/insurance-calc.js',       // 🆕 v101.5
+  './js/shared/entity-modal.js',         // 🆕 v101.5
+  './js/shared/entity-helpers.js',       // 🆕 v101.5
 
   // ================= JS — pages (根目錄) =================
   './js/pages/dashboard.js',
@@ -89,7 +97,6 @@ const STATIC_ASSETS = [
 
   // ================= JS — pages/insurance =================
   './js/pages/insurance/index.js',
-  './js/pages/insurance/calc.js',
   './js/pages/insurance/render.js',
   './js/pages/insurance/sync.js',
   './js/pages/insurance/modals.js',

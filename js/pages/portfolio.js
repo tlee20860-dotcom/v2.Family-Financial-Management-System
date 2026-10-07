@@ -1,19 +1,20 @@
 // ============================================
-// portfolio.js — 基金投資明細（v101 只讀化）
+// portfolio.js — 基金投資明細（v101.5）
 // 位置：js/pages/portfolio.js
 // ============================================
-// v101 改動：
-//   ✅ 移除新增 / 編輯 / 刪除（移至基礎資料庫）
-//   ✅ 保留卡片 / 表格雙模式
-//   ✅ 加「前往基礎資料庫」按鈕
-//   ✅ 底部快速摘要（資產配置）
+// v101.5 修正：
+//   ✅ 新增「編輯」按鈕（透過 entity-modal）
+//   ✅ 修正卡片 class：policy-card → fund-card
+//   ✅ 使用 registerPageCleanup 註冊清理
 // ============================================
 
 import { listenFunds } from '../core/db.js';
 import { escapeHtml, formatHKD } from '../core/utils.js';
 import { initViewToggle } from '../shared/view-toggle.js';
 import { renderQuickSummary } from '../shared/quick-summary.js';
-import { QUICK_SUMMARY_TYPES } from '../config/constants.js';
+import { openEntityModal } from '../shared/entity-modal.js';
+import { QUICK_SUMMARY_TYPES, ENTITY_KEYS } from '../config/constants.js';
+import { registerPageCleanup } from '../core/app.js';
 
 /* ============================================
    Module 狀態
@@ -21,12 +22,12 @@ import { QUICK_SUMMARY_TYPES } from '../config/constants.js';
 let _funds = [];
 let _viewToggle = null;
 let _unsubFunds = null;
+let _listClickHandler = null;
 
 /* ============================================
    主入口
    ============================================ */
 export async function initPortfolioPage() {
-  // 檢視切換
   _viewToggle = initViewToggle({
     containerId: 'view-toggle-root',
     storageKey: 'portfolio-view',
@@ -37,21 +38,41 @@ export async function initPortfolioPage() {
     onChange: () => _render(),
   });
 
-  // 前往基礎資料庫
   document.getElementById('go-database-btn')?.addEventListener('click', () => {
     window.location.href = 'database.html';
   });
 
-  // 前往輸入中心（更新現值）
   document.getElementById('go-input-center-btn')?.addEventListener('click', () => {
     window.location.href = 'input-center.html';
   });
 
-  // 監聽基金
   _unsubFunds = listenFunds((list) => {
     _funds = list;
     _render();
   });
+
+  // 事件委派（編輯按鈕）
+  _listClickHandler = (e) => {
+    const btn = e.target.closest('button[data-action="edit"]');
+    if (!btn) return;
+    const id = btn.dataset.id;
+    const fund = _funds.find((f) => f.id === id);
+    if (!fund) return;
+
+    openEntityModal({
+      entity: ENTITY_KEYS.FUND,
+      mode: 'edit',
+      id: fund.id,
+      allRows: _funds,
+    });
+  };
+
+  const cardEl = document.getElementById('fund-card-view');
+  const tableEl = document.getElementById('fund-table-view');
+  cardEl?.addEventListener('click', _listClickHandler);
+  tableEl?.addEventListener('click', _listClickHandler);
+
+  registerPageCleanup(_destroy);
 
   return {
     destroy: _destroy,
@@ -98,7 +119,6 @@ function _render() {
     _renderTable(tableEl);
   }
 
-  // 快速摘要（資產配置）
   _renderQuickSummary();
 
   if (window.lucide) window.lucide.createIcons();
@@ -150,7 +170,7 @@ function _renderCard(f) {
   const sign = pnl >= 0 ? '+' : '';
 
   return `
-    <div class="glass-card policy-card">
+    <div class="glass-card fund-card">
       <div class="policy-header">
         <div style="min-width:0; flex:1;">
           <div class="policy-name" style="word-break:break-word;">${escapeHtml(f.name || '（未命名）')}</div>
@@ -182,6 +202,12 @@ function _renderCard(f) {
       </div>
 
       ${f.note ? `<div class="glass-card-hint">📝 ${escapeHtml(f.note)}</div>` : ''}
+
+      <div class="policy-actions">
+        <button class="btn btn-sm btn-ghost" data-action="edit" data-id="${f.id}">
+          <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+        </button>
+      </div>
     </div>
   `;
 }
@@ -202,6 +228,7 @@ function _renderTable(container) {
               <th class="num hide-mobile">盈虧</th>
               <th class="num hide-mobile">報酬率</th>
               <th class="num hide-mobile">單位數</th>
+              <th style="width:120px;">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -224,6 +251,11 @@ function _renderTable(container) {
                   <td class="num hide-mobile ${pnlCls}" data-label="盈虧">${sign}${formatHKD(pnl)}</td>
                   <td class="num hide-mobile ${pnlCls}" data-label="報酬率">${pnlPct}%</td>
                   <td class="num hide-mobile" data-label="單位數">${f.units || '—'}</td>
+                  <td data-label="操作">
+                    <button class="btn btn-sm btn-ghost" data-action="edit" data-id="${f.id}">
+                      <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+                    </button>
+                  </td>
                 </tr>
               `;
             }).join('')}
@@ -273,5 +305,12 @@ function _destroy() {
   if (_viewToggle) {
     try { _viewToggle.destroy(); } catch (e) { /* noop */ }
     _viewToggle = null;
+  }
+  if (_listClickHandler) {
+    const cardEl = document.getElementById('fund-card-view');
+    const tableEl = document.getElementById('fund-table-view');
+    cardEl?.removeEventListener('click', _listClickHandler);
+    tableEl?.removeEventListener('click', _listClickHandler);
+    _listClickHandler = null;
   }
 }

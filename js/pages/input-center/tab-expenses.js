@@ -1,16 +1,23 @@
 // ============================================
-// tab-expenses.js — 綜合輸入中心：日常支出 Tab（v101）
+// tab-expenses.js — 綜合輸入中心：日常支出 Tab（v101.5）
 // 位置：js/pages/input-center/tab-expenses.js
+// ============================================
+// v101.5 修正：
+//   ✅ 使用 entity-helpers 的 renderStatusBadge
+//   ✅ 跨月移動改用 batchUpdateExpenses（避免資料遺失）
+//   ✅ 使用 registerPageCleanup 註冊清理
+//   ✅ 快速新增項目改用 openEntityModal
+//   ✅ 修正驗證錯誤顯示（改用 beforeSubmit）
 // ============================================
 
 import {
   listenMembers, listenCategories, listenItems, listenPaymentMethods,
   listenAllExpenses, addExpense, updateExpense, removeExpense,
-  addFixedTemplate,
+  addFixedTemplate, batchUpdateExpenses,
 } from '../../core/db.js';
 import { AppState } from '../../core/state.js';
 import {
-  getOptions, getStatusesByCategory, getDefaultStatus,
+  getStatusesByCategory, getDefaultStatus,
 } from '../../config/app-config.js';
 import {
   escapeHtml, formatHKD, todayISO,
@@ -23,6 +30,9 @@ import {
 import { fillYearSelect, fillMonthSelect } from '../../shared/date-helpers.js';
 import { showToast } from '../../shared/toast.js';
 import { openConfirm } from '../../shared/modal.js';
+import { openEntityModal } from '../../shared/entity-modal.js';
+import { renderStatusBadge } from '../../shared/entity-helpers.js';
+import { ENTITY_KEYS } from '../../config/constants.js';
 
 /* ============================================
    Module 狀態
@@ -50,24 +60,15 @@ export function initExpensesTab(containerId) {
     return null;
   }
 
-  // 初始化篩選值
   const ym = AppState.getYearMonth();
   _filterYear = ym.year;
   _filterMonth = ym.month === 'all' ? '01' : ym.month;
 
-  // 渲染頁面骨架
   _container.innerHTML = _buildSkeleton();
 
-  // 建立表單
   _buildForm();
-
-  // 綁定資料監聽
   _bindListeners();
-
-  // 綁定篩選事件
   _bindFilterEvents();
-
-  // 綁定清單事件
   _bindListEvents();
 
   return {
@@ -119,6 +120,7 @@ function _buildSkeleton() {
    ============================================ */
 function _buildForm() {
   const statusList = getStatusesByCategory('personal');
+  const defaultStatus = getDefaultStatus('personal');
 
   _formApi = buildForm({
     containerId: 'ic-expenses-form-root',
@@ -138,7 +140,6 @@ function _buildForm() {
       { type: 'select', id: 'ic-exp-payment',  label: '支付方式', includeEmpty: true, emptyText: '— 請選擇 —' },
       { type: 'select', id: 'ic-exp-status',   label: '狀態',    includeEmpty: false },
       { type: 'checkbox', id: 'ic-exp-fixed',  label: '設為每月固定支出' },
-      // 隱藏欄位用於編輯模式
       { type: 'hidden', id: 'ic-exp-edit-id' },
       { type: 'hidden', id: 'ic-exp-edit-old-year' },
       { type: 'hidden', id: 'ic-exp-edit-old-month' },
@@ -148,21 +149,21 @@ function _buildForm() {
     showCancel: false,
     showReset: true,
     resetText: '重置',
+    beforeSubmit: _validateExpense,
     onSubmit: _handleSubmit,
   });
 
-  // 初始化年月下拉
   fillYearSelect('ic-exp-year', { useAppState: true });
   fillMonthSelect('ic-exp-month', { useAppState: true });
 
-  // 日期預設今天
   const dateEl = document.getElementById('ic-exp-date');
   if (dateEl && !dateEl.value) dateEl.value = todayISO();
 
-  // 初始化狀態下拉
   fillStatusSelect('ic-exp-status', statusList, { includeEmpty: false });
+  if (defaultStatus) {
+    _formApi.setFieldValue('ic-exp-status', defaultStatus.name);
+  }
 
-  // 類別 → 項目連動
   _formApi.onFieldChange('ic-exp-category', () => {
     const catId = _formApi.getFieldValue('ic-exp-category');
     fillItemSelect('ic-exp-item', _items, catId, {
@@ -170,6 +171,17 @@ function _buildForm() {
       emptyText: catId ? '— 請選擇項目 —' : '— 請先選擇類別 —',
     });
   });
+}
+
+function _validateExpense(data) {
+  const member = data['ic-exp-member'];
+  const itemId = data['ic-exp-item'];
+  const amount = Number(data['ic-exp-amount']) || 0;
+
+  if (!member) return { field: 'ic-exp-member', message: '請選擇支出成員' };
+  if (!itemId) return { field: 'ic-exp-item', message: '請選擇項目' };
+  if (amount <= 0) return { field: 'ic-exp-amount', message: '費用必須大於 0' };
+  return true;
 }
 
 /* ============================================
@@ -192,10 +204,6 @@ async function _handleSubmit(data) {
   const oldMember = data['ic-exp-edit-old-member'];
   const setFixed = data['ic-exp-fixed'];
 
-  if (!targetMember || !itemName || amount <= 0) {
-    return { field: 'ic-exp-amount', message: '請填寫完整資料' };
-  }
-
   const payload = {
     name: itemName,
     amount,
@@ -212,9 +220,16 @@ async function _handleSubmit(data) {
       if (targetYear === oldYear && targetMonth === oldMonth && targetMember === oldMember) {
         await updateExpense(targetYear, targetMonth, targetMember, editId, payload);
       } else {
-        // 移動：先刪除舊的，再新增
-        await removeExpense(oldYear, oldMonth, oldMember, editId);
-        await addExpense(targetYear, targetMonth, targetMember, payload);
+        // 🆕 v101.5：跨月移動改用 batchUpdateExpenses（避免資料遺失）
+        await batchUpdateExpenses([{
+          oldYear, oldMonth, oldMemberId: oldMember, expenseId: editId,
+          data: {
+            ...payload,
+            year: targetYear,
+            month: targetMonth,
+            memberId: targetMember,
+          },
+        }]);
       }
       showToast('✅ 已更新支出', 'success');
       _exitEditMode();
@@ -235,7 +250,6 @@ async function _handleSubmit(data) {
       }
     }
 
-    // 重置表單（保留年月）
     _resetFormKeepYM();
   } catch (err) {
     console.error('[tab-expenses] 提交失敗：', err);
@@ -275,23 +289,21 @@ async function _handleQuickAddItem() {
     showToast('請先選擇類別', 'warning');
     return;
   }
-  const name = prompt('請輸入新項目名稱：');
-  if (!name || !name.trim()) return;
 
-  try {
-    const { addItem } = await import('../../core/db.js');
-    await addItem({ name: name.trim(), categoryId: catId });
-    showToast(`✅ 已新增項目「${name.trim()}」`, 'success');
-  } catch (err) {
-    showToast('新增項目失敗：' + err.message, 'error');
-  }
+  await openEntityModal({
+    entity: ENTITY_KEYS.ITEM,
+    mode: 'add',
+    initialData: { categoryId: catId },
+    onSuccess: () => {
+      // 項目清單會透過 listenItems 自動更新
+    },
+  });
 }
 
 /* ============================================
    資料監聽
    ============================================ */
 function _bindListeners() {
-  // 成員
   _unsubscribers.push(
     listenMembers((list) => {
       _members = list;
@@ -300,7 +312,6 @@ function _bindListeners() {
     })
   );
 
-  // 類別
   _unsubscribers.push(
     listenCategories((list) => {
       _categories = list;
@@ -308,7 +319,6 @@ function _bindListeners() {
     })
   );
 
-  // 項目
   _unsubscribers.push(
     listenItems((list) => {
       _items = list;
@@ -317,7 +327,6 @@ function _bindListeners() {
     })
   );
 
-  // 支付方式
   _unsubscribers.push(
     listenPaymentMethods((list) => {
       _payments = list;
@@ -325,7 +334,6 @@ function _bindListeners() {
     })
   );
 
-  // 支出清單
   _unsubscribers.push(
     listenAllExpenses((list) => {
       _allExpenses = list;
@@ -372,7 +380,6 @@ function _renderList() {
   const countEl = document.getElementById('ic-expenses-count');
   if (!listEl) return;
 
-  // 過濾
   let filtered = _allExpenses.filter((x) => {
     if (_filterYear && x.year !== _filterYear) return false;
     if (_filterMonth && x.month !== _filterMonth) return false;
@@ -380,10 +387,7 @@ function _renderList() {
     return true;
   });
 
-  // 排序：新到舊
   filtered.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-
-  // 只顯示最近 50 筆
   const limited = filtered.slice(0, 50);
 
   if (countEl) countEl.textContent = `（共 ${filtered.length} 筆）`;
@@ -407,7 +411,7 @@ function _renderExpenseRow(x) {
   const pmName = pm ? pm.name : '—';
   const isAutoLinked = x.isAutoLinked;
 
-  const statusBadge = _statusBadge(x.status);
+  const statusBadge = renderStatusBadge(x.status, 'personal');
   const autoBadge = isAutoLinked
     ? '<span class="badge badge-info" style="margin-left:6px;">保險連動</span>'
     : '';
@@ -442,16 +446,8 @@ function _renderExpenseRow(x) {
   `;
 }
 
-function _statusBadge(status) {
-  const statuses = getStatusesByCategory('personal');
-  const s = statuses.find((x) => x.name === status);
-  const isDone = s ? s.isDone : (status && status.startsWith('已'));
-  const cls = isDone ? 'badge-success' : 'badge-pending';
-  return `<span class="badge ${cls}">${escapeHtml(status || '未處理')}</span>`;
-}
-
 /* ============================================
-   清單事件（編輯 / 刪除）
+   清單事件
    ============================================ */
 function _bindListEvents() {
   const listEl = document.getElementById('ic-expenses-list');
@@ -502,7 +498,6 @@ function _enterEditMode(exp) {
   _formApi.setFieldValue('ic-exp-payment', exp.paymentMethodId || '');
   _formApi.setFieldValue('ic-exp-status', exp.status || '');
 
-  // 滾動到表單
   document.getElementById('ic-expenses-form-root')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   showToast('進入編輯模式，修改後按儲存', 'info');
 }

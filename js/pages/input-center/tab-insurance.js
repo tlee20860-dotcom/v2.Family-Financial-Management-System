@@ -1,11 +1,13 @@
 // ============================================
-// tab-insurance.js — 綜合輸入中心：保險扣款 Tab（v101.4）
+// tab-insurance.js — 綜合輸入中心：保險扣款 Tab（v101.5）
 // 位置：js/pages/input-center/tab-insurance.js
 // ============================================
-// v101.4 修正：
-//   ✅ 保單下拉顯示「保單名稱（保單持有人）」
-//   ✅ 加入 listenMembers 取得真實成員名稱
-//   ✅ 使用 policyHolderId（fallback memberId）
+// v101.5 修正：
+//   ✅ 保單金額計算改用 shared/insurance-calc.js 的 resolveMonthlyAmount
+//   ✅ 有效成員 ID 統一使用 getPolicyHolderId
+//   ✅ 狀態 badge 改用 renderStatusBadge
+//   ✅ 驗證改用 beforeSubmit
+//   ✅ 保單下拉顯示「保單名稱（持有人）」
 // ============================================
 
 import {
@@ -16,13 +18,18 @@ import {
   removeInsurancePaymentBatch,
 } from '../../core/db.js';
 import { AppState } from '../../core/state.js';
-import { getStatusesByCategory } from '../../config/app-config.js';
+import { getStatusesByCategory, getDefaultStatus } from '../../config/app-config.js';
 import { escapeHtml, formatHKD, sortMembers } from '../../core/utils.js';
 import { api } from '../../core/api.js';
 import { showToast } from '../../shared/toast.js';
 import { buildForm } from '../../shared/form-builder.js';
 import { fillStatusSelect } from '../../shared/select-helpers.js';
 import { fillYearSelect, fillMonthSelect } from '../../shared/date-helpers.js';
+import { renderStatusBadge } from '../../shared/entity-helpers.js';
+import {
+  resolveMonthlyAmount,
+  getPolicyHolderId,
+} from '../../shared/insurance-calc.js';
 
 /* ============================================
    Module 狀態
@@ -106,6 +113,7 @@ function _buildSkeleton() {
    ============================================ */
 function _buildForm() {
   const statusList = getStatusesByCategory('insurance');
+  const defaultStatus = getDefaultStatus('insurance');
 
   _formApi = buildForm({
     containerId: 'ic-ins-form-root',
@@ -120,6 +128,7 @@ function _buildForm() {
     submitText: '儲存扣款紀錄',
     showCancel: false,
     showReset: false,
+    beforeSubmit: _validatePayment,
     onSubmit: _handleSubmit,
   });
 
@@ -130,10 +139,22 @@ function _buildForm() {
   });
 
   fillStatusSelect('ic-ins-status', statusList, { includeEmpty: false });
+  if (defaultStatus) {
+    _formApi.setFieldValue('ic-ins-status', defaultStatus.name);
+  }
 
   _formApi.onFieldChange('ic-ins-policy', _loadCurrentPayment);
   _formApi.onFieldChange('ic-ins-year', _loadCurrentPayment);
   _formApi.onFieldChange('ic-ins-month', _loadCurrentPayment);
+}
+
+function _validatePayment(data) {
+  const policyId = data['ic-ins-policy'];
+  const amount = Number(data['ic-ins-amount']) || 0;
+
+  if (!policyId) return { field: 'ic-ins-policy', message: '請選擇保單' };
+  if (amount <= 0) return { field: 'ic-ins-amount', message: '金額必須大於 0' };
+  return true;
 }
 
 /* ============================================
@@ -167,50 +188,10 @@ async function _loadCurrentPayment() {
     _formApi.setFieldValue('ic-ins-original-status', existing.status || '已扣款');
   } else {
     _formApi.setFieldValue('ic-ins-status', '未扣款');
-    _formApi.setFieldValue('ic-ins-amount', _getMonthlyAmount(policy, year, month));
+    // 🆕 v101.5：使用 shared/insurance-calc.js
+    _formApi.setFieldValue('ic-ins-amount', resolveMonthlyAmount(policy, year, month, null));
     _formApi.setFieldValue('ic-ins-original-status', '');
   }
-}
-
-/**
- * 計算保單在該年月的分攤金額
- */
-function _getMonthlyAmount(policy, year, month) {
-  if (!policy) return 0;
-  if (policy.type === 'fund_insurance') {
-    return Math.round(Number(policy.monthlyPremium) || 0);
-  }
-
-  const y = Number(year);
-  const m = Number(month);
-  const firstY = Number(policy.firstStartYear) || 0;
-  const firstM = Number(policy.firstStartMonth) || 1;
-  if (!firstY) return 0;
-
-  const totalMonths = (y - firstY) * 12 + (m - firstM);
-  if (totalMonths < 0) return 0;
-
-  const periodIndex = Math.floor(totalMonths / 12) + 1;
-  if (policy.totalPolicyYears && periodIndex > policy.totalPolicyYears) return 0;
-
-  const periodData = (policy.periods || {})[String(periodIndex)];
-  if (periodData && periodData.monthlyAverage) {
-    return Math.round(Number(periodData.monthlyAverage) || 0);
-  }
-
-  const periodKeys = Object.keys(policy.periods || {})
-    .map(Number)
-    .filter((n) => !isNaN(n) && n > 0)
-    .sort((a, b) => a - b);
-
-  if (periodKeys.length > 0) {
-    const below = periodKeys.filter((k) => k <= periodIndex);
-    const target = below.length > 0 ? below[below.length - 1] : periodKeys[0];
-    const tp = policy.periods[String(target)];
-    if (tp && tp.monthlyAverage) return Math.round(Number(tp.monthlyAverage));
-  }
-
-  return Math.round(Number(policy.monthlyAverage) || 0);
 }
 
 /* ============================================
@@ -225,11 +206,12 @@ async function _handleSubmit(data) {
 
   const policy = _policies.find((p) => p.id === policyId);
   if (!policy) {
-    return { field: 'ic-ins-policy', message: '請選擇有效的保單' };
+    showToast('找不到此保單', 'error');
+    return;
   }
 
-  // 🆕 v101.4：用保單持有人作為 memberId（fallback 受保人）
-  const effectiveMemberId = policy.policyHolderId || policy.memberId;
+  // 🆕 v101.5：使用 getPolicyHolderId 統一 fallback
+  const effectiveMemberId = getPolicyHolderId(policy);
 
   const isDoneStatus = _isDoneInsuranceStatus(status);
 
@@ -278,7 +260,6 @@ function _isDoneInsuranceStatus(statusName) {
    資料監聽
    ============================================ */
 function _bindListeners() {
-  // 成員
   _unsubscribers.push(
     listenMembers((list) => {
       _members = sortMembers(list);
@@ -287,7 +268,6 @@ function _bindListeners() {
     })
   );
 
-  // 保單
   _unsubscribers.push(
     listenInsurancePolicies(async (list) => {
       _policies = list;
@@ -298,12 +278,9 @@ function _bindListeners() {
   );
 }
 
-/**
- * 🆕 v101.4：更新保單下拉（顯示「保單名稱（保單持有人）」）
- */
 function _refreshPolicySelect() {
-  _formApi.updateOptions('ic-ins-policy', _policies.map((p) => {
-    const holderName = _memberName(p.policyHolderId || p.memberId);
+  _formApi?.updateOptions('ic-ins-policy', _policies.map((p) => {
+    const holderName = _memberName(getPolicyHolderId(p));
     return {
       value: p.id,
       label: `${p.name}（${holderName}）`,
@@ -311,9 +288,6 @@ function _refreshPolicySelect() {
   }), { includeEmpty: true, emptyText: '— 請選擇保單 —' });
 }
 
-/**
- * 取得成員名稱
- */
 function _memberName(memberId) {
   if (!memberId) return '（未指定）';
   const m = _members.find((x) => x.id === memberId);
@@ -362,11 +336,12 @@ function _renderList() {
   _policies.forEach((p) => {
     const payment = _payments[p.id]?.[_filterYear]?.[_filterMonth];
     if (payment) {
+      const holderId = getPolicyHolderId(p);
       rows.push({
         policyId: p.id,
         policyName: p.name,
-        memberId: p.policyHolderId || p.memberId,
-        memberName: _memberName(p.policyHolderId || p.memberId),
+        memberId: holderId,
+        memberName: _memberName(holderId),
         amount: payment.amount || 0,
         status: payment.status || '已扣款',
         date: payment.date || '',
@@ -389,7 +364,7 @@ function _renderList() {
 }
 
 function _renderRow(r) {
-  const statusBadge = _statusBadge(r.status);
+  const statusBadge = renderStatusBadge(r.status, 'insurance');
 
   return `
     <div class="data-card" data-policy-id="${r.policyId}" style="margin-bottom:8px; padding:12px 14px;">
@@ -411,19 +386,11 @@ function _renderRow(r) {
   `;
 }
 
-function _statusBadge(status) {
-  const statuses = getStatusesByCategory('insurance');
-  const s = statuses.find((x) => x.name === status);
-  const isDone = s ? s.isDone : (status && status.startsWith('已'));
-  const cls = isDone ? 'badge-success' : 'badge-pending';
-  return `<span class="badge ${cls}">${escapeHtml(status || '未扣款')}</span>`;
-}
-
 /* ============================================
    清單事件
    ============================================ */
 function _bindListEvents() {
-  // 未來擴充
+  // 保留供未來擴充
 }
 
 /* ============================================

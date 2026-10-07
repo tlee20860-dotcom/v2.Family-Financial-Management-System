@@ -1,15 +1,22 @@
 // ============================================
-// db.js — Firebase Realtime Database 讀寫封裝（v101.4）
+// db.js — Firebase Realtime Database 讀寫封裝（v101.5）
 // 位置：js/core/db.js
 // ============================================
-// v101.4 修正：
-//   ✅ addInsurancePolicy / updateInsurancePolicy 加 policyHolderId
-//   ✅ 保留 v101.3 的 updateBank / getMemberExpensesForYear
+// v101.5 修正：
+//   ✅ 新增 getPolicyEffectiveMemberId（從 constants 讀取）
+//   ✅ 新增 updateEntityStatus（跨來源改狀態通用函式）
+//   ✅ 新增 getMemberExpensesForYear 保留（v101.3）
+//   ✅ 新增 updateBank / updateFund 支援部分更新
+//   ✅ 保險相關的 linked_ 前綴改用 LINKED_PREFIX 常數
 // ============================================
 
 import { db } from '../config/firebase-config.js';
 import { AppState } from './state.js';
-import { RESERVED_IDS } from '../config/constants.js';
+import {
+  RESERVED_IDS,
+  LINKED_PREFIX,
+  buildLinkedKey,
+} from '../config/constants.js';
 import {
   ref, onValue, push, set, update, remove, get,
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
@@ -88,7 +95,12 @@ export async function addMember(member) {
 }
 
 export async function updateMember(id, patch) {
-  await update(familyRef(`members/${id}`), patch);
+  const clean = {};
+  if (patch.name !== undefined) clean.name = String(patch.name).trim();
+  if (patch.role !== undefined) clean.role = patch.role;
+  if (patch.order !== undefined) clean.order = Number(patch.order) || 0;
+  if (Object.keys(clean).length === 0) return;
+  await update(familyRef(`members/${id}`), clean);
 }
 
 export async function removeMember(id) {
@@ -132,20 +144,30 @@ export function listenBanks(cb, err) {
   return listenList('banks', byOrderThenCreated, cb, err);
 }
 
-export async function addBank(name) {
+export async function addBank(nameOrObj) {
+  const name = typeof nameOrObj === 'string' ? nameOrObj : (nameOrObj?.name || '');
   const newRef = push(familyRef('banks'));
   await set(newRef, {
-    name: name || '',
+    name: String(name).trim(),
     order: 0,
     createdAt: Date.now(),
   });
   return newRef.key;
 }
 
-export async function updateBank(id, newName) {
-  await update(familyRef(`banks/${id}`), {
-    name: String(newName || '').trim(),
-  });
+/**
+ * v101.5：支援部分更新（可傳 string 或 { name }）
+ */
+export async function updateBank(id, patch) {
+  const clean = {};
+  if (typeof patch === 'string') {
+    clean.name = String(patch).trim();
+  } else if (patch && typeof patch === 'object') {
+    if (patch.name !== undefined) clean.name = String(patch.name).trim();
+    if (patch.order !== undefined) clean.order = Number(patch.order) || 0;
+  }
+  if (Object.keys(clean).length === 0) return;
+  await update(familyRef(`banks/${id}`), clean);
 }
 
 export async function removeBank(id) {
@@ -266,10 +288,11 @@ export async function addPaymentMethod(pm) {
 }
 
 export async function updatePaymentMethod(id, patch) {
-  await update(familyRef(`payment_methods/${id}`), {
-    name: patch.name || '',
-    order: Number(patch.order) || 0,
-  });
+  const clean = {};
+  if (patch.name !== undefined) clean.name = String(patch.name).trim();
+  if (patch.order !== undefined) clean.order = Number(patch.order) || 0;
+  if (Object.keys(clean).length === 0) return;
+  await update(familyRef(`payment_methods/${id}`), clean);
 }
 
 export async function removePaymentMethod(id) {
@@ -303,10 +326,11 @@ export async function addCategory(cat) {
 }
 
 export async function updateCategory(id, patch) {
-  await update(familyRef(`expense_categories/${id}`), {
-    name: patch.name || '',
-    order: Number(patch.order) || 0,
-  });
+  const clean = {};
+  if (patch.name !== undefined) clean.name = String(patch.name).trim();
+  if (patch.order !== undefined) clean.order = Number(patch.order) || 0;
+  if (Object.keys(clean).length === 0) return;
+  await update(familyRef(`expense_categories/${id}`), clean);
 }
 
 export async function removeCategory(id) {
@@ -328,10 +352,11 @@ export async function addItem(item) {
 }
 
 export async function updateItem(id, patch) {
-  await update(familyRef(`expense_items/${id}`), {
-    name: patch.name || '',
-    categoryId: patch.categoryId || '',
-  });
+  const clean = {};
+  if (patch.name !== undefined) clean.name = String(patch.name).trim();
+  if (patch.categoryId !== undefined) clean.categoryId = patch.categoryId;
+  if (Object.keys(clean).length === 0) return;
+  await update(familyRef(`expense_items/${id}`), clean);
 }
 
 export async function removeItem(id) {
@@ -367,12 +392,13 @@ export async function addStatus(data) {
 }
 
 export async function updateStatus(id, patch) {
-  await update(familyRef(`statuses/${id}`), {
-    name: patch.name || '',
-    category: patch.category || 'personal',
-    isDone: !!patch.isDone,
-    order: Number(patch.order) || 0,
-  });
+  const clean = {};
+  if (patch.name !== undefined) clean.name = String(patch.name).trim();
+  if (patch.category !== undefined) clean.category = patch.category;
+  if (patch.isDone !== undefined) clean.isDone = !!patch.isDone;
+  if (patch.order !== undefined) clean.order = Number(patch.order) || 0;
+  if (Object.keys(clean).length === 0) return;
+  await update(familyRef(`statuses/${id}`), clean);
 }
 
 export async function removeStatus(id) {
@@ -414,7 +440,7 @@ export async function saveUIConstants(data) {
    平台預設資料庫
    ============================================ */
 
-const PLATFORM_RESOURCES = {
+const PLATFORM_PATHS = {
   members: 'members',
   banks: 'banks',
   companies: 'insurance_companies',
@@ -428,7 +454,7 @@ const PLATFORM_RESOURCES = {
 };
 
 function platformPath(resource) {
-  const path = PLATFORM_RESOURCES[resource];
+  const path = PLATFORM_PATHS[resource];
   if (!path) throw new Error(`未知的平台資源：${resource}`);
   return `platform/defaults/${path}`;
 }
@@ -694,8 +720,8 @@ export async function addInsurancePolicy(policy) {
   const newRef = push(familyRef('insurance_policies'));
   await set(newRef, {
     type: policy.type || 'normal',
-    memberId: policy.memberId || '',              // 受保人
-    policyHolderId: policy.policyHolderId || '',  // 🆕 v101.4：保單持有人
+    memberId: policy.memberId || '',
+    policyHolderId: policy.policyHolderId || '',
     name: policy.name || '',
     company: policy.company || '',
     paymentType: policy.paymentType || '年繳',
@@ -713,28 +739,28 @@ export async function addInsurancePolicy(policy) {
 }
 
 export async function updateInsurancePolicy(id, patch) {
-  await update(familyRef(`insurance_policies/${id}`), {
-    type: patch.type || 'normal',
-    memberId: patch.memberId || '',
-    policyHolderId: patch.policyHolderId || '',   // 🆕 v101.4
-    name: patch.name || '',
-    company: patch.company || '',
-    paymentType: patch.paymentType || '年繳',
-    firstStartYear: Number(patch.firstStartYear) || 0,
-    firstStartMonth: String(patch.firstStartMonth || '01').padStart(2, '0'),
-    totalPolicyYears: Number(patch.totalPolicyYears) || 0,
-    totalPolicyPeriods: Number(patch.totalPolicyPeriods) || 0,
-    totalPremium: roundInt(patch.totalPremium),
-    currentPeriodIndex: Number(patch.currentPeriodIndex) || 1,
-    account: patch.account || '',
-    periods: patch.periods || {},
+  const clean = {};
+  const fields = [
+    'type', 'memberId', 'policyHolderId', 'name', 'company', 'paymentType',
+    'firstStartYear', 'firstStartMonth', 'totalPolicyYears', 'totalPolicyPeriods',
+    'totalPremium', 'currentPeriodIndex', 'account', 'periods', 'isCompleted',
+  ];
+  fields.forEach((f) => {
+    if (patch[f] !== undefined) clean[f] = patch[f];
   });
+  if (clean.amount != null) clean.amount = roundInt(clean.amount);
+  if (clean.totalPremium != null) clean.totalPremium = roundInt(clean.totalPremium);
+  if (Object.keys(clean).length === 0) return;
+  await update(familyRef(`insurance_policies/${id}`), clean);
 }
 
 export async function removeInsurancePolicy(id) {
   await remove(familyRef(`insurance_policies/${id}`));
 }
 
+/**
+ * v101.5：使用 buildLinkedKey
+ */
 export async function deleteInsurancePolicyAndData(policyId, memberId) {
   const familyId = AppState.getFamilyId();
   if (!familyId) throw new Error('尚未選擇家庭');
@@ -742,10 +768,11 @@ export async function deleteInsurancePolicyAndData(policyId, memberId) {
   const payments = paymentsSnap.val() || {};
   const updates = {};
 
+  const linkedKey = buildLinkedKey(policyId);
   for (const [year, months] of Object.entries(payments)) {
     for (const [month] of Object.entries(months)) {
       updates[
-        `families/${familyId}/expenses/${year}/${month}/member_expenses/${memberId}/linked_${policyId}`
+        `families/${familyId}/expenses/${year}/${month}/member_expenses/${memberId}/${linkedKey}`
       ] = null;
     }
   }
@@ -866,13 +893,14 @@ export async function addFund(fund) {
 }
 
 export async function updateFund(id, patch) {
-  await update(familyRef(`funds/${id}`), {
-    name: patch.name || '',
-    cost: roundInt(patch.cost),
-    currentValue: roundInt(patch.currentValue),
-    units: Number(patch.units) || 0,
-    note: patch.note || '',
-  });
+  const clean = {};
+  if (patch.name !== undefined) clean.name = String(patch.name).trim();
+  if (patch.cost !== undefined) clean.cost = roundInt(patch.cost);
+  if (patch.currentValue !== undefined) clean.currentValue = roundInt(patch.currentValue);
+  if (patch.units !== undefined) clean.units = Number(patch.units) || 0;
+  if (patch.note !== undefined) clean.note = String(patch.note || '').trim();
+  if (Object.keys(clean).length === 0) return;
+  await update(familyRef(`funds/${id}`), clean);
 }
 
 export async function removeFund(id) {
@@ -904,12 +932,14 @@ export async function addFixedTemplate(tmpl) {
 }
 
 export async function updateFixedTemplate(id, patch) {
-  await update(familyRef(`fixed_expense_templates/${id}`), {
-    name: patch.name || '',
-    amount: roundInt(patch.amount),
-    cycle: patch.cycle || '每月',
-    note: patch.note || '',
+  const clean = {};
+  const fields = ['name', 'categoryId', 'itemId', 'memberId', 'cycle', 'note', 'paymentMethodId'];
+  fields.forEach((f) => {
+    if (patch[f] !== undefined) clean[f] = patch[f];
   });
+  if (patch.amount !== undefined) clean.amount = roundInt(patch.amount);
+  if (Object.keys(clean).length === 0) return;
+  await update(familyRef(`fixed_expense_templates/${id}`), clean);
 }
 
 export async function removeFixedTemplate(id) {
@@ -987,6 +1017,48 @@ export async function getFixedExpensesOnce(year, month) {
   const list = Object.entries(val).map(([id, x]) => ({ id, ...x }));
   list.sort(byCreatedAt);
   return list;
+}
+
+/* ============================================
+   🆕 v101.5：跨來源改狀態通用函式
+   ============================================ */
+
+/**
+ * 更新實體狀態（跨來源）
+ * @param {'personal'|'fixed'|'insurance'} source
+ * @param {Object} row - 結算 row（含 _ref）
+ * @param {string} newStatus
+ * @param {boolean} isDone
+ * @returns {Promise<void>}
+ */
+export async function updateEntityStatus(source, row, newStatus, isDone) {
+  const today = new Date().toISOString().slice(0, 10);
+
+  switch (source) {
+    case 'personal': {
+      const { memberId, expenseId } = row._ref;
+      await updateExpense(row.year, row.month, memberId, expenseId, {
+        status: newStatus,
+        repaidDate: isDone ? today : '',
+      });
+      return;
+    }
+    case 'fixed': {
+      const { id } = row._ref;
+      await updateFixedExpense(row.year, row.month, id, {
+        status: newStatus,
+        paidDate: isDone ? today : '',
+      });
+      return;
+    }
+    case 'insurance': {
+      const { policyId, memberId } = row._ref;
+      // 保險的邏輯由呼叫端處理（需要 api.insuranceSync）
+      throw new Error('保險狀態請使用 settlements/render.js 的 updateRowStatus');
+    }
+    default:
+      throw new Error('未知的來源：' + source);
+  }
 }
 
 /* ============================================

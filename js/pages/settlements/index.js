@@ -1,10 +1,11 @@
 // ============================================
-// index.js — 結算清單入口（v101.3）
+// index.js — 結算清單入口（v101.5）
 // 位置：js/pages/settlements/index.js
 // ============================================
-// v101.3 修正：
-//   ✅ 加入 listenMembers 監聽 + setMembersCache
-//     → render.js 的 _getMemberName 可取得真實成員名稱
+// v101.5 修正：
+//   ✅ 保單金額計算改用 shared/insurance-calc.js
+//   ✅ 使用 registerPageCleanup 註冊清理
+//   ✅ updateRowStatus 改由 render.js 提供（跨來源改狀態 SSOT）
 // ============================================
 
 import { AppState } from '../../core/state.js';
@@ -19,6 +20,7 @@ import {
 import { renderPageFilter } from '../../shared/page-filter.js';
 import { initViewToggle } from '../../shared/view-toggle.js';
 import { showToast } from '../../shared/toast.js';
+import { registerPageCleanup } from '../../core/app.js';
 import { mergeSettlementData } from './merge.js';
 import {
   renderSettlementTable,
@@ -26,6 +28,9 @@ import {
   updateRowStatus,
   setMembersCache,
 } from './render.js';
+
+// 🆕 v101.5：改用 shared/insurance-calc.js
+import { estimateMonthlyAmount } from '../../shared/insurance-calc.js';
 
 /* ============================================
    Module 狀態
@@ -46,12 +51,13 @@ let _unsubMembers = null;
 let _unsubYM = null;
 let _filterInstance = null;
 let _viewToggle = null;
+let _sortHandler = null;
+let _statusChangeHandlers = [];
 
 /* ============================================
    主入口
    ============================================ */
 export async function initSettlementsPage() {
-  // 檢視切換
   _viewToggle = initViewToggle({
     containerId: 'view-toggle-root',
     storageKey: 'settlements-view',
@@ -62,7 +68,6 @@ export async function initSettlementsPage() {
     onChange: () => _render(),
   });
 
-  // 頁面篩選欄
   _filterInstance = renderPageFilter({
     containerId: 'page-filter-root',
     fields: ['year', 'month'],
@@ -102,25 +107,24 @@ export async function initSettlementsPage() {
   });
 
   // 排序切換
-  document.getElementById('settlement-sort')?.addEventListener('change', (e) => {
+  _sortHandler = (e) => {
     _sortMode = e.target.value;
+    _render();
+  };
+  document.getElementById('settlement-sort')?.addEventListener('change', _sortHandler);
+
+  _bindStatusChange();
+
+  _unsubMembers = listenMembers((list) => {
+    setMembersCache(list);
     _render();
   });
 
-  // 綁定狀態變更（事件委派）
-  _bindStatusChange();
-
-  // 🆕 v101.3：監聽成員 → 更新 membersCache
-  _unsubMembers = listenMembers((list) => {
-    setMembersCache(list);
-    _render();  // 成員名稱更新後重繪
-  });
-
-  // 統一由 AppState 觸發
   _unsubYM = AppState.on('ym-change', () => _reload());
 
-  // 初次載入
   await _reload();
+
+  registerPageCleanup(_destroy);
 
   return {
     destroy: _destroy,
@@ -155,8 +159,14 @@ function _bindStatusChange() {
     }
   };
 
-  cardEl?.addEventListener('change', handler);
-  tableEl?.addEventListener('change', handler);
+  if (cardEl) {
+    cardEl.addEventListener('change', handler);
+    _statusChangeHandlers.push({ el: cardEl, handler });
+  }
+  if (tableEl) {
+    tableEl.addEventListener('change', handler);
+    _statusChangeHandlers.push({ el: tableEl, handler });
+  }
 }
 
 /* ============================================
@@ -319,18 +329,21 @@ async function _loadInsurancePaymentsForMonth(year, month) {
             policyId: p.id,
             policyName: p.name,
             memberId: p.memberId,
+            policyHolderId: p.policyHolderId || p.memberId,
             type: p.type,
             status: existing.status || '已扣款',
             amount: Number(existing.amount) || 0,
             date: existing.date || '',
           });
         } else {
-          const estimated = _estimateMonthlyAmount(p, year, month);
+          // 🆕 v101.5：改用 shared/insurance-calc.js
+          const estimated = estimateMonthlyAmount(p, year, month);
           if (estimated > 0 || p.type === 'fund_insurance') {
             rows.push({
               policyId: p.id,
               policyName: p.name,
               memberId: p.memberId,
+              policyHolderId: p.policyHolderId || p.memberId,
               type: p.type,
               status: '未扣款',
               amount: estimated,
@@ -360,18 +373,21 @@ function _buildInsuranceRows(policies, paymentsCache, year, month) {
         policyId: p.id,
         policyName: p.name,
         memberId: p.memberId,
+        policyHolderId: p.policyHolderId || p.memberId,
         type: p.type,
         status: existing.status || '已扣款',
         amount: Number(existing.amount) || 0,
         date: existing.date || '',
       });
     } else {
-      const estimated = _estimateMonthlyAmount(p, year, month);
+      // 🆕 v101.5：改用 shared/insurance-calc.js
+      const estimated = estimateMonthlyAmount(p, year, month);
       if (estimated > 0 || p.type === 'fund_insurance') {
         rows.push({
           policyId: p.id,
           policyName: p.name,
           memberId: p.memberId,
+          policyHolderId: p.policyHolderId || p.memberId,
           type: p.type,
           status: '未扣款',
           amount: estimated,
@@ -382,43 +398,6 @@ function _buildInsuranceRows(policies, paymentsCache, year, month) {
   });
 
   return rows;
-}
-
-function _estimateMonthlyAmount(policy, year, month) {
-  if (policy.type === 'fund_insurance') {
-    return Math.round(Number(policy.monthlyPremium) || 0);
-  }
-
-  const y = Number(year);
-  const m = Number(month);
-  const firstY = Number(policy.firstStartYear) || 0;
-  const firstM = Number(policy.firstStartMonth) || 1;
-  if (!firstY) return 0;
-
-  const totalMonths = (y - firstY) * 12 + (m - firstM);
-  if (totalMonths < 0) return 0;
-
-  const periodIndex = Math.floor(totalMonths / 12) + 1;
-  if (policy.totalPolicyYears && periodIndex > policy.totalPolicyYears) return 0;
-
-  const periodData = (policy.periods || {})[String(periodIndex)];
-  if (periodData && periodData.monthlyAverage) {
-    return Math.round(Number(periodData.monthlyAverage) || 0);
-  }
-
-  const periodKeys = Object.keys(policy.periods || {})
-    .map(Number)
-    .filter((n) => !isNaN(n) && n > 0)
-    .sort((a, b) => a - b);
-
-  if (periodKeys.length > 0) {
-    const below = periodKeys.filter((k) => k <= periodIndex);
-    const target = below.length > 0 ? below[below.length - 1] : periodKeys[0];
-    const tp = policy.periods[String(target)];
-    if (tp && tp.monthlyAverage) return Math.round(Number(tp.monthlyAverage));
-  }
-
-  return Math.round(Number(policy.monthlyAverage) || 0);
 }
 
 /* ============================================
@@ -548,4 +527,12 @@ function _destroy() {
     try { _viewToggle.destroy(); } catch (e) { /* noop */ }
     _viewToggle = null;
   }
+  if (_sortHandler) {
+    document.getElementById('settlement-sort')?.removeEventListener('change', _sortHandler);
+    _sortHandler = null;
+  }
+  _statusChangeHandlers.forEach(({ el, handler }) => {
+    try { el.removeEventListener('change', handler); } catch (e) { /* noop */ }
+  });
+  _statusChangeHandlers = [];
 }

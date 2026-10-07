@@ -35,9 +35,8 @@
 
         <div id="page-filter-root" class="mb-16"></div>
 
-        <!-- ============ 單月檢視 ============ -->
+        <!-- 單月檢視 -->
         <div id="banks-summary-view">
-          <!-- 統計卡 -->
           <div class="grid grid-2 mb-20">
             <div class="glass-card">
               <div class="glass-card-title">本月銀行總結餘</div>
@@ -58,7 +57,7 @@
           <div id="banks-table-view" style="display:none;"></div>
         </div>
 
-        <!-- ============ 全年檢視 ============ -->
+        <!-- 全年檢視 -->
         <div id="banks-annual-view" style="display:none;">
           <div class="glass-card mb-20">
             <div class="glass-card-title">年末銀行總結餘</div>
@@ -81,7 +80,7 @@
     import { initBanksPage } from './js/pages/banks.js';
 
     await initApp({ activeHref: 'banks.html', title: '銀行管理' });
-    initBanksPage();
+    await initBanksPage();
   </script>
 </body>
 </html>

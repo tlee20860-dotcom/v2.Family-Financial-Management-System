@@ -19,7 +19,7 @@
         <div class="page-header flex flex-between items-end flex-wrap gap-12">
           <div>
             <h1 class="page-title">成員管理</h1>
-            <p class="page-subtitle">家庭成員清單（唯讀）· 管理請至基礎資料庫</p>
+            <p class="page-subtitle">家庭成員清單（可快速編輯）· 完整管理請至基礎資料庫</p>
           </div>
           <div class="flex items-center gap-12 flex-wrap">
             <div id="view-toggle-root"></div>
@@ -50,7 +50,7 @@
     import { initMembersPage } from './js/pages/members.js';
 
     await initApp({ activeHref: 'members.html', title: '成員管理' });
-    initMembersPage();
+    await initMembersPage();
   </script>
 </body>
 </html>

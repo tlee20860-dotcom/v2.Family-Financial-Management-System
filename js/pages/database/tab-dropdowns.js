@@ -1,15 +1,11 @@
 // ============================================
-// tab-dropdowns.js — 基礎資料庫：下拉選項 Tab（v101）
+// tab-dropdowns.js — 基礎資料庫：下拉選項 Tab（v101.5）
 // 位置：js/pages/database/tab-dropdowns.js
 // ============================================
-// 功能：集中管理 5 組下拉選項
-//   1. 成員角色       memberRoles
-//   2. 付款週期       cycles
-//   3. 保單類型       policyTypes
-//   4. 保險付款類型   insurancePaymentTypes
-//   5. 類別順序       categoryOrder
-//
-// 儲存位置：families/{uid}/settings/options
+// v101.5 修正：
+//   ✅ 保留 GROUPS 定義（用於分組顯示，非 SSOT）
+//   ✅ 新增 / 編輯改用 openConfirm + 專屬 Modal（因選項結構特殊）
+//   ✅ 使用 _container.querySelector + 完整清理
 // ============================================
 
 import { listenFamilyOptions, saveFamilyOptions } from '../../core/db.js';
@@ -24,7 +20,9 @@ import { buildForm } from '../../shared/form-builder.js';
    ============================================ */
 let _container = null;
 let _options = {};
-let _unsubscribers = [];
+let _unsubOptions = null;
+let _listHandler = null;
+let _editFormApi = null;
 
 const EDIT_MODAL_ID = 'db-dropdown-edit-modal';
 
@@ -32,41 +30,11 @@ const EDIT_MODAL_ID = 'db-dropdown-edit-modal';
    選項群組定義
    ============================================ */
 const GROUPS = [
-  {
-    key: 'memberRoles',
-    label: '成員角色',
-    icon: 'users',
-    type: 'value-label',   // { value, label }
-    hint: '用於成員的角色選項',
-  },
-  {
-    key: 'cycles',
-    label: '付款週期',
-    icon: 'repeat',
-    type: 'value-label',
-    hint: '固定支出的付款週期',
-  },
-  {
-    key: 'policyTypes',
-    label: '保單類型',
-    icon: 'shield',
-    type: 'value-label',
-    hint: '保險保單的類型',
-  },
-  {
-    key: 'insurancePaymentTypes',
-    label: '保險付款類型',
-    icon: 'credit-card',
-    type: 'value-label',
-    hint: '保單的付款方式（年繳 / 月繳 / 一次付款）',
-  },
-  {
-    key: 'categoryOrder',
-    label: '類別順序',
-    icon: 'list-ordered',
-    type: 'string',        // 純字串陣列
-    hint: '年度報表中類別的顯示順序',
-  },
+  { key: 'memberRoles',           label: '成員角色',     icon: 'users',        type: 'value-label', hint: '用於成員的角色選項' },
+  { key: 'cycles',                label: '付款週期',     icon: 'repeat',       type: 'value-label', hint: '固定支出的付款週期' },
+  { key: 'policyTypes',           label: '保單類型',     icon: 'shield',       type: 'value-label', hint: '保險保單的類型' },
+  { key: 'insurancePaymentTypes', label: '保險付款類型', icon: 'credit-card',  type: 'value-label', hint: '保單的付款方式（年繳 / 月繳 / 一次付款）' },
+  { key: 'categoryOrder',         label: '類別順序',     icon: 'list-ordered', type: 'string',      hint: '年度報表中類別的顯示順序' },
 ];
 
 /* ============================================
@@ -82,7 +50,11 @@ export function initDropdownsTab(containerId) {
   _container.innerHTML = _buildSkeleton();
   _renderEditModal();
   _bindEvents();
-  _bindListeners();
+
+  _unsubOptions = listenFamilyOptions((data) => {
+    _options = _normalizeOptions(data);
+    _render();
+  });
 
   return {
     refresh: _render,
@@ -127,18 +99,8 @@ function _renderEditModal() {
 }
 
 /* ============================================
-   資料監聽
+   資料正規化
    ============================================ */
-function _bindListeners() {
-  _unsubscribers.push(
-    listenFamilyOptions((data) => {
-      // 若為空 → 用 app-config 的 fallback
-      _options = _normalizeOptions(data);
-      _render();
-    })
-  );
-}
-
 function _normalizeOptions(data) {
   const fallback = {
     memberRoles: getOptions('memberRoles'),
@@ -163,10 +125,10 @@ function _normalizeOptions(data) {
    事件綁定
    ============================================ */
 function _bindEvents() {
-  const listEl = document.getElementById('db-dropdowns-list');
+  const listEl = _container.querySelector('#db-dropdowns-list');
   if (!listEl) return;
 
-  listEl.addEventListener('click', async (e) => {
+  _listHandler = async (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
 
@@ -185,14 +147,16 @@ function _bindEvents() {
     } else if (action === 'move-down') {
       await _move(groupKey, idx, 'down');
     }
-  });
+  };
+
+  listEl.addEventListener('click', _listHandler);
 }
 
 /* ============================================
    渲染
    ============================================ */
 function _render() {
-  const listEl = document.getElementById('db-dropdowns-list');
+  const listEl = _container.querySelector('#db-dropdowns-list');
   if (!listEl) return;
 
   listEl.innerHTML = GROUPS.map((g) => _renderGroupCard(g)).join('');
@@ -277,33 +241,28 @@ function _openAddModal(groupKey) {
         { type: 'text', id: 'dd-value', label: '名稱', required: true, placeholder: '例如：醫療類', maxlength: 40 },
       ];
 
-  const api = buildForm({
+  _editFormApi = buildForm({
     containerId: 'db-dropdown-modal-form-root',
     fields,
     submitText: '新增',
     showCancel: true,
     cancelText: '取消',
+    beforeSubmit: (data) => _validateOption(group, data, null),
     onSubmit: async (data) => {
       const list = [...(_options[group.key] || [])];
 
       if (group.type === 'value-label') {
-        const value = (data['dd-value'] || '').trim();
-        const label = (data['dd-label'] || '').trim();
-        if (!value || !label) return { field: 'dd-value', message: '請填寫完整' };
-        if (list.some((x) => x.value === value)) {
-          return { field: 'dd-value', message: '此值已存在' };
-        }
-        list.push({ value, label });
+        list.push({
+          value: (data['dd-value'] || '').trim(),
+          label: (data['dd-label'] || '').trim(),
+        });
       } else {
-        const val = (data['dd-value'] || '').trim();
-        if (!val) return { field: 'dd-value', message: '請填寫名稱' };
-        if (list.includes(val)) return { field: 'dd-value', message: '此名稱已存在' };
-        list.push(val);
+        list.push((data['dd-value'] || '').trim());
       }
 
       try {
         await _saveGroup(group.key, list);
-        showToast(`✅ 已新增`, 'success');
+        showToast('✅ 已新增', 'success');
         closeModal(EDIT_MODAL_ID);
       } catch (err) {
         showToast('新增失敗：' + err.message, 'error');
@@ -342,31 +301,28 @@ function _openEditModal(groupKey, index) {
         { type: 'text', id: 'dd-value', label: '名稱', required: true, maxlength: 40 },
       ];
 
-  const api = buildForm({
+  const initialData = isValueLabel
+    ? { 'dd-value': item.value || '', 'dd-label': item.label || '' }
+    : { 'dd-value': item || '' };
+
+  _editFormApi = buildForm({
     containerId: 'db-dropdown-modal-form-root',
     fields,
     submitText: '儲存',
     showCancel: true,
     cancelText: '取消',
+    initialData,
+    beforeSubmit: (data) => _validateOption(group, data, index),
     onSubmit: async (data) => {
       const newList = [...list];
 
       if (isValueLabel) {
-        const value = (data['dd-value'] || '').trim();
-        const label = (data['dd-label'] || '').trim();
-        if (!value || !label) return { field: 'dd-value', message: '請填寫完整' };
-        // 檢查重複（排除自己）
-        if (newList.some((x, i) => i !== index && x.value === value)) {
-          return { field: 'dd-value', message: '此值已存在' };
-        }
-        newList[index] = { value, label };
+        newList[index] = {
+          value: (data['dd-value'] || '').trim(),
+          label: (data['dd-label'] || '').trim(),
+        };
       } else {
-        const val = (data['dd-value'] || '').trim();
-        if (!val) return { field: 'dd-value', message: '請填寫名稱' };
-        if (newList.some((x, i) => i !== index && x === val)) {
-          return { field: 'dd-value', message: '此名稱已存在' };
-        }
-        newList[index] = val;
+        newList[index] = (data['dd-value'] || '').trim();
       }
 
       try {
@@ -380,14 +336,30 @@ function _openEditModal(groupKey, index) {
     onCancel: () => closeModal(EDIT_MODAL_ID),
   });
 
-  // 填入現值
-  if (isValueLabel) {
-    api.setData({ 'dd-value': item.value || '', 'dd-label': item.label || '' });
-  } else {
-    api.setData({ 'dd-value': item || '' });
+  openModal(EDIT_MODAL_ID);
+}
+
+function _validateOption(group, data, index) {
+  const value = (data['dd-value'] || '').trim();
+  if (!value) {
+    return { field: 'dd-value', message: group.type === 'value-label' ? '請填寫值' : '請填寫名稱' };
   }
 
-  openModal(EDIT_MODAL_ID);
+  const list = _options[group.key] || [];
+
+  if (group.type === 'value-label') {
+    const label = (data['dd-label'] || '').trim();
+    if (!label) return { field: 'dd-label', message: '請填寫顯示名稱' };
+    if (list.some((x, i) => i !== index && x.value === value)) {
+      return { field: 'dd-value', message: '此值已存在' };
+    }
+  } else {
+    if (list.some((x, i) => i !== index && x === value)) {
+      return { field: 'dd-value', message: '此名稱已存在' };
+    }
+  }
+
+  return true;
 }
 
 /* ============================================
@@ -437,7 +409,6 @@ async function _move(groupKey, index, direction) {
    儲存
    ============================================ */
 async function _saveGroup(groupKey, newList) {
-  // 保留其他選項
   const merged = { ..._options };
   merged[groupKey] = newList;
 
@@ -450,10 +421,19 @@ async function _saveGroup(groupKey, newList) {
    銷毀
    ============================================ */
 function _destroy() {
-  _unsubscribers.forEach((fn) => {
-    try { fn(); } catch (e) { /* noop */ }
-  });
-  _unsubscribers = [];
+  if (_unsubOptions) {
+    try { _unsubOptions(); } catch (e) { /* noop */ }
+    _unsubOptions = null;
+  }
+
+  if (_listHandler && _container) {
+    _container.querySelector('#db-dropdowns-list')?.removeEventListener('click', _listHandler);
+    _listHandler = null;
+  }
+  if (_editFormApi) {
+    try { _editFormApi.destroy(); } catch (e) { /* noop */ }
+    _editFormApi = null;
+  }
 
   document.getElementById(EDIT_MODAL_ID)?.remove();
 }

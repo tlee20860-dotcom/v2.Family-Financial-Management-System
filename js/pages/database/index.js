@@ -1,15 +1,15 @@
 // ============================================
-// index.js — 基礎資料庫入口（v101）
+// index.js — 基礎資料庫入口（v101.5）
 // 位置：js/pages/database/index.js
 // ============================================
-// 用途：
-//   組裝 8 個 Tab
-//   使用 tab-panel.js 進行切換
-//   支援懶載入（第一次進入才初始化該 Tab）
+// v101.5 修正：
+//   ✅ 使用 registerPageCleanup 註冊清理
+//   ✅ Tab 定義從 entity-definitions.js 的概念延伸
 // ============================================
 
 import { initTabPanel } from '../../shared/tab-panel.js';
 import { showToast } from '../../shared/toast.js';
+import { registerPageCleanup } from '../../core/app.js';
 
 /* ============================================
    Tab 實例記錄
@@ -51,7 +51,6 @@ export function initDatabasePage() {
     return;
   }
 
-  // 渲染骨架：Tab 按鈕列 + 8 個 panel
   root.innerHTML = `
     <div id="db-tab-bar-root"></div>
     ${TABS.map((t) => `
@@ -59,22 +58,22 @@ export function initDatabasePage() {
     `).join('')}
   `;
 
-  // 初始化 Tab 面板
   _tabPanel = initTabPanel({
     containerId: 'db-tab-bar-root',
     tabs: TABS,
     defaultKey: 'members',
     storageKey: 'database-tab',
-    wrap: true,   // 8 Tab 分兩行
+    wrap: true,
     onChange: (key) => {
       _activateTab(key);
     },
   });
 
-  // 初次進入：載入預設 Tab
   if (_tabPanel) {
     _activateTab(_tabPanel.getCurrent());
   }
+
+  registerPageCleanup(_destroy);
 
   return {
     switchTo: (key) => _tabPanel?.switchTo(key),
@@ -90,7 +89,6 @@ async function _activateTab(key) {
   const tabDef = TABS.find((t) => t.key === key);
   if (!tabDef) return;
 
-  // 已初始化 → 只呼叫 refresh
   if (_tabInstances[key]) {
     try {
       _tabInstances[key].refresh?.();
@@ -100,7 +98,6 @@ async function _activateTab(key) {
     return;
   }
 
-  // 第一次進入 → 初始化
   try {
     const instance = await _initTabModule(key, tabDef.panelId);
     _tabInstances[key] = instance;
@@ -108,7 +105,6 @@ async function _activateTab(key) {
     console.error(`[database] 初始化 ${key} 失敗：`, err);
     showToast(`載入「${tabDef.label}」失敗`, 'error');
 
-    // 顯示錯誤訊息
     const panel = document.getElementById(tabDef.panelId);
     if (panel) {
       panel.innerHTML = `

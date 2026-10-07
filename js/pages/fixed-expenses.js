@@ -1,22 +1,26 @@
 // ============================================
-// fixed-expenses.js — 固定支出明細（v101.2 只讀化）
+// fixed-expenses.js — 固定支出明細（v101.5）
 // 位置：js/pages/fixed-expenses.js
 // ============================================
-// v101.2 修正：
-//   ✅ 移除未使用的 getFixedExpensesForYear import（致命 Bug）
-//   ✅ 移除未使用的 getFixedExpensesOnce import
+// v101.5 修正：
+//   ✅ 事件綁定從 module 層級移到 init 內（可完全清理）
+//   ✅ 新增「+ 新增固定支出」按鈕（透過 entity-modal）
+//   ✅ 狀態 badge 改用 entity-helpers 的 renderStatusBadge
+//   ✅ 使用 registerPageCleanup 註冊清理
 // ============================================
 
 import {
   listenFixedTemplates, listenFixedExpenses,
 } from '../core/db.js';
 import { AppState } from '../core/state.js';
-import { getStatusesByCategory } from '../config/app-config.js';
 import { escapeHtml, formatHKD } from '../core/utils.js';
 import { renderPageFilter } from '../shared/page-filter.js';
 import { initViewToggle } from '../shared/view-toggle.js';
 import { renderQuickSummary } from '../shared/quick-summary.js';
-import { QUICK_SUMMARY_TYPES } from '../config/constants.js';
+import { renderStatusBadge } from '../shared/entity-helpers.js';
+import { openEntityModal } from '../shared/entity-modal.js';
+import { QUICK_SUMMARY_TYPES, ENTITY_KEYS } from '../config/constants.js';
+import { registerPageCleanup } from '../core/app.js';
 
 /* ============================================
    Module 狀態
@@ -29,12 +33,13 @@ let _unsubYM = null;
 let _filterInstance = null;
 let _viewToggle = null;
 let _expandedKeys = new Set();
+let _expandClickHandler = null;
+let _templateEditHandler = null;
 
 /* ============================================
    主入口
    ============================================ */
 export async function initFixedExpensesPage() {
-  // 檢視切換
   _viewToggle = initViewToggle({
     containerId: 'view-toggle-root',
     storageKey: 'fixed-view',
@@ -45,28 +50,68 @@ export async function initFixedExpensesPage() {
     onChange: () => _render(),
   });
 
-  // 前往輸入中心
   document.getElementById('go-input-center-btn')?.addEventListener('click', () => {
     window.location.href = 'input-center.html';
   });
 
-  // 頁面篩選（只留年份）
+  // 🆕 v101.5：新增固定支出按鈕
+  document.getElementById('add-fixed-template-btn')?.addEventListener('click', () => {
+    openEntityModal({
+      entity: ENTITY_KEYS.FIXED_TEMPLATE,
+      mode: 'add',
+      allRows: _templates,
+    });
+  });
+
   _filterInstance = renderPageFilter({
     containerId: 'page-filter-root',
     fields: ['year'],
   });
 
-  // 監聽模板
   _unsubTemplates = listenFixedTemplates((list) => {
     _templates = list;
     _watchAllMonths();
   });
 
-  // 監聽 AppState
   _unsubYM = AppState.on('ym-change', () => _watchAllMonths());
 
-  // 初次啟動
   _watchAllMonths();
+
+  // 事件綁定（全部在 init 內）
+  _expandClickHandler = (e) => {
+    const btn = e.target.closest('.fixed-expand-btn');
+    if (!btn) return;
+    const key = btn.dataset.toggleKey;
+    if (!key) return;
+
+    if (_expandedKeys.has(key)) _expandedKeys.delete(key);
+    else _expandedKeys.add(key);
+
+    _render();
+  };
+  document.addEventListener('click', _expandClickHandler);
+
+  _templateEditHandler = (e) => {
+    const btn = e.target.closest('button[data-action="edit-template"]');
+    if (!btn) return;
+    const id = btn.dataset.id;
+    const template = _templates.find((t) => t.id === id);
+    if (!template) return;
+
+    openEntityModal({
+      entity: ENTITY_KEYS.FIXED_TEMPLATE,
+      mode: 'edit',
+      id: template.id,
+      allRows: _templates,
+    });
+  };
+
+  const cardEl = document.getElementById('fixed-card-view');
+  const tableEl = document.getElementById('fixed-table-view');
+  cardEl?.addEventListener('click', _templateEditHandler);
+  tableEl?.addEventListener('click', _templateEditHandler);
+
+  registerPageCleanup(_destroy);
 
   return {
     destroy: _destroy,
@@ -77,7 +122,6 @@ export async function initFixedExpensesPage() {
    監聽整年 12 個月
    ============================================ */
 function _watchAllMonths() {
-  // 清除舊監聽
   _unsubMonths.forEach((fn) => {
     try { fn(); } catch (e) { /* noop */ }
   });
@@ -121,14 +165,14 @@ function _render() {
           <i data-lucide="file-text" style="width:48px;height:48px;opacity:0.4;"></i>
           <p style="margin-top:12px;">尚無固定支出</p>
           <p style="font-size:12px; color:var(--text-muted); margin-top:8px;">
-            請先至「基礎資料庫」新增，或於「綜合輸入中心」新增固定支出
+            使用「+ 新增固定支出」按鈕，或至「基礎資料庫」新增
           </p>
           <div style="margin-top:16px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="document.getElementById('add-fixed-template-btn')?.click()">
+              <i data-lucide="plus"></i> 新增固定支出
+            </button>
             <a class="btn btn-ghost" href="database.html">
               <i data-lucide="database"></i> 基礎資料庫
-            </a>
-            <a class="btn btn-primary" href="input-center.html">
-              <i data-lucide="plus"></i> 綜合輸入中心
             </a>
           </div>
         </div>
@@ -201,13 +245,16 @@ function _renderCard(t) {
       <div style="display:${isExpanded ? 'block' : 'none'}; margin-top:10px;">
         ${_renderTemplateDetail(t)}
       </div>
+
+      <div style="margin-top:12px; display:flex; justify-content:flex-end; gap:6px;">
+        <button class="btn btn-sm btn-ghost" data-action="edit-template" data-id="${t.id}">
+          <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+        </button>
+      </div>
     </div>
   `;
 }
 
-/* ============================================
-   每月明細
-   ============================================ */
 function _renderTemplateDetail(t) {
   const rows = [];
 
@@ -219,7 +266,7 @@ function _renderTemplateDetail(t) {
 
     const status = item.status || '未付款';
     const amount = item.amount || 0;
-    const statusBadge = _renderStatusBadge(status, 'fixed');
+    const statusBadge = renderStatusBadge(status, 'fixed');
 
     rows.push(`
       <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
@@ -254,6 +301,7 @@ function _renderTable() {
               <th class="num">每月金額</th>
               <th>已付款</th>
               <th>未付款</th>
+              <th style="width:120px;">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -272,6 +320,11 @@ function _renderTable() {
                   <td class="num" data-label="每月金額">${formatHKD(t.amount || 0)}</td>
                   <td data-label="已付款"><span class="badge badge-success">${summary.paid} / ${summary.total}</span></td>
                   <td data-label="未付款"><span class="badge badge-pending">${summary.pending}</span></td>
+                  <td data-label="操作">
+                    <button class="btn btn-sm btn-ghost" data-action="edit-template" data-id="${t.id}">
+                      <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+                    </button>
+                  </td>
                 </tr>
               `;
             }).join('')}
@@ -321,20 +374,6 @@ function _renderQuickSummary() {
 }
 
 /* ============================================
-   狀態工具
-   ============================================ */
-function _renderStatusBadge(status, category) {
-  const statuses = getStatusesByCategory(category || 'fixed');
-  const s = statuses.find((x) => x.name === status);
-  const isDone = s ? !!s.isDone : (status && status.startsWith('已'));
-  const isSkipped = status === '不適用';
-  let cls = 'badge-pending';
-  if (isDone) cls = 'badge-success';
-  if (isSkipped) cls = 'badge-muted';
-  return `<span class="badge ${cls}">${escapeHtml(status || '未付款')}</span>`;
-}
-
-/* ============================================
    模板統計
    ============================================ */
 function _getTemplateSummary(t) {
@@ -357,22 +396,6 @@ function _getTemplateSummary(t) {
 
   return { paid, pending, skipped, total };
 }
-
-/* ============================================
-   明細展開事件（委派）
-   ============================================ */
-const _expandClickHandler = (e) => {
-  const btn = e.target.closest('.fixed-expand-btn');
-  if (!btn) return;
-  const key = btn.dataset.toggleKey;
-  if (!key) return;
-
-  if (_expandedKeys.has(key)) _expandedKeys.delete(key);
-  else _expandedKeys.add(key);
-
-  _render();
-};
-document.addEventListener('click', _expandClickHandler);
 
 /* ============================================
    銷毀
@@ -398,5 +421,15 @@ function _destroy() {
     try { _viewToggle.destroy(); } catch (e) { /* noop */ }
     _viewToggle = null;
   }
-  document.removeEventListener('click', _expandClickHandler);
+  if (_expandClickHandler) {
+    document.removeEventListener('click', _expandClickHandler);
+    _expandClickHandler = null;
+  }
+  if (_templateEditHandler) {
+    const cardEl = document.getElementById('fixed-card-view');
+    const tableEl = document.getElementById('fixed-table-view');
+    cardEl?.removeEventListener('click', _templateEditHandler);
+    tableEl?.removeEventListener('click', _templateEditHandler);
+    _templateEditHandler = null;
+  }
 }

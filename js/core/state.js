@@ -1,11 +1,11 @@
 // ============================================
-// state.js — 全域狀態中心（v101）
+// state.js — 全域狀態中心（v101.5）
 // 位置：js/core/state.js
 // ============================================
-// v101 修正：
-//   ✅ localStorage keys 改用 STORAGE_KEYS 常數
-//   ✅ 提供 destroy() 清理事件總線
-//   ✅ 新增 app-config 整合（選擇家庭時載入設定）
+// v101.5 修正：
+//   ✅ destroy 補齊 _initialized 重置
+//   ✅ destroy 補齊 _listeners 清空
+//   ✅ 新增 hasFamily / getYearMonth 回傳格式統一
 // ============================================
 
 import { STORAGE_KEYS } from '../config/constants.js';
@@ -59,7 +59,7 @@ export const AppState = {
   },
 
   /**
-   * 銷毀所有事件監聽（用於 SPA 切換頁面時）
+   * 銷毀所有狀態與事件監聽
    */
   destroy() {
     this._listeners = {};
@@ -112,6 +112,13 @@ export const AppState = {
     return this.currentFamilyName;
   },
 
+  /**
+   * 🆕 v101.5：是否有家庭
+   */
+  hasFamily() {
+    return !!this.currentFamilyId;
+  },
+
   clearFamily() {
     this.currentFamilyId = '';
     this.currentFamilyName = '';
@@ -146,7 +153,6 @@ export const AppState = {
     if (!this._listeners[event]) this._listeners[event] = [];
     this._listeners[event].push(callback);
 
-    // 回傳取消訂閱函式
     return () => {
       this._listeners[event] = (this._listeners[event] || []).filter((cb) => cb !== callback);
     };

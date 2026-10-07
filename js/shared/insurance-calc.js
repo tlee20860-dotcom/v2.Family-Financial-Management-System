@@ -1,22 +1,37 @@
 // ============================================
-// calc.js — 保險計算模組（v101）
-// 位置：js/pages/insurance/calc.js
+// insurance-calc.js — 保險計算模組（v101.5 🆕）
+// 位置：js/shared/insurance-calc.js
 // ============================================
-// 純計算函式（無副作用），可獨立測試
+// v101.5 新增：
+//   ✅ 從 js/pages/insurance/calc.js 提升為全站共用
+//   ✅ 新增 resolveMonthlyAmount（合併 sync.js 的 _resolveMonthlyAmount）
+//   ✅ 新增 getPolicyHolderId（policyHolderId fallback 規則）
+//   ✅ 純計算函式，無副作用
 //
-// 提供：
-//   getPeriodRange(policy, periodIndex)          期間起迄
-//   getPeriodInfo(policy, year, month)           當前年月屬於第幾期
-//   getPolicyAnnualPremium(policy, year)         該年度年繳保費
-//   getPolicyTotalPremium(policy)                保單總供款
-//   getPolicyPaidTotal(payments)                 已供款總額
-//   isPolicyCompleted(policy)                    是否供滿
-//   computeEnrichedPolicies(policies, cache)     批次計算
-//   countCompletedPolicies(enriched)             已供滿數量
+// 使用對象：
+//   js/pages/insurance/*.js
+//   js/pages/settlements/*.js
+//   js/pages/input-center/tab-insurance.js
+//   functions/api/summary.js 的對應邏輯（後端自行實作，不 import）
 // ============================================
 
+import { getPolicyEffectiveMemberId } from '../config/constants.js';
+
 /* ============================================
-   1. 期間範圍
+   1. 成員 ID fallback
+   ============================================ */
+
+/**
+ * 取得保單的有效成員 ID（policyHolderId || memberId）
+ * @param {Object} policy
+ * @returns {string}
+ */
+export function getPolicyHolderId(policy) {
+  return getPolicyEffectiveMemberId(policy);
+}
+
+/* ============================================
+   2. 期間範圍
    ============================================ */
 
 /**
@@ -76,7 +91,7 @@ export function getPeriodInfo(policy, year, month) {
 }
 
 /* ============================================
-   2. 年繳保費
+   3. 年繳保費
    ============================================ */
 
 /**
@@ -125,7 +140,63 @@ export function getPolicyAnnualPremium(policy, targetYear) {
 }
 
 /* ============================================
-   3. 保單總供款
+   4. 每月分攤金額（統一入口）
+   ============================================ */
+
+/**
+ * 解析某年月的分攤金額
+ * 優先順序：
+ *   1. paymentData.amount（若存在且 > 0）
+ *   2. 該月所屬期別的 monthlyAverage
+ *   3. policy.monthlyAverage（fallback）
+ *   4. 基金保險 → policy.monthlyPremium
+ *
+ * @param {Object} policy
+ * @param {number} year
+ * @param {number} month
+ * @param {Object} [paymentData]
+ * @returns {number}
+ */
+export function resolveMonthlyAmount(policy, year, month, paymentData) {
+  if (!policy) return 0;
+
+  // 1. payment 自帶金額
+  if (paymentData && paymentData.amount && Number(paymentData.amount) > 0) {
+    return Math.round(Number(paymentData.amount));
+  }
+
+  // 基金保險
+  if (policy.type === 'fund_insurance') {
+    return Math.round(Number(policy.monthlyPremium) || 0);
+  }
+
+  // 2. 該月所屬期別
+  const info = getPeriodInfo(policy, year, month);
+  if (info) {
+    const periodData = (policy.periods || {})[String(info.periodIndex)];
+    if (periodData && periodData.monthlyAverage) {
+      return Math.round(Number(periodData.monthlyAverage));
+    }
+  }
+
+  // 3. fallback
+  return Math.round(Number(policy.monthlyAverage) || 0);
+}
+
+/**
+ * 估算某年月的分攤金額（不考慮已存在的 payment）
+ * 用於 settlements 的「未扣款」保險顯示
+ * @param {Object} policy
+ * @param {number} year
+ * @param {number} month
+ * @returns {number}
+ */
+export function estimateMonthlyAmount(policy, year, month) {
+  return resolveMonthlyAmount(policy, year, month, null);
+}
+
+/* ============================================
+   5. 保單總供款
    ============================================ */
 
 /**
@@ -154,7 +225,6 @@ export function getPolicyTotalPremium(policy) {
     .filter((n) => !isNaN(n) && n > 0)
     .sort((a, b) => a - b);
 
-  // fallback 值
   let fallback = Math.round(Number(policy.annualPremium) || 0);
   if (!fallback && periodKeys.length > 0) {
     const last = periods[String(periodKeys[periodKeys.length - 1])];
@@ -175,7 +245,7 @@ export function getPolicyTotalPremium(policy) {
 }
 
 /* ============================================
-   4. 已供款總額
+   6. 已供款總額
    ============================================ */
 
 /**
@@ -195,10 +265,6 @@ export function getPolicyPaidTotal(payments) {
   return total;
 }
 
-/* ============================================
-   5. 供款狀態
-   ============================================ */
-
 /**
  * 計算已完成期數（依 payments 中「已扣款」的月份數）
  * @param {Object} payments
@@ -213,6 +279,10 @@ export function countCompletedPeriods(payments) {
   });
   return count;
 }
+
+/* ============================================
+   7. 供款狀態
+   ============================================ */
 
 /**
  * 判斷是否已供滿
@@ -231,8 +301,20 @@ export function isPolicyCompleted(policy) {
   return done >= total;
 }
 
+/**
+ * 計算供款進度百分比
+ * @param {Object} policy
+ * @returns {number} 0~100
+ */
+export function calcProgress(policy) {
+  const total = Number(policy.totalPolicyPeriods) || 0;
+  const done = Number(policy.completedPeriods) || 0;
+  if (total <= 0) return 0;
+  return Math.min(100, Math.round((done / total) * 100));
+}
+
 /* ============================================
-   6. 批次計算
+   8. 批次計算
    ============================================ */
 
 /**
@@ -274,7 +356,7 @@ export function countCompletedPolicies(enriched) {
 }
 
 /* ============================================
-   7. 統計：本年度總保費
+   9. 統計
    ============================================ */
 
 /**
@@ -309,20 +391,4 @@ export function calcMonthlyTotalAverage(enriched, year, month) {
     }
   });
   return total;
-}
-
-/* ============================================
-   8. 進度
-   ============================================ */
-
-/**
- * 計算供款進度百分比
- * @param {Object} policy
- * @returns {number} 0~100
- */
-export function calcProgress(policy) {
-  const total = Number(policy.totalPolicyPeriods) || 0;
-  const done = Number(policy.completedPeriods) || 0;
-  if (total <= 0) return 0;
-  return Math.min(100, Math.round((done / total) * 100));
 }

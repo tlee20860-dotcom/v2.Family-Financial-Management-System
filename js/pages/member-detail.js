@@ -1,11 +1,12 @@
 // ============================================
-// member-detail.js — 成員個人版面（v101.3 只讀化）
+// member-detail.js — 成員個人版面（v101.5）
 // 位置：js/pages/member-detail.js
 // ============================================
-// v101.3 修正：
-//   ✅ 移除未使用的 getIncomeOnce / getMemberDisplayName import
-//   ✅ 移除直接 import firebase-database，改用 db.js 封裝
-//   ✅ 改用 getMemberExpensesOnce（v101.3 新增到 db.js）
+// v101.5 修正：
+//   ✅ 狀態 badge 改用 entity-helpers 的 renderStatusBadge
+//   ✅ 使用 registerPageCleanup 註冊清理
+//   ✅ 年度折疊卡改用 annual-month-cards.js
+//   ✅ 快速摘要使用共用 builder
 // ============================================
 
 import {
@@ -14,11 +15,13 @@ import {
   getMemberExpensesForYear,
 } from '../core/db.js';
 import { AppState } from '../core/state.js';
-import { getStatusesByCategory } from '../config/app-config.js';
 import { formatHKD, escapeHtml } from '../core/utils.js';
 import { renderPageFilter } from '../shared/page-filter.js';
 import { renderQuickSummary } from '../shared/quick-summary.js';
+import { renderAnnualMonthCards } from '../shared/annual-month-cards.js';
+import { renderStatusBadge } from '../shared/entity-helpers.js';
 import { QUICK_SUMMARY_TYPES } from '../config/constants.js';
+import { registerPageCleanup } from '../core/app.js';
 
 /* ============================================
    Module 狀態
@@ -30,6 +33,7 @@ let _expenses = [];
 let _unsubExpenses = null;
 let _unsubscribeYM = null;
 let _filterInstance = null;
+let _annualCardsInstance = null;
 
 /* ============================================
    主入口
@@ -47,7 +51,6 @@ export async function initMemberDetailPage(id) {
     return;
   }
 
-  // 讀取成員名稱
   try {
     _members = await getMembersOnce();
     const me = _members.find((m) => m.id === _memberId);
@@ -65,16 +68,16 @@ export async function initMemberDetailPage(id) {
   const idLabel = document.getElementById('member-id-label');
   if (idLabel) idLabel.textContent = `ID：${_memberId}`;
 
-  // 頁面篩選
   _filterInstance = renderPageFilter({
     containerId: 'page-filter-root',
     fields: ['year', 'month'],
   });
 
-  // 統一由 AppState ym-change 觸發
   _unsubscribeYM = AppState.on('ym-change', () => loadData());
 
   await loadData();
+
+  registerPageCleanup(_destroy);
 
   return { destroy: _destroy };
 }
@@ -102,11 +105,10 @@ async function loadData() {
 }
 
 /* ============================================
-   全年模式
+   全年模式（使用 annual-month-cards）
    ============================================ */
 async function _loadAnnual(year) {
   try {
-    // 🆕 v101.3：用 db.js 封裝取得整年資料
     const yearData = await getMemberExpensesForYear(year, _memberId);
 
     const monthlyData = [];
@@ -138,49 +140,37 @@ function _renderAnnual(year, monthlyData, total) {
   const totalEl = document.getElementById('annual-total');
   if (totalEl) totalEl.textContent = formatHKD(total);
 
-  const container = document.getElementById('annual-monthly-cards');
-  if (!container) return;
-
-  if (monthlyData.length === 0) {
-    container.innerHTML = `<div class="glass-card"><div class="empty-state">本年度尚無支出紀錄</div></div>`;
-    return;
+  // 銷毀舊的實例
+  if (_annualCardsInstance) {
+    try { _annualCardsInstance.destroy(); } catch (e) { /* noop */ }
+    _annualCardsInstance = null;
   }
 
-  const cards = monthlyData.map((m) => {
-    const rows = m.items.map((it) => `
-      <tr>
-        <td>${escapeHtml(it.name || '')}</td>
-        <td class="num">${formatHKD(it.amount)}</td>
-        <td>${_renderStatusBadge(it.status)}</td>
-        <td class="mono" style="font-size:11px; color:var(--text-muted);">${escapeHtml(it.date || '—')}</td>
-      </tr>
-    `).join('');
+  // 建立 monthNum → data 的 map
+  const dataMap = {};
+  monthlyData.forEach((m) => { dataMap[m.monthNum] = m; });
 
-    return `
-      <div class="glass-card" style="margin-bottom:10px; padding:14px;">
-        <div class="month-toggle" style="display:flex; justify-content:space-between; align-items:center; gap:12px; cursor:pointer; user-select:none;">
-          <div style="font-weight:700; font-size:15px; color:var(--neon-cyan);">${m.monthNum} 月</div>
-          <div class="mono text-magenta" style="font-weight:700;">${formatHKD(m.sum)}</div>
+  _annualCardsInstance = renderAnnualMonthCards('annual-monthly-cards', {
+    storageKey: `member-detail-annual-${_memberId}`,
+    getMonthData: (monthNum) => {
+      const data = dataMap[monthNum];
+      if (!data) return null;
+
+      const rows = data.items.map((it) => `
+        <div class="annual-month-row">
+          <span>${escapeHtml(it.name || '')}</span>
+          <span class="mono text-emerald">${formatHKD(it.amount)}</span>
         </div>
-        <div class="month-detail" style="display:none; margin-top:12px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.1);">
-          <table class="data-table" style="font-size:12px;">
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-      </div>
-    `;
-  }).join('');
+      `).join('');
 
-  container.innerHTML = cards;
-
-  container.querySelectorAll('.month-toggle').forEach((el) => {
-    el.addEventListener('click', () => {
-      const d = el.nextElementSibling;
-      d.style.display = d.style.display === 'none' ? 'block' : 'none';
-    });
+      return {
+        title: `${monthNum} 月`,
+        total: data.sum,
+        detailHtml: rows,
+      };
+    },
+    emptyText: '本年度尚無支出紀錄',
   });
-
-  if (window.lucide) window.lucide.createIcons();
 }
 
 /* ============================================
@@ -223,7 +213,7 @@ function _renderExpenses() {
       <tr>
         <td>${escapeHtml(x.name || '')}${autoBadge}</td>
         <td class="num">${formatHKD(x.amount)}</td>
-        <td>${_renderStatusBadge(x.status)}</td>
+        <td>${renderStatusBadge(x.status, 'personal')}</td>
         <td class="mono" style="font-size:12px; color:var(--text-muted);">${escapeHtml(x.date || '—')}</td>
       </tr>
     `;
@@ -233,18 +223,7 @@ function _renderExpenses() {
 }
 
 /* ============================================
-   狀態 badge
-   ============================================ */
-function _renderStatusBadge(status) {
-  const statuses = getStatusesByCategory('personal');
-  const s = statuses.find((x) => x.name === status);
-  const isDone = s ? !!s.isDone : (status && status.startsWith('已'));
-  const cls = isDone ? 'badge-success' : 'badge-pending';
-  return `<span class="badge ${cls}">${escapeHtml(status || '未處理')}</span>`;
-}
-
-/* ============================================
-   快速摘要（近 3 月趨勢）
+   快速摘要
    ============================================ */
 async function _renderQuickSummary(year, month, isAnnual) {
   const root = document.getElementById('quick-summary-root');
@@ -258,7 +237,6 @@ async function _renderQuickSummary(year, month, isAnnual) {
   const months = _getLast3Months(year, month);
 
   try {
-    // 🆕 v101.3：用 db.js 封裝讀取每月資料
     const results = await Promise.all(
       months.map(({ year: y, month: mm }) =>
         getMemberExpensesForYear(y, _memberId).then((data) => data[mm] || [])
@@ -337,5 +315,9 @@ function _destroy() {
   if (_filterInstance) {
     try { _filterInstance.destroy(); } catch (e) { /* noop */ }
     _filterInstance = null;
+  }
+  if (_annualCardsInstance) {
+    try { _annualCardsInstance.destroy(); } catch (e) { /* noop */ }
+    _annualCardsInstance = null;
   }
 }

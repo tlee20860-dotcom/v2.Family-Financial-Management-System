@@ -1,14 +1,11 @@
 // ============================================
-// income.js — 每月收入明細（v101 只讀化）
+// income.js — 每月收入明細（v101.5）
 // 位置：js/pages/income.js
 // ============================================
-// v101 改動：
-//   ✅ 移除新增 / 編輯 / 刪除（移至綜合輸入中心）
-//   ✅ 保留卡片 / 表格雙模式
-//   ✅ 統一由 AppState ym-change 載入
-//   ✅ 加「前往輸入中心」按鈕
-//   ✅ 年度明細彈窗改為 Promise.all（避免序列查詢）
-//   ✅ 底部快速摘要（月度收入趨勢）
+// v101.5 修正：
+//   ✅ 使用 registerPageCleanup 註冊清理
+//   ✅ 年度明細彈窗改用 openModal/closeModal
+//   ✅ 快速摘要使用共用 builder
 // ============================================
 
 import {
@@ -24,6 +21,7 @@ import { initViewToggle } from '../shared/view-toggle.js';
 import { renderQuickSummary } from '../shared/quick-summary.js';
 import { QUICK_SUMMARY_TYPES } from '../config/constants.js';
 import { openModal, closeModal } from '../shared/modal.js';
+import { registerPageCleanup } from '../core/app.js';
 
 /* ============================================
    Module 狀態
@@ -39,7 +37,6 @@ let _unsubscribers = [];
    主入口
    ============================================ */
 export async function initIncomePage() {
-  // 檢視切換
   _viewToggle = initViewToggle({
     containerId: 'view-toggle-root',
     storageKey: 'income-view',
@@ -50,12 +47,10 @@ export async function initIncomePage() {
     onChange: () => _render(),
   });
 
-  // 前往輸入中心
   document.getElementById('go-input-center-btn')?.addEventListener('click', () => {
     window.location.href = 'input-center.html';
   });
 
-  // 頁面篩選
   _filterInstance = renderPageFilter({
     containerId: 'page-filter-root',
     fields: ['year', 'month'],
@@ -79,11 +74,9 @@ export async function initIncomePage() {
     },
   });
 
-  // 年度明細按鈕
   document.getElementById('view-annual-income-btn')?.addEventListener('click', _openAnnualModal);
   document.getElementById('income-detail-cancel-btn')?.addEventListener('click', () => closeModal('income-detail-modal'));
 
-  // 資料監聽
   _unsubscribers.push(
     listenMembers((list) => {
       _members = sortMembers(list);
@@ -97,6 +90,8 @@ export async function initIncomePage() {
       _render();
     })
   );
+
+  registerPageCleanup(_destroy);
 
   return {
     destroy: _destroy,
@@ -149,9 +144,6 @@ function _render() {
   if (window.lucide) window.lucide.createIcons();
 }
 
-/* ============================================
-   過濾
-   ============================================ */
 function _filteredList() {
   return _allIncome
     .filter((x) => {
@@ -178,7 +170,6 @@ function _renderCards(list, container) {
     return;
   }
 
-  // 依年月分組
   const groups = {};
   list.forEach((x) => {
     const key = `${x.year}-${x.month}`;
@@ -274,7 +265,6 @@ function _renderQuickSummary(list) {
     return;
   }
 
-  // 依年月分組
   const byYM = {};
   list.forEach((x) => {
     const key = `${x.year}-${x.month}`;
@@ -282,7 +272,6 @@ function _renderQuickSummary(list) {
     byYM[key] += Number(x.amount) || 0;
   });
 
-  // 取最近 6 個月
   const keys = Object.keys(byYM).sort((a, b) => a.localeCompare(b)).slice(-6);
   if (keys.length === 0) {
     root.innerHTML = '';
@@ -314,7 +303,7 @@ function _renderQuickSummary(list) {
 }
 
 /* ============================================
-   年度明細彈窗（一次載入 12 個月）
+   年度明細彈窗
    ============================================ */
 async function _openAnnualModal() {
   const year = _filters.year || AppState.year;
@@ -328,7 +317,6 @@ async function _openAnnualModal() {
   openModal('income-detail-modal');
 
   try {
-    // 平行載入 12 個月（避免序列）
     const promises = [];
     for (let m = 1; m <= 12; m++) {
       const mm = String(m).padStart(2, '0');
@@ -336,7 +324,6 @@ async function _openAnnualModal() {
     }
     const results = await Promise.all(promises);
 
-    // 建立表頭
     let header = '<tr><th style="padding:8px; border-bottom:1px solid var(--glass-border); position:sticky; left:0; background:var(--bg-navy); z-index:2; min-width:60px;">月份</th>';
     _members.forEach((m) => {
       header += `<th style="padding:8px; text-align:right; border-bottom:1px solid var(--glass-border); min-width:100px;">${escapeHtml(m.name)}</th>`;
@@ -344,7 +331,6 @@ async function _openAnnualModal() {
     header += '<th style="padding:8px; text-align:right; border-bottom:1px solid var(--glass-border); min-width:100px;">額外</th>';
     header += '<th style="padding:8px; text-align:right; border-bottom:1px solid var(--glass-border); min-width:100px;">小計</th></tr>';
 
-    // 建立資料列（唯讀）
     let rows = '';
     for (let m = 1; m <= 12; m++) {
       const data = results[m - 1] || {};

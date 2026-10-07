@@ -31,10 +31,10 @@
         <!-- Tab 容器 -->
         <div id="admin-tabs"></div>
 
-        <!-- ============ 家庭管理 Panel ============ -->
+        <!-- 家庭管理 Panel -->
         <div id="admin-panel-families" class="tab-panel" style="display:none;"></div>
 
-        <!-- ============ 預設資料庫 Panel ============ -->
+        <!-- 預設資料庫 Panel -->
         <div id="admin-panel-defaults" class="tab-panel" style="display:none;">
           <div class="banner mb-16">
             ℹ️ 此處的預設資料將套用於「新家庭初始化時」，修改後<b>不影響</b>已存在的家庭。
@@ -51,14 +51,13 @@
     import { initApp } from './js/core/app.js';
     import { initAdminPage } from './js/admin/admin.js';
 
-    // admin 頁面：需登入，但不需要家庭（requireFamily: false）
     await initApp({
       activeHref: 'admin.html',
       title: '平台管理',
       requireFamily: false,
     });
 
-    initAdminPage();
+    await initAdminPage();
   </script>
 </body>
 </html>

@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="./css/layout.css">
   <link rel="stylesheet" href="./css/components.css">
   <link rel="stylesheet" href="./css/utilities.css">
+  <link rel="stylesheet" href="./css/pages/insurance.css">
 </head>
 <body>
   <div class="app-shell">
@@ -96,7 +97,7 @@
     import { initInsurancePage } from './js/pages/insurance/index.js';
 
     await initApp({ activeHref: 'insurance.html', title: '保險付款' });
-    initInsurancePage();
+    await initInsurancePage();
   </script>
 </body>
 </html>

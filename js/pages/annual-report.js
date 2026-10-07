@@ -1,10 +1,11 @@
 // ============================================
-// annual-report.js — 年度報表（v101.3）
+// annual-report.js — 年度報表（v101.5）
 // 位置：js/pages/annual-report.js
 // ============================================
-// v101.3 修正：
-//   ✅ 移除未使用的 getStatuses import（死 import）
-//   ✅ 移除未使用的 _membersCache / _categoriesCache（死變數）
+// v101.5 修正：
+//   ✅ 使用 api.fetchAnnualSummary 統一（移除手動 12 次呼叫）
+//   ✅ 使用 registerPageCleanup 註冊清理
+//   ✅ 匯出 Excel 的 XLSX 改用動態 import（節省初次載入）
 // ============================================
 
 import { api } from '../core/api.js';
@@ -12,6 +13,7 @@ import { AppState } from '../core/state.js';
 import { formatHKD, formatNumber, escapeHtml } from '../core/utils.js';
 import { getOptions } from '../config/app-config.js';
 import { initCollapsibleCard } from '../shared/collapsible-card.js';
+import { registerPageCleanup } from '../core/app.js';
 
 /* ============================================
    Module 狀態
@@ -20,15 +22,17 @@ let _currentYear = '';
 let _currentView = 'summary';
 let _currentDisplayMonth = '01';
 let _annualData = null;
+let _cards = [];
+let _yearSwitcherHandler = null;
+let _monthSwitcherHandler = null;
 
 /* ============================================
    主入口
    ============================================ */
 export function initAnnualReportPage() {
-  // 初始化可摺疊卡片
-  initCollapsibleCard('summary-table-card', 'ar-summary-open', true);
-  initCollapsibleCard('payment-stats-card', 'ar-payment-stats-open', true);
-  initCollapsibleCard('monthly-table-card', 'ar-monthly-open', true);
+  _cards.push(initCollapsibleCard('summary-table-card', 'ar-summary-open', true));
+  _cards.push(initCollapsibleCard('payment-stats-card', 'ar-payment-stats-open', true));
+  _cards.push(initCollapsibleCard('monthly-table-card', 'ar-monthly-open', true));
 
   const { year } = AppState.getYearMonth();
   _currentYear = year;
@@ -37,7 +41,6 @@ export function initAnnualReportPage() {
   _renderYearSwitcher();
   _renderMonthSwitcher();
 
-  // 檢視切換
   document.getElementById('view-summary-btn')?.addEventListener('click', () => {
     _switchView('summary');
   });
@@ -45,11 +48,11 @@ export function initAnnualReportPage() {
     _switchView('monthly');
   });
 
-  // 匯出 Excel
   document.getElementById('export-excel-btn')?.addEventListener('click', _exportToExcel);
 
-  // 初次載入
   _loadAnnual();
+
+  registerPageCleanup(_destroy);
 
   return {
     destroy: _destroy,
@@ -103,13 +106,17 @@ function _renderYearSwitcher() {
     <button class="year-btn year-arrow" data-year="${y + 1}">${y + 1} ▶</button>
   `;
 
-  el.querySelectorAll('button[data-year]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      _currentYear = btn.dataset.year;
-      _renderYearSwitcher();
-      _loadAnnual();
-    });
-  });
+  if (_yearSwitcherHandler) {
+    el.removeEventListener('click', _yearSwitcherHandler);
+  }
+  _yearSwitcherHandler = (e) => {
+    const btn = e.target.closest('button[data-year]');
+    if (!btn) return;
+    _currentYear = btn.dataset.year;
+    _renderYearSwitcher();
+    _loadAnnual();
+  };
+  el.addEventListener('click', _yearSwitcherHandler);
 }
 
 /* ============================================
@@ -126,17 +133,21 @@ function _renderMonthSwitcher() {
   }
   el.innerHTML = html;
 
-  el.querySelectorAll('button[data-month]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      _currentDisplayMonth = btn.dataset.month;
-      _renderMonthSwitcher();
-      if (_annualData) _renderMonthly();
-    });
-  });
+  if (_monthSwitcherHandler) {
+    el.removeEventListener('click', _monthSwitcherHandler);
+  }
+  _monthSwitcherHandler = (e) => {
+    const btn = e.target.closest('button[data-month]');
+    if (!btn) return;
+    _currentDisplayMonth = btn.dataset.month;
+    _renderMonthSwitcher();
+    if (_annualData) _renderMonthly();
+  };
+  el.addEventListener('click', _monthSwitcherHandler);
 }
 
 /* ============================================
-   載入全年資料
+   載入全年資料（使用 api.fetchAnnualSummary）
    ============================================ */
 async function _loadAnnual() {
   const titleEl = document.getElementById('report-year-title');
@@ -148,15 +159,10 @@ async function _loadAnnual() {
   if (mtbody) mtbody.innerHTML = '<tr><td colspan="3" class="empty-state">載入中…</td></tr>';
 
   try {
-    // 平行載入 12 個月
-    const promises = [];
-    for (let m = 1; m <= 12; m++) {
-      const mm = String(m).padStart(2, '0');
-      promises.push(api.summary(_currentYear, mm));
-    }
-    const results = await Promise.all(promises);
+    // 🆕 v101.5：使用 api.fetchAnnualSummary（內部已平行化）
+    const result = await api.fetchAnnualSummary(_currentYear);
 
-    _annualData = _buildAnnualData(_currentYear, results);
+    _annualData = _buildAnnualData(_currentYear, result.monthly);
 
     _renderStats();
     if (_currentView === 'summary') _renderSummary();
@@ -182,7 +188,6 @@ function _buildAnnualData(year, monthlyResults) {
   const monthlyTotals = { income: Array(12).fill(0), expense: Array(12).fill(0) };
 
   monthlyResults.forEach((monthData, idx) => {
-    /* ============ 收入 ============ */
     const incomeBreakdown = monthData.incomeBreakdown || {};
     Object.entries(incomeBreakdown).forEach(([memberId, amount]) => {
       const num = Math.round(Number(amount) || 0);
@@ -204,7 +209,6 @@ function _buildAnnualData(year, monthlyResults) {
       memberMap[memberId].income[idx] = num;
     });
 
-    /* ============ 成員支出（依 categoryId 分類） ============ */
     const perMember = monthData.perMember || {};
     Object.entries(perMember).forEach(([memberId, mData]) => {
       if (!memberMap[memberId]) {
@@ -232,7 +236,6 @@ function _buildAnnualData(year, monthlyResults) {
       });
     });
 
-    /* ============ 固定支出（依 categoryId 分類） ============ */
     (monthData.fixedList || []).forEach((f) => {
       const catId = f.categoryId || '__none__';
       const catName = f.categoryName || '其他';
@@ -247,19 +250,16 @@ function _buildAnnualData(year, monthlyResults) {
       fixedMap[catId].items[itemName][idx] += Math.round(Number(f.amount) || 0);
     });
 
-    /* ============ 支付方式統計 ============ */
     const pb = monthData.paymentBreakdown || {};
     Object.entries(pb).forEach(([pmName, amount]) => {
       if (!paymentMap[pmName]) paymentMap[pmName] = Array(12).fill(0);
       paymentMap[pmName][idx] += Math.round(Number(amount) || 0);
     });
 
-    /* ============ 月度總計 ============ */
     monthlyTotals.income[idx] = Math.round(monthData.totalIncome || 0);
     monthlyTotals.expense[idx] = Math.round(monthData.totalExpense || 0);
   });
 
-  /* ============ 排序成員 ============ */
   const membersArr = Object.values(memberMap).sort((a, b) => {
     if (a.id === 'extra') return 1;
     if (b.id === 'extra') return -1;
@@ -279,7 +279,7 @@ function _buildAnnualData(year, monthlyResults) {
 }
 
 /* ============================================
-   取得分類順序（從 app-config）
+   取得分類順序
    ============================================ */
 function _getCategoryOrder() {
   try {
@@ -321,7 +321,6 @@ function _renderSummary() {
 
   const catOrder = _getCategoryOrder();
 
-  // 表頭
   thead.innerHTML = `<tr>
     <th style="min-width:100px;">成員</th>
     <th class="num">總收入</th>
@@ -335,7 +334,6 @@ function _renderSummary() {
   let grandTotalExpense = 0;
   const grandCategoryTotals = Object.fromEntries(catOrder.map((c) => [c, 0]));
 
-  // 成員列
   _annualData.members.forEach((m) => {
     if (m.id === 'extra') return;
 
@@ -378,7 +376,6 @@ function _renderSummary() {
     `);
   });
 
-  // 家庭共用支出列
   const sharedCatTotals = Object.fromEntries(catOrder.map((c) => [c, 0]));
   let sharedTotal = 0;
 
@@ -412,12 +409,10 @@ function _renderSummary() {
     `);
   }
 
-  // 額外收入
   const extraMember = _annualData.members.find((m) => m.id === 'extra');
   const extraIncome = extraMember ? extraMember.income.reduce((s, x) => s + x, 0) : 0;
   grandTotalIncome += extraIncome;
 
-  // 總計列
   rows.push(`
     <tr class="group-header">
       <td>【總計】</td>
@@ -434,7 +429,6 @@ function _renderSummary() {
 
   if (window.lucide) window.lucide.createIcons();
 
-  // 支付方式統計卡
   _renderPaymentStatsCard();
 }
 
@@ -505,7 +499,6 @@ function _renderMonthly() {
   const rows = [];
   const sumArr = (arr) => arr.reduce((s, x) => s + x, 0);
 
-  /* ============ 收入區塊 ============ */
   const incomeRows = _annualData.members.filter((m) => m.income.some((v) => v > 0));
   if (incomeRows.length > 0) {
     rows.push(`<tr class="group-header"><td>【收入】</td><td class="num"></td><td class="num"></td></tr>`);
@@ -533,7 +526,6 @@ function _renderMonthly() {
     `);
   }
 
-  /* ============ 成員支出區塊 ============ */
   _annualData.members.forEach((m) => {
     if (m.id === 'extra') return;
     const catIds = Object.keys(m.expenses);
@@ -588,7 +580,6 @@ function _renderMonthly() {
     `);
   });
 
-  /* ============ 家庭共用支出區塊 ============ */
   const allFixedItems = {};
   Object.values(_annualData.fixedExpenses).forEach((catData) => {
     Object.entries(catData.items).forEach(([name, arr]) => {
@@ -629,7 +620,6 @@ function _renderMonthly() {
     `);
   }
 
-  /* ============ 月度總計 ============ */
   const expenseCurrent = _annualData.monthly.expense[monthIdx] || 0;
   const expenseAnnual = sumArr(_annualData.monthly.expense);
   const incomeCurrent = _annualData.monthly.income[monthIdx] || 0;
@@ -658,17 +648,22 @@ function _renderMonthly() {
 }
 
 /* ============================================
-   匯出 Excel
+   匯出 Excel（🆕 v101.5：動態載入 XLSX）
    ============================================ */
-function _exportToExcel() {
+async function _exportToExcel() {
   if (!_annualData) {
     alert('資料尚未載入完成');
     return;
   }
 
+  // 🆕 v101.5：動態載入 XLSX
   if (typeof XLSX === 'undefined') {
-    alert('Excel 匯出工具尚未載入，請稍後再試');
-    return;
+    try {
+      await _loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+    } catch (err) {
+      alert('Excel 匯出工具載入失敗，請稍後再試');
+      return;
+    }
   }
 
   const data = _annualData;
@@ -680,7 +675,6 @@ function _exportToExcel() {
   const totalExpense = Math.round(data.monthly.expense.reduce((s, x) => s + x, 0));
   const balance = totalIncome - totalExpense;
 
-  /* ============ 收入 ============ */
   rows.push(['【收入】', '', '', '', '', '', '', '', '', '', '', '', '', '']);
   data.members.filter((m) => m.income.some((v) => v > 0)).forEach((m) => {
     const subtotal = Math.round(m.income.reduce((s, x) => s + x, 0));
@@ -688,7 +682,6 @@ function _exportToExcel() {
   });
   rows.push(['收入小計', ...data.monthly.income.map((v) => Math.round(v)), totalIncome]);
 
-  /* ============ 成員支出（依類別） ============ */
   data.members.forEach((m) => {
     if (m.id === 'extra') return;
     const catIds = Object.keys(m.expenses);
@@ -708,7 +701,6 @@ function _exportToExcel() {
     rows.push([`${m.name}小計`, ...monthlyMemberTotal.map((v) => Math.round(v)), memberSubtotal]);
   });
 
-  /* ============ 家庭共用支出 ============ */
   const fixedCatIds = Object.keys(data.fixedExpenses);
   if (fixedCatIds.length > 0) {
     const monthlyFixedTotal = Array(12).fill(0);
@@ -728,7 +720,6 @@ function _exportToExcel() {
     rows.push(['固定支出小計', ...monthlyFixedTotal.map((v) => Math.round(v)), fixedSubtotal]);
   }
 
-  /* ============ 支付方式統計 ============ */
   const pbEntries = Object.entries(data.paymentBreakdown || {}).filter(([, arr]) => arr.some((v) => v > 0));
   if (pbEntries.length > 0) {
     rows.push(['【支付方式統計】', '', '', '', '', '', '', '', '', '', '', '', '', '']);
@@ -741,13 +732,11 @@ function _exportToExcel() {
     rows.push(['支付方式合計', '', '', '', '', '', '', '', '', '', '', '', '', pmGrand]);
   }
 
-  /* ============ 月度總計 ============ */
   rows.push(['【月度總計】', '', '', '', '', '', '', '', '', '', '', '', '', '']);
   rows.push(['當月總支出', ...data.monthly.expense.map((v) => Math.round(v)), totalExpense]);
   const netMonthly = data.monthly.income.map((v, i) => v - data.monthly.expense[i]);
   rows.push(['當月淨結餘', ...netMonthly.map((v) => Math.round(v)), balance]);
 
-  /* ============ 建立工作表 ============ */
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = [{ wch: 32 }, ...Array(12).fill({ wch: 12 }), { wch: 14 }];
 
@@ -764,9 +753,34 @@ function _exportToExcel() {
   XLSX.writeFile(wb, filename);
 }
 
+function _loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+}
+
 /* ============================================
    銷毀
    ============================================ */
 function _destroy() {
-  // 無監聽需清理
+  _cards.forEach((c) => {
+    try { c?.destroy(); } catch (e) { /* noop */ }
+  });
+  _cards = [];
+
+  const yearEl = document.getElementById('year-switcher');
+  if (yearEl && _yearSwitcherHandler) {
+    yearEl.removeEventListener('click', _yearSwitcherHandler);
+    _yearSwitcherHandler = null;
+  }
+
+  const monthEl = document.getElementById('month-switcher');
+  if (monthEl && _monthSwitcherHandler) {
+    monthEl.removeEventListener('click', _monthSwitcherHandler);
+    _monthSwitcherHandler = null;
+  }
 }

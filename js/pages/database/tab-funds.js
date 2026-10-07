@@ -1,46 +1,48 @@
 // ============================================
-// tab-funds.js — 基礎資料庫：基金 Tab（v101）
+// tab-funds.js — 基礎資料庫：基金 Tab（v101.5）
 // 位置：js/pages/database/tab-funds.js
 // ============================================
-// 功能：基金的完整 CRUD（含名稱、成本、現值、單位數、備註）
+// v101.5 修正：
+//   ✅ 新增 / 編輯改用 entity-modal
+//   ✅ 刪除使用 entity-helpers 的 deleteEntity
+//   ✅ 使用 registerPageCleanup 註冊清理
 // ============================================
 
-import {
-  listenFunds, addFund, updateFund, removeFund,
-} from '../../core/db.js';
+import { listenFunds } from '../../core/db.js';
 import { escapeHtml, formatHKD } from '../../core/utils.js';
 import { showToast } from '../../shared/toast.js';
-import { openModal, closeModal, openConfirm } from '../../shared/modal.js';
-import { buildForm } from '../../shared/form-builder.js';
+import { openConfirm } from '../../shared/modal.js';
+import { openEntityModal } from '../../shared/entity-modal.js';
+import { deleteEntity } from '../../shared/entity-helpers.js';
+import { ENTITY_KEYS } from '../../config/constants.js';
 
 /* ============================================
    Module 狀態
    ============================================ */
-let _container = null;
 let _funds = [];
-let _formApi = null;
-let _modalFormApi = null;
-let _editingId = null;
-let _unsubscribers = [];
-
-const MODAL_ID = 'db-fund-modal';
+let _unsubFunds = null;
+let _listClickHandler = null;
+let _addBtnHandler = null;
 
 /* ============================================
    主入口
    ============================================ */
 export function initFundsTab(containerId) {
-  _container = document.getElementById(containerId);
-  if (!_container) {
+  const container = document.getElementById(containerId);
+  if (!container) {
     console.warn(`⚠️ initFundsTab: 找不到容器 #${containerId}`);
     return null;
   }
 
-  _container.innerHTML = _buildSkeleton();
+  container.innerHTML = _buildSkeleton();
 
-  _renderForm();
-  _renderModal();
+  _unsubFunds = listenFunds((list) => {
+    _funds = list;
+    _render();
+  });
+
   _bindListEvents();
-  _bindListeners();
+  _bindAddButton();
 
   return {
     refresh: _render,
@@ -53,7 +55,12 @@ export function initFundsTab(containerId) {
    ============================================ */
 function _buildSkeleton() {
   return `
-    <div id="db-funds-form-root" class="mb-16"></div>
+    <div class="flex flex-between items-center flex-wrap gap-12 mb-16">
+      <div class="text-muted" style="font-size:13px;">管理基金持倉（名稱、成本、現值、單位數）</div>
+      <button class="btn btn-primary" id="db-funds-add-btn">
+        <i data-lucide="plus"></i> 新增基金
+      </button>
+    </div>
 
     <div class="glass-card collapsible-card collapsible-card-flat" id="db-funds-list-card">
       <div class="collapsible-header" id="db-funds-list-header">
@@ -71,120 +78,20 @@ function _buildSkeleton() {
 }
 
 /* ============================================
-   新增表單
+   新增按鈕
    ============================================ */
-function _renderForm() {
-  _formApi = buildForm({
-    containerId: 'db-funds-form-root',
-    fields: [
-      { type: 'text',   id: 'db-fund-name',  label: '基金名稱', required: true, placeholder: '例如：富達環球股票基金', maxlength: 60 },
-      { type: 'number', id: 'db-fund-cost',  label: '投入成本（HK$）', required: true, min: 0, step: 1, placeholder: '0' },
-      { type: 'number', id: 'db-fund-value', label: '現時價值（HK$）', required: true, min: 0, step: 1, placeholder: '0' },
-      { type: 'number', id: 'db-fund-units', label: '持有單位數（可選）', min: 0, step: 0.0001, placeholder: '例如：123.4567' },
-      { type: 'text',   id: 'db-fund-note',  label: '備註（可選）', placeholder: '例如：月供計劃', maxlength: 60 },
-    ],
-    submitText: '新增基金',
-    showCancel: false,
-    showReset: true,
-    resetText: '重置',
-    onSubmit: _handleAdd,
-  });
-}
+function _bindAddButton() {
+  const btn = document.getElementById('db-funds-add-btn');
+  if (!btn) return;
 
-async function _handleAdd(data) {
-  const name = (data['db-fund-name'] || '').trim();
-  const cost = Math.round(Number(data['db-fund-cost']) || 0);
-  const currentValue = Math.round(Number(data['db-fund-value']) || 0);
-  const units = Number(data['db-fund-units']) || 0;
-  const note = (data['db-fund-note'] || '').trim();
-
-  if (!name) {
-    return { field: 'db-fund-name', message: '請填寫基金名稱' };
-  }
-
-  try {
-    await addFund({ name, cost, currentValue, units, note });
-    showToast(`✅ 已新增基金「${name}」`, 'success');
-    _formApi.reset();
-  } catch (err) {
-    showToast('新增失敗：' + err.message, 'error');
-  }
-}
-
-/* ============================================
-   編輯 Modal
-   ============================================ */
-function _renderModal() {
-  const existing = document.getElementById(MODAL_ID);
-  if (existing) existing.remove();
-
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.id = MODAL_ID;
-  overlay.innerHTML = `
-    <div class="modal" style="max-width:520px;">
-      <h2 class="modal-title">編輯基金</h2>
-      <div id="db-fund-modal-form-root"></div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-
-  _modalFormApi = buildForm({
-    containerId: 'db-fund-modal-form-root',
-    fields: [
-      { type: 'hidden', id: 'db-fund-edit-id' },
-      { type: 'text',   id: 'db-fund-edit-name',  label: '基金名稱', required: true, maxlength: 60 },
-      { type: 'number', id: 'db-fund-edit-cost',  label: '投入成本（HK$）', required: true, min: 0, step: 1 },
-      { type: 'number', id: 'db-fund-edit-value', label: '現時價值（HK$）', required: true, min: 0, step: 1 },
-      { type: 'number', id: 'db-fund-edit-units', label: '持有單位數（可選）', min: 0, step: 0.0001 },
-      { type: 'text',   id: 'db-fund-edit-note',  label: '備註（可選）', maxlength: 60 },
-    ],
-    submitText: '儲存',
-    showCancel: true,
-    cancelText: '取消',
-    onSubmit: _handleEdit,
-    onCancel: () => closeModal(MODAL_ID),
-  });
-
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) closeModal(MODAL_ID);
-  });
-}
-
-async function _handleEdit(data) {
-  const id = data['db-fund-edit-id'];
-  if (!id) return;
-
-  const name = (data['db-fund-edit-name'] || '').trim();
-  const cost = Math.round(Number(data['db-fund-edit-cost']) || 0);
-  const currentValue = Math.round(Number(data['db-fund-edit-value']) || 0);
-  const units = Number(data['db-fund-edit-units']) || 0;
-  const note = (data['db-fund-edit-note'] || '').trim();
-
-  if (!name) {
-    return { field: 'db-fund-edit-name', message: '請填寫基金名稱' };
-  }
-
-  try {
-    await updateFund(id, { name, cost, currentValue, units, note });
-    showToast('✅ 已更新基金', 'success');
-    closeModal(MODAL_ID);
-    _editingId = null;
-  } catch (err) {
-    showToast('更新失敗：' + err.message, 'error');
-  }
-}
-
-/* ============================================
-   資料監聽
-   ============================================ */
-function _bindListeners() {
-  _unsubscribers.push(
-    listenFunds((list) => {
-      _funds = list;
-      _render();
-    })
-  );
+  _addBtnHandler = () => {
+    openEntityModal({
+      entity: ENTITY_KEYS.FUND,
+      mode: 'add',
+      allRows: _funds,
+    });
+  };
+  btn.addEventListener('click', _addBtnHandler);
 }
 
 /* ============================================
@@ -198,7 +105,7 @@ function _render() {
   if (countEl) countEl.textContent = `（共 ${_funds.length} 筆）`;
 
   if (_funds.length === 0) {
-    listEl.innerHTML = `<div class="empty-state">尚無基金，請從上方新增</div>`;
+    listEl.innerHTML = `<div class="empty-state">尚無基金，請點擊上方「新增基金」</div>`;
     return;
   }
 
@@ -255,7 +162,7 @@ function _bindListEvents() {
   const listEl = document.getElementById('db-funds-list');
   if (!listEl) return;
 
-  listEl.addEventListener('click', async (e) => {
+  _listClickHandler = async (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
 
@@ -265,7 +172,12 @@ function _bindListEvents() {
     if (!fund) return;
 
     if (action === 'edit') {
-      _openEditModal(fund);
+      openEntityModal({
+        entity: ENTITY_KEYS.FUND,
+        mode: 'edit',
+        id: fund.id,
+        allRows: _funds,
+      });
     } else if (action === 'delete') {
       const ok = await openConfirm(`確定要刪除基金「${fund.name}」嗎？`, {
         title: '刪除基金',
@@ -275,42 +187,33 @@ function _bindListEvents() {
       if (!ok) return;
 
       try {
-        await removeFund(fund.id);
+        await deleteEntity(ENTITY_KEYS.FUND, fund.id);
         showToast('✅ 已刪除', 'success');
       } catch (err) {
         showToast('刪除失敗：' + err.message, 'error');
       }
     }
-  });
-}
+  };
 
-function _openEditModal(fund) {
-  _editingId = fund.id;
-  if (!_modalFormApi) return;
-
-  _modalFormApi.setData({
-    'db-fund-edit-id': fund.id,
-    'db-fund-edit-name': fund.name || '',
-    'db-fund-edit-cost': fund.cost || 0,
-    'db-fund-edit-value': fund.currentValue || 0,
-    'db-fund-edit-units': fund.units || 0,
-    'db-fund-edit-note': fund.note || '',
-  });
-
-  openModal(MODAL_ID);
+  listEl.addEventListener('click', _listClickHandler);
 }
 
 /* ============================================
    銷毀
    ============================================ */
 function _destroy() {
-  _unsubscribers.forEach((fn) => {
-    try { fn(); } catch (e) { /* noop */ }
-  });
-  _unsubscribers = [];
-  if (_formApi) _formApi.destroy();
-  if (_modalFormApi) _modalFormApi.destroy();
-
-  const overlay = document.getElementById(MODAL_ID);
-  if (overlay) overlay.remove();
+  if (_unsubFunds) {
+    try { _unsubFunds(); } catch (e) { /* noop */ }
+    _unsubFunds = null;
+  }
+  if (_listClickHandler) {
+    const listEl = document.getElementById('db-funds-list');
+    listEl?.removeEventListener('click', _listClickHandler);
+    _listClickHandler = null;
+  }
+  if (_addBtnHandler) {
+    const btn = document.getElementById('db-funds-add-btn');
+    btn?.removeEventListener('click', _addBtnHandler);
+    _addBtnHandler = null;
+  }
 }

@@ -1,17 +1,22 @@
 // ============================================
-// summary.js — GET /api/summary?familyId=...&year=YYYY&month=MM（v101）
+// summary.js — GET /api/summary?familyId=...&year=YYYY&month=MM（v101.5）
 // 位置：functions/api/summary.js
 // ============================================
-// v101 修正：
-//   ✅ 加 token 驗證 + 家庭權限檢查
-//   ✅ 新增讀取 statuses / settings（供前端判斷 isDone）
-//   ✅ 擴充 paymentBreakdown（保險 + 固定 + 成員）
-//   ✅ 補 fixedPendingTotal / expensePendingTotal
-//   ✅ 金額統一 roundInt
+// v101.5 修正：
+//   ✅ 補上 onRequestOptions（原本缺失，CORS preflight 會失敗）
+//   ✅ paymentBreakdown 補上保險扣款（原本只有成員 + 固定）
+//   ✅ policyCount 只計算 active 保單
 // ============================================
 
 import { dbGet, jsonResponse } from './_config.js';
-import { authenticate, errorResponse, handleError, objToList, roundInt } from './_helpers.js';
+import {
+  authenticate,
+  errorResponse,
+  handleError,
+  handleOptions,
+  objToList,
+  roundInt,
+} from './_helpers.js';
 
 export async function onRequestGet({ request }) {
   try {
@@ -22,8 +27,8 @@ export async function onRequestGet({ request }) {
 
     if (!familyId) return errorResponse('MISSING_FIELDS', '缺少 familyId');
 
-    // 權限檢查
-    const auth = await authenticate(request, { needFamily: true, body: { familyId } });
+    // 🆕 v101.5：needFamily 會自動從 URL query 讀取
+    const auth = await authenticate(request, { needFamily: true });
     if (auth instanceof Response) return auth;
     const { token } = auth;
 
@@ -85,7 +90,7 @@ export async function onRequestGet({ request }) {
     const statusesObj = statuses || {};
 
     /* ============================================
-       狀態查表（給前端判斷 isDone）
+       狀態查表
        ============================================ */
     const statusMap = {};
     Object.entries(statusesObj).forEach(([id, s]) => {
@@ -185,6 +190,7 @@ export async function onRequestGet({ request }) {
     const policyList = Object.values(policiesObj);
     let yearlyInsuranceTotal = 0;
     let monthlyInsuranceAverage = 0;
+    let activePolicyCount = 0;
     const curY = Number(year);
     const curM = Number(month);
 
@@ -193,6 +199,7 @@ export async function onRequestGet({ request }) {
         const mp = roundInt(p.monthlyPremium);
         monthlyInsuranceAverage += mp;
         yearlyInsuranceTotal += mp * 12;
+        activePolicyCount++;
         return;
       }
 
@@ -208,11 +215,12 @@ export async function onRequestGet({ request }) {
       if (periodData) {
         monthlyInsuranceAverage += roundInt(periodData.monthlyAverage);
         yearlyInsuranceTotal += roundInt(periodData.annualPremium);
+        activePolicyCount++;
       }
     });
 
     /* ============================================
-       🆕 v101：支付方式統計（成員 + 固定 + 保險）
+       🆕 v101.5：支付方式統計（成員 + 固定 + 保險）
        ============================================ */
     const paymentBreakdown = {};
 
@@ -231,6 +239,12 @@ export async function onRequestGet({ request }) {
       if (!paymentBreakdown[pmName]) paymentBreakdown[pmName] = 0;
       paymentBreakdown[pmName] += f.amount;
     });
+
+    // 🆕 v101.5：保險扣款（使用 monthlyInsuranceAverage 分攤）
+    if (monthlyInsuranceAverage > 0) {
+      const pmName = '（保險扣款）';
+      paymentBreakdown[pmName] = (paymentBreakdown[pmName] || 0) + monthlyInsuranceAverage;
+    }
 
     /* ============================================
        資產匯總
@@ -262,50 +276,47 @@ export async function onRequestGet({ request }) {
       year,
       month,
 
-      // 金額
       totalIncome: roundInt(totalIncome),
       totalExpense: roundInt(totalExpense),
       netBalance: roundInt(netBalance),
 
-      // 保險
       yearlyInsuranceTotal: roundInt(yearlyInsuranceTotal),
       monthlyInsuranceAverage: roundInt(monthlyInsuranceAverage),
-      policyCount: policyList.length,
+      policyCount: activePolicyCount,   // 🆕 只計算 active
 
-      // 資產
       totalAssets: roundInt(totalAssets),
       bankBalance: roundInt(bankBalanceTotal),
       fundValue: roundInt(fundValue),
       fundCount: fundList.length,
 
-      // 銀行
       prevBankTotal: roundInt(prevBankTotal),
       availableFunds: roundInt(availableFunds),
       bankCount: Object.keys(banksObj).length,
 
-      // 固定支出
       fixedTotal: roundInt(fixedTotal),
       fixedPendingTotal: roundInt(fixedPendingTotal),
       fixedPendingCount,
       fixedList,
 
-      // 成員支出
       perMember,
       memberCount: Object.keys(membersObj).length,
 
-      // 收入
       incomeBreakdown,
 
-      // 支付方式
       paymentBreakdown,
 
-      // 狀態對照（給前端判斷 isDone）
       statusMap,
 
-      // 下拉選項（family 覆蓋）
       options: settingsOptions || null,
     });
   } catch (err) {
     return handleError(err);
   }
+}
+
+/* ============================================
+   🆕 v101.5：OPTIONS preflight
+   ============================================ */
+export async function onRequestOptions() {
+  return handleOptions();
 }

@@ -1,10 +1,10 @@
 // ============================================
-// settings.js — 系統設定（v101.3，2 分頁）
+// settings.js — 系統設定（v101.5）
 // 位置：js/pages/settings.js
 // ============================================
-// v101.3 修正：
-//   ✅ 移除未使用的 formatHKD import（死 import）
-//   ✅ 移除未使用的 DEFAULT_ORDER import（死 import）
+// v101.5 修正：
+//   ✅ 平台設定驗證改用 beforeSubmit（原本在 onSubmit 內 return 無效）
+//   ✅ 使用 registerPageCleanup 註冊清理
 // ============================================
 
 import {
@@ -24,6 +24,7 @@ import { api } from '../core/api.js';
 import { buildForm } from '../shared/form-builder.js';
 import { initTabPanel } from '../shared/tab-panel.js';
 import { openConfirm } from '../shared/modal.js';
+import { registerPageCleanup } from '../core/app.js';
 
 /* ============================================
    Module 狀態
@@ -39,7 +40,6 @@ let _unsubOrder = null;
 export function initSettingsPage() {
   const isSuper = AppState.isSuperAdmin;
 
-  // 建立分頁（superadmin 才顯示「平台設定」）
   const tabs = [];
   if (isSuper) {
     tabs.push({
@@ -64,10 +64,8 @@ export function initSettingsPage() {
     onChange: (key) => _onTabChange(key),
   });
 
-  // 帳號資訊
   _renderAccountInfo();
 
-  // 平台設定（superadmin）
   if (isSuper) {
     _renderPlatformPanel();
   } else {
@@ -75,8 +73,9 @@ export function initSettingsPage() {
     if (panel) panel.style.display = 'none';
   }
 
-  // 個人化（側邊欄排序）
   _renderPersonalPanel();
+
+  registerPageCleanup(_destroy);
 
   return {
     destroy: _destroy,
@@ -112,7 +111,6 @@ function _renderAccountInfo() {
     familyEl.value = AppState.getFamilyName() || '—';
   }
 
-  // 登出按鈕
   document.getElementById('logout-btn')?.addEventListener('click', async () => {
     const ok = await openConfirm('確定要登出嗎？', {
       title: '登出',
@@ -168,10 +166,29 @@ function _renderPlatformPanel() {
     submitText: '儲存平台設定',
     showCancel: false,
     showReset: false,
+    // 🆕 v101.5：驗證改用 beforeSubmit
+    beforeSubmit: _validatePlatformSettings,
     onSubmit: _handlePlatformSave,
   });
 
   _reloadUIConstants();
+}
+
+function _validatePlatformSettings(data) {
+  const desktop = Number(data['st-name-desktop']);
+  const mobile = Number(data['st-name-mobile']);
+  const toast = Number(data['st-toast-duration']);
+
+  if (isNaN(desktop) || desktop < 4 || desktop > 40) {
+    return { field: 'st-name-desktop', message: '請填寫 4 ~ 40 之間的數字' };
+  }
+  if (isNaN(mobile) || mobile < 2 || mobile > 20) {
+    return { field: 'st-name-mobile', message: '請填寫 2 ~ 20 之間的數字' };
+  }
+  if (isNaN(toast) || toast < 500 || toast > 10000) {
+    return { field: 'st-toast-duration', message: '請填寫 500 ~ 10000 之間的數字' };
+  }
+  return true;
 }
 
 function _reloadUIConstants() {
@@ -192,22 +209,10 @@ async function _handlePlatformSave(data) {
     toastDuration: Number(data['st-toast-duration']),
   };
 
-  // 基本驗證
-  if (payload.nameMaxLenDesktop < 4 || payload.nameMaxLenDesktop > 40) {
-    return { field: 'st-name-desktop', message: '請填寫 4 ~ 40 之間的數字' };
-  }
-  if (payload.nameMaxLenMobile < 2 || payload.nameMaxLenMobile > 20) {
-    return { field: 'st-name-mobile', message: '請填寫 2 ~ 20 之間的數字' };
-  }
-  if (payload.toastDuration < 500 || payload.toastDuration > 10000) {
-    return { field: 'st-toast-duration', message: '請填寫 500 ~ 10000 之間的數字' };
-  }
-
   try {
     await api.platformSettings.update(payload);
     showToast('✅ 平台設定已儲存', 'success');
 
-    // 重新載入 app-config 快取
     try {
       await initAppConfig(AppState.getFamilyId());
     } catch (e) { /* noop */ }
@@ -223,13 +228,11 @@ function _renderPersonalPanel() {
   const listEl = document.getElementById('sidebar-order-list');
   if (!listEl) return;
 
-  // 監聽排序
   _unsubOrder = watchSidebarOrder((order) => {
     _currentOrder = order;
     _renderOrderList();
   });
 
-  // 重置按鈕
   document.getElementById('reset-sidebar-order-btn')?.addEventListener('click', async () => {
     const ok = await openConfirm('確定要重置為預設順序嗎？', {
       title: '重置側邊欄順序',
@@ -283,7 +286,6 @@ function _renderOrderList() {
 
   if (window.lucide) window.lucide.createIcons();
 
-  // 綁定上下移動
   listEl.querySelectorAll('button[data-action]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const href = btn.dataset.href;

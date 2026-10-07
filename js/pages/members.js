@@ -1,11 +1,12 @@
 // ============================================
-// members.js — 成員清單（v101.3 只讀化）
+// members.js — 成員清單（v101.5）
 // 位置：js/pages/members.js
 // ============================================
-// v101.3 修正：
-//   ✅ 移除未使用的 renderDataCards / renderDataTable import（死 import）
-//   ✅ 移除未使用的 _buildColumns() 函式
-//   ✅ _renderQuickSummary 移除 async（無 await）
+// v101.5 修正：
+//   ✅ 新增「編輯」按鈕（透過 entity-modal）
+//   ✅ 使用 registerPageCleanup 註冊清理
+//   ✅ 卡片與表格都支援編輯
+//   ✅ 角色顯示改用 entity-helpers
 // ============================================
 
 import { listenMembers } from '../core/db.js';
@@ -13,7 +14,9 @@ import { escapeHtml, sortMembers } from '../core/utils.js';
 import { getOptions } from '../config/app-config.js';
 import { initViewToggle } from '../shared/view-toggle.js';
 import { renderQuickSummary } from '../shared/quick-summary.js';
-import { QUICK_SUMMARY_TYPES } from '../config/constants.js';
+import { QUICK_SUMMARY_TYPES, ENTITY_KEYS } from '../config/constants.js';
+import { openEntityModal } from '../shared/entity-modal.js';
+import { registerPageCleanup } from '../core/app.js';
 
 /* ============================================
    Module 狀態
@@ -26,7 +29,6 @@ let _viewToggle = null;
    主入口
    ============================================ */
 export async function initMembersPage() {
-  // 初始化檢視切換
   _viewToggle = initViewToggle({
     containerId: 'view-toggle-root',
     storageKey: 'members-view',
@@ -37,18 +39,20 @@ export async function initMembersPage() {
     onChange: () => _render(),
   });
 
-  // 綁定「管理成員」按鈕
   document.getElementById('manage-members-btn')?.addEventListener('click', () => {
     window.location.href = 'database.html';
   });
 
-  // 監聽成員
   _unsubscribers.push(
     listenMembers((list) => {
       _members = sortMembers(list);
       _render();
     })
   );
+
+  _bindListEvents();
+
+  registerPageCleanup(_destroy);
 
   return {
     destroy: _destroy,
@@ -116,11 +120,14 @@ function _renderCard(m, roleMap) {
     <div class="glass-card" style="position:relative;">
       <div class="glass-card-title">${escapeHtml(roleLabel)}</div>
       <div class="glass-card-value" style="word-break:break-word;">${escapeHtml(m.name)}</div>
-      <div style="margin-top:14px;">
-        <a class="btn btn-sm" href="member-detail.html?id=${m.id}" style="width:100%; justify-content:center;">
+      <div style="margin-top:14px; display:flex; gap:6px;">
+        <a class="btn btn-sm" href="member-detail.html?id=${m.id}" style="flex:1; justify-content:center;">
           <i data-lucide="arrow-right" style="width:14px;height:14px;"></i>
           進入版面
         </a>
+        <button class="btn btn-sm btn-ghost" data-action="edit" data-id="${m.id}">
+          <i data-lucide="pencil" style="width:14px;height:14px;"></i>
+        </button>
       </div>
     </div>
   `;
@@ -156,7 +163,7 @@ function _renderTable() {
             <tr>
               <th>名稱</th>
               <th>角色</th>
-              <th style="width:140px;">操作</th>
+              <th style="width:180px;">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -168,6 +175,7 @@ function _renderTable() {
                 </td>
                 <td data-label="操作">
                   <a class="btn btn-sm" href="member-detail.html?id=${m.id}">進入版面</a>
+                  <button class="btn btn-sm btn-ghost" data-action="edit" data-id="${m.id}">編輯</button>
                 </td>
               </tr>
             `).join('')}
@@ -181,7 +189,33 @@ function _renderTable() {
 }
 
 /* ============================================
-   快速摘要（成員概覽）
+   清單事件
+   ============================================ */
+function _bindListEvents() {
+  const cardEl = document.getElementById('members-card-view');
+  const tableEl = document.getElementById('members-table-view');
+
+  const handler = (e) => {
+    const btn = e.target.closest('button[data-action="edit"]');
+    if (!btn) return;
+    const id = btn.dataset.id;
+    const member = _members.find((m) => m.id === id);
+    if (!member) return;
+
+    openEntityModal({
+      entity: ENTITY_KEYS.MEMBER,
+      mode: 'edit',
+      id: member.id,
+      allRows: _members,
+    });
+  };
+
+  cardEl?.addEventListener('click', handler);
+  tableEl?.addEventListener('click', handler);
+}
+
+/* ============================================
+   快速摘要
    ============================================ */
 function _renderQuickSummary() {
   const root = document.getElementById('quick-summary-root');

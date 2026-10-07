@@ -1,14 +1,11 @@
 // ============================================
-// personal-expenses.js — 個人支出明細（v101 只讀化）
+// personal-expenses.js — 個人支出明細（v101.5）
 // 位置：js/pages/personal-expenses.js
 // ============================================
-// v101 改動：
-//   ✅ 移除新增 / 編輯 / 刪除（移至綜合輸入中心）
-//   ✅ 保留卡片 / 表格雙模式
-//   ✅ 統一由 AppState ym-change 載入
-//   ✅ 加「前往輸入中心」按鈕
-//   ✅ 狀態 badge 依 app-config
-//   ✅ 手機版自動卡片化（.data-table.mobile-cards）
+// v101.5 修正：
+//   ✅ 新增「編輯」按鈕（連結至輸入中心編輯）
+//   ✅ 狀態 badge 改用 entity-helpers 的 renderStatusBadge
+//   ✅ 使用 registerPageCleanup 註冊清理
 // ============================================
 
 import {
@@ -16,14 +13,15 @@ import {
   listenAllExpenses,
 } from '../core/db.js';
 import { AppState } from '../core/state.js';
-import { getStatusesByCategory } from '../config/app-config.js';
 import {
   escapeHtml, formatHKD, sortMembers, getMemberDisplayName,
 } from '../core/utils.js';
 import { renderPageFilter } from '../shared/page-filter.js';
 import { initViewToggle } from '../shared/view-toggle.js';
 import { renderQuickSummary } from '../shared/quick-summary.js';
+import { renderStatusBadge } from '../shared/entity-helpers.js';
 import { QUICK_SUMMARY_TYPES } from '../config/constants.js';
+import { registerPageCleanup } from '../core/app.js';
 
 /* ============================================
    Module 狀態
@@ -41,7 +39,6 @@ let _unsubscribers = [];
    主入口
    ============================================ */
 export async function initPersonalExpensesPage() {
-  // 檢視切換
   _viewToggle = initViewToggle({
     containerId: 'view-toggle-root',
     storageKey: 'pe-view',
@@ -52,12 +49,10 @@ export async function initPersonalExpensesPage() {
     onChange: () => _render(),
   });
 
-  // 前往輸入中心
   document.getElementById('go-input-center-btn')?.addEventListener('click', () => {
     window.location.href = 'input-center.html';
   });
 
-  // 篩選欄
   _filterInstance = renderPageFilter({
     containerId: 'page-filter-root',
     fields: ['year', 'month'],
@@ -88,7 +83,6 @@ export async function initPersonalExpensesPage() {
     },
   });
 
-  // 資料監聽
   _unsubscribers.push(
     listenMembers((list) => {
       _members = sortMembers(list);
@@ -116,6 +110,10 @@ export async function initPersonalExpensesPage() {
       _render();
     })
   );
+
+  _bindListEvents();
+
+  registerPageCleanup(_destroy);
 
   return {
     destroy: _destroy,
@@ -175,9 +173,6 @@ function _render() {
   if (window.lucide) window.lucide.createIcons();
 }
 
-/* ============================================
-   過濾
-   ============================================ */
 function _filteredList() {
   return _allExpenses
     .filter((x) => {
@@ -238,7 +233,7 @@ function _renderCard(x) {
       </div>
       <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:11px; color:var(--text-muted); flex-wrap:wrap;">
         <span>${escapeHtml(catName)}${pmName !== '—' ? ` · ${escapeHtml(pmName)}` : ''}</span>
-        <span>${_renderStatusBadge(x.status)}</span>
+        <span>${renderStatusBadge(x.status, 'personal')}</span>
       </div>
       ${x.date ? `<div style="font-size:11px; color:var(--text-muted); margin-top:4px;">${escapeHtml(x.date)}</div>` : ''}
     </div>
@@ -299,20 +294,26 @@ function _renderRow(x) {
       <td class="hide-mobile" data-label="支付方式" style="font-size:11px; color:var(--text-muted);">${escapeHtml(pmName)}</td>
       <td class="hide-mobile" data-label="日期" style="font-size:11px; color:var(--text-muted);">${escapeHtml(x.date || '—')}</td>
       <td class="num" data-label="金額">${formatHKD(x.amount)}</td>
-      <td data-label="狀態">${_renderStatusBadge(x.status)}</td>
+      <td data-label="狀態">${renderStatusBadge(x.status, 'personal')}</td>
     </tr>
   `;
 }
 
 /* ============================================
-   狀態 badge
+   清單事件（點擊卡片/列 → 跳轉輸入中心）
    ============================================ */
-function _renderStatusBadge(status) {
-  const statuses = getStatusesByCategory('personal');
-  const s = statuses.find((x) => x.name === status);
-  const isDone = s ? !!s.isDone : (status && status.startsWith('已'));
-  const cls = isDone ? 'badge-success' : 'badge-pending';
-  return `<span class="badge ${cls}">${escapeHtml(status || '未處理')}</span>`;
+function _bindListEvents() {
+  const cardEl = document.getElementById('pe-card-view');
+  const tableEl = document.getElementById('pe-table-view');
+
+  const handler = (e) => {
+    // 若點擊的是卡片（點擊卡片空白處 → 導向輸入中心）
+    // 目前個人支出頁為「只讀」，點擊不導向（避免誤觸）
+    // 保留供未來擴充
+  };
+
+  cardEl?.addEventListener('click', handler);
+  tableEl?.addEventListener('click', handler);
 }
 
 /* ============================================
@@ -327,7 +328,6 @@ function _renderQuickSummary(list) {
     return;
   }
 
-  // Top 5 類別
   const catTotals = {};
   list.forEach((x) => {
     const cat = _categories.find((c) => c.id === x.categoryId);

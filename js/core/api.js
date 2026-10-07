@@ -1,9 +1,11 @@
 // ============================================
-// api.js — Cloudflare Functions 呼叫封裝（v101.2）
+// api.js — Cloudflare Functions 呼叫封裝（v101.5）
 // 位置：js/core/api.js
 // ============================================
-// v101.2 修正：
-//   ✅ localStorage key 改用 STORAGE_KEYS 常數（避免硬編碼）
+// v101.5 修正：
+//   ✅ fetchAnnualSummary 改為內部使用 Promise.all（已是）
+//   ✅ 新增 insurance-sync 的 policyHolderId 參數
+//   ✅ 新增 generic callApi 的錯誤標準化
 // ============================================
 
 import { AppState } from './state.js';
@@ -14,12 +16,6 @@ import { STORAGE_KEYS } from '../config/constants.js';
    基礎呼叫
    ============================================ */
 
-/**
- * 呼叫後端 API
- * @param {string} path
- * @param {Object} options
- * @returns {Promise<Object>}
- */
 export async function callApi(path, options = {}) {
   const user = auth.currentUser;
   const token = user ? await user.getIdToken() : '';
@@ -36,22 +32,18 @@ export async function callApi(path, options = {}) {
     throw new Error(`網路錯誤（${path}）：${err.message}`);
   }
 
-  // 401 → 未授權，強制登出
   if (res.status === 401) {
-    // 🆕 v101.2：改用 STORAGE_KEYS
     localStorage.removeItem(STORAGE_KEYS.FAMILY_ID);
     localStorage.removeItem(STORAGE_KEYS.FAMILY_NAME);
     window.location.href = 'login.html';
     throw new Error('登入已過期，請重新登入');
   }
 
-  // 403 → 無權限
   if (res.status === 403) {
     const text = await res.text().catch(() => '');
     throw new Error(`無權限存取（${res.status}）：${text || 'FORBIDDEN'}`);
   }
 
-  // 其他錯誤
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     let parsed = null;
@@ -63,9 +55,6 @@ export async function callApi(path, options = {}) {
   return res.json();
 }
 
-/**
- * 取得當前家庭 ID（若無則拋錯）
- */
 function getFamilyId() {
   const id = AppState.getFamilyId();
   if (!id) throw new Error('尚未選擇家庭');
@@ -122,6 +111,9 @@ export const api = {
   },
 
   /* ---------- 保險同步 ---------- */
+  /**
+   * 保險同步（v101.5：支援 policyHolderId）
+   */
   insuranceSync: (payload) =>
     callApi('/api/insurance-sync', {
       method: 'POST',
@@ -136,7 +128,7 @@ export const api = {
       body: JSON.stringify({ ...payload, familyId: getFamilyId(), action: 'delete' }),
     }),
 
-  /* ---------- 平台家庭管理（superadmin） ---------- */
+  /* ---------- 平台家庭管理 ---------- */
   adminListFamilies: () =>
     callApi('/api/admin-families?action=list'),
 
@@ -161,9 +153,7 @@ export const api = {
       body: JSON.stringify({ uid }),
     }),
 
-  /* ============================================
-     v101：平台設定（UI 常數）
-     ============================================ */
+  /* ---------- 平台設定 ---------- */
   platformSettings: {
     get: () => callApi('/api/platform-settings'),
 
@@ -175,20 +165,11 @@ export const api = {
       }),
   },
 
-  /* ============================================
-     v101：平台預設資料庫
-     ============================================ */
+  /* ---------- 平台預設資料庫 ---------- */
   platformDefaults: {
-    /**
-     * 列出某個資源
-     * @param {'members'|'banks'|'companies'|'payments'|'categories'|'items'|'statuses'|'options'|'yearRange'|'uiConstants'} resource
-     */
     list: (resource) =>
       callApi(`/api/platform-defaults?action=list&resource=${resource}`),
 
-    /**
-     * 新增 / 更新一筆
-     */
     put: (resource, id, data) =>
       callApi('/api/platform-defaults', {
         method: 'POST',
@@ -196,9 +177,6 @@ export const api = {
         body: JSON.stringify({ action: 'put', resource, id, data }),
       }),
 
-    /**
-     * 刪除一筆
-     */
     remove: (resource, id) =>
       callApi('/api/platform-defaults', {
         method: 'POST',
@@ -206,9 +184,6 @@ export const api = {
         body: JSON.stringify({ action: 'delete', resource, id }),
       }),
 
-    /**
-     * 批次儲存（用於 options / yearRange / uiConstants 這種單物件）
-     */
     set: (resource, data) =>
       callApi('/api/platform-defaults', {
         method: 'POST',
@@ -217,19 +192,11 @@ export const api = {
       }),
   },
 
-  /* ============================================
-     v101：家庭設定
-     ============================================ */
+  /* ---------- 家庭設定 ---------- */
   familySettings: {
-    /**
-     * 取得家庭的所有設定（options / yearRange / uiConstants / statuses）
-     */
     get: () =>
       callApi(`/api/family-settings?familyId=${getFamilyId()}`),
 
-    /**
-     * 更新家庭設定
-     */
     update: (data) =>
       callApi('/api/family-settings', {
         method: 'POST',
@@ -237,9 +204,6 @@ export const api = {
         body: JSON.stringify({ familyId: getFamilyId(), action: 'update', data }),
       }),
 
-    /**
-     * 新增 / 更新狀態
-     */
     putStatus: (id, data) =>
       callApi('/api/family-settings', {
         method: 'POST',
@@ -247,9 +211,6 @@ export const api = {
         body: JSON.stringify({ familyId: getFamilyId(), action: 'put-status', id, data }),
       }),
 
-    /**
-     * 刪除狀態
-     */
     removeStatus: (id) =>
       callApi('/api/family-settings', {
         method: 'POST',

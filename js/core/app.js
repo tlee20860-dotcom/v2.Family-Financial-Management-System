@@ -1,15 +1,15 @@
 // ============================================
-// app.js — 每個頁面共用的初始化（v101.2）
+// app.js — 每個頁面共用的初始化（v101.5）
 // 位置：js/core/app.js
 // ============================================
-// v101.2 修正：
-//   ✅ 呼叫 watchPlatformDefaults() / watchFamilySettings()
-//      → 平台預設或家庭設定變更時，自動同步到前端
-//   ✅ 整合 watch 機制，避免重整頁面才生效
+// v101.5 修正：
+//   ✅ destroyApp 補呼叫 disposeAppConfig / destroySidebar / destroyNavbar
+//   ✅ 新增 destroy 註冊機制（供頁面自行註冊清理函式）
+//   ✅ 強化錯誤處理（避免 app-config 載入失敗中斷頁面）
 // ============================================
 
-import { renderSidebar } from '../shared/sidebar.js';
-import { renderNavbar } from '../shared/navbar.js';
+import { renderSidebar, destroySidebar } from '../shared/sidebar.js';
+import { renderNavbar, destroyNavbar } from '../shared/navbar.js';
 import { requireLogin } from './auth-guard.js';
 import { initPWA } from './pwa.js';
 import { AppState } from './state.js';
@@ -17,15 +17,22 @@ import {
   initAppConfig,
   watchPlatformDefaults,
   watchFamilySettings,
+  disposeAppConfig,
 } from '../config/app-config.js';
+
+/* ============================================
+   Module 狀態
+   ============================================ */
+let _pageCleanups = [];
+let _initialized = false;
+
+/* ============================================
+   主入口
+   ============================================ */
 
 /**
  * 頁面初始化
  * @param {Object} options
- * @param {string} options.activeHref - 當前頁面 href（用於 sidebar 高亮）
- * @param {string} options.title - navbar 標題
- * @param {boolean} options.needAuth - 是否需要登入驗證（預設 true）
- * @param {boolean} options.requireFamily - 是否必須選擇家庭（預設 true）
  * @returns {Promise<Object|null>} user 物件或 null
  */
 export async function initApp({
@@ -34,6 +41,12 @@ export async function initApp({
   needAuth = true,
   requireFamily = true,
 } = {}) {
+  if (_initialized) {
+    console.warn('[app] initApp 已被呼叫過，忽略重複呼叫');
+    return null;
+  }
+  _initialized = true;
+
   // 1. PWA 初始化
   try {
     initPWA();
@@ -56,14 +69,10 @@ export async function initApp({
     if (!user) return null;
   }
 
-  // 4. 載入 app-config（平台預設 + 家庭覆蓋）
+  // 4. 載入 app-config
   try {
     await initAppConfig(AppState.getFamilyId());
-
-    // 🆕 v101.2：啟動即時同步監聽
-    // 1) 平台預設變更（superadmin 改設定時，家庭端即時反映）
     watchPlatformDefaults();
-    // 2) 家庭設定變更（跨裝置即時同步）
     if (AppState.getFamilyId()) {
       watchFamilySettings();
     }
@@ -96,9 +105,41 @@ export async function initApp({
   return user;
 }
 
+/* ============================================
+   🆕 v101.5：頁面清理註冊
+   ============================================ */
+
 /**
- * 頁面卸載清理（用於 SPA 化或頁面切換時）
+ * 註冊頁面清理函式
+ * @param {Function} fn
+ */
+export function registerPageCleanup(fn) {
+  if (typeof fn === 'function') {
+    _pageCleanups.push(fn);
+  }
+}
+
+/**
+ * 頁面卸載清理
  */
 export function destroyApp() {
+  // 清理頁面註冊的清理函式
+  _pageCleanups.forEach((fn) => {
+    try { fn(); } catch (e) { console.error('[app] cleanup error:', e); }
+  });
+  _pageCleanups = [];
+
+  // 清理側邊欄
+  try { destroySidebar(); } catch (e) { /* noop */ }
+
+  // 清理 Navbar
+  try { destroyNavbar(); } catch (e) { /* noop */ }
+
+  // 清理 app-config 監聽
+  try { disposeAppConfig(); } catch (e) { /* noop */ }
+
+  // 清理 AppState
   AppState.destroy();
+
+  _initialized = false;
 }

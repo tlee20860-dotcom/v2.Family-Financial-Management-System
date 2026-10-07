@@ -1,21 +1,23 @@
 // ============================================
-// modal.js — 全站共用 Modal 開關（v101）
+// modal.js — 全站共用 Modal 開關（v101.5）
 // 位置：js/shared/modal.js
 // ============================================
-// v101 修正：
-//   ✅ 支援 Stack（多層 Modal）
-//   ✅ 新增 openConfirm 便捷方法
+// v101.5 修正：
+//   ✅ 移除重複定義的 escapeHtml，改用 utils.js
 //   ✅ 強化 ESC 處理（只關最上層）
-//   ✅ 新增 destroy 清理
+//   ✅ 新增 destroy / cleanAll
 // ============================================
+
+import { escapeHtml } from '../core/utils.js';
 
 const _stack = [];
 
+/* ============================================
+   開關
+   ============================================ */
+
 /**
  * 開啟 Modal
- * @param {string|HTMLElement} target - Modal 元素 ID 或元素本身
- * @param {Object} [options]
- * @param {boolean} [options.pushToStack=true] - 是否推入堆疊
  */
 export function openModal(target, options = {}) {
   const { pushToStack = true } = options;
@@ -32,7 +34,6 @@ export function openModal(target, options = {}) {
 
 /**
  * 關閉 Modal
- * @param {string|HTMLElement} target
  */
 export function closeModal(target) {
   const modal = resolveElement(target);
@@ -70,11 +71,6 @@ export function getTopModal() {
    綁定工具
    ============================================ */
 
-/**
- * 綁定 Modal 內的「取消」按鈕
- * @param {string} modalId
- * @param {string} cancelBtnId
- */
 export function bindModalCancel(modalId, cancelBtnId) {
   const btn = document.getElementById(cancelBtnId);
   if (!btn) return;
@@ -84,10 +80,6 @@ export function bindModalCancel(modalId, cancelBtnId) {
   });
 }
 
-/**
- * 綁定點擊 overlay 背景關閉 Modal
- * @param {string} modalId
- */
 export function bindModalBackdropClose(modalId) {
   const modal = document.getElementById(modalId);
   if (!modal) return;
@@ -96,9 +88,6 @@ export function bindModalBackdropClose(modalId) {
   });
 }
 
-/**
- * 綁定 ESC 鍵關閉最上層 Modal（只需呼叫一次）
- */
 export function bindModalEscClose() {
   if (window._modalEscBound) return;
   window._modalEscBound = true;
@@ -111,10 +100,6 @@ export function bindModalEscClose() {
   });
 }
 
-/**
- * 一次綁定多個 Modal（cancel + backdrop + esc）
- * @param {Array<{modalId: string, cancelBtnId?: string}>} configs
- */
 export function bindModals(configs = []) {
   configs.forEach((cfg) => {
     if (cfg.cancelBtnId) bindModalCancel(cfg.modalId, cfg.cancelBtnId);
@@ -124,19 +109,15 @@ export function bindModals(configs = []) {
 }
 
 /* ============================================
-   便捷：確認對話框（取代原生 confirm）
+   便捷：確認對話框
    ============================================ */
 
 let _confirmResolve = null;
 
 /**
  * 顯示確認對話框
- * @param {string} message - 訊息
+ * @param {string} message
  * @param {Object} [options]
- * @param {string} [options.title='確認']
- * @param {string} [options.okText='確定']
- * @param {string} [options.cancelText='取消']
- * @param {string} [options.okClass='btn-danger']
  * @returns {Promise<boolean>}
  */
 export function openConfirm(message, options = {}) {
@@ -150,7 +131,6 @@ export function openConfirm(message, options = {}) {
   return new Promise((resolve) => {
     _confirmResolve = resolve;
 
-    // 建立 Modal DOM
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay active';
     overlay.id = '__confirm-modal';
@@ -206,20 +186,26 @@ function _closeConfirm(result) {
 }
 
 /* ============================================
+   銷毀
+   ============================================ */
+
+export function destroyModal(target) {
+  const modal = resolveElement(target);
+  if (!modal) return;
+  closeModal(modal);
+  modal.remove();
+}
+
+export function cleanAllModals() {
+  closeAllModals();
+  _stack.length = 0;
+}
+
+/* ============================================
    內部工具
    ============================================ */
 function resolveElement(target) {
   if (typeof target === 'string') return document.getElementById(target);
   if (target instanceof HTMLElement) return target;
   return null;
-}
-
-function escapeHtml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  }[c]));
 }

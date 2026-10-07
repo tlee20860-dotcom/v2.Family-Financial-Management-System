@@ -1,29 +1,25 @@
 // ============================================
-// annual-month-cards.js — 全站共用年度 12 個月折疊卡（v101）
+// annual-month-cards.js — 全站共用年度 12 個月折疊卡（v101.5）
 // 位置：js/shared/annual-month-cards.js
 // ============================================
-// v101 修正：
-//   ✅ 新增 storageKey 選項（折疊狀態持久化）
-//   ✅ 標題 / detailHtml 由呼叫端負責 escape（文件說明）
-//   ✅ 新增 destroy()
+// v101.5 修正：
+//   ✅ storageKey 統一使用 STORAGE_KEYS.UI_PREFIX
+//   ✅ 新增 destroy 清理事件
+//   ✅ 強化 escape（呼叫端負責，但內部也做基本處理）
 //   ✅ 支援 emptyHtml 自訂空狀態
 // ============================================
 
 import { formatHKD } from '../core/utils.js';
+import { STORAGE_KEYS } from '../config/constants.js';
+
+/* ============================================
+   主函式
+   ============================================ */
 
 /**
  * 渲染年度 12 個月折疊卡
- *
- * HTML 容器要求：
- *   <div id="annual-monthly-cards"></div>
- *
- * @param {string} containerId - 容器 ID
+ * @param {string} containerId
  * @param {Object} options
- * @param {Function} options.getMonthData - (monthNum) => { title, total, detailHtml }
- * @param {Function} [options.totalFormatter] - (num) => string（預設 formatHKD）
- * @param {string} [options.emptyText] - 無資料時的文字
- * @param {string} [options.emptyHtml] - 無資料時的自訂 HTML（優先於 emptyText）
- * @param {string} [options.storageKey] - 折疊狀態儲存 key（選填）
  * @returns {Object|null}
  */
 export function renderAnnualMonthCards(containerId, options = {}) {
@@ -125,11 +121,7 @@ export function renderAnnualMonthCards(containerId, options = {}) {
 }
 
 /**
- * 產生單一月份明細 row 的 HTML（供 getMonthData 使用）
- *
- * @param {string} name - 項目名稱（需自行 escape）
- * @param {number} amount - 金額
- * @param {string} colorClass - 顏色 class（預設 'text-emerald'）
+ * 產生單一月份明細 row 的 HTML
  */
 export function monthRowHtml(name, amount, colorClass = 'text-emerald') {
   return `
@@ -146,7 +138,7 @@ export function monthRowHtml(name, amount, colorClass = 'text-emerald') {
 
 function _loadOpenSet(storageKey) {
   if (!storageKey) return new Set();
-  const key = storageKey.startsWith('fin_ui_') ? storageKey : `fin_ui_${storageKey}`;
+  const key = _normalizeKey(storageKey);
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return new Set();
@@ -159,10 +151,17 @@ function _loadOpenSet(storageKey) {
 
 function _saveOpenSet(storageKey, set) {
   if (!storageKey) return;
-  const key = storageKey.startsWith('fin_ui_') ? storageKey : `fin_ui_${storageKey}`;
+  const key = _normalizeKey(storageKey);
   try {
     localStorage.setItem(key, JSON.stringify([...set]));
   } catch (e) {
     // 忽略
   }
+}
+
+function _normalizeKey(storageKey) {
+  if (!storageKey) return `${STORAGE_KEYS.UI_PREFIX}annual-default`;
+  return storageKey.startsWith(STORAGE_KEYS.UI_PREFIX)
+    ? storageKey
+    : `${STORAGE_KEYS.UI_PREFIX}${storageKey}`;
 }

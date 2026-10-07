@@ -1,46 +1,44 @@
 // ============================================
-// dashboard.js — 總覽儀表板（v101.3）
+// dashboard.js — 總覽儀表板（v101.5）
 // 位置：js/pages/dashboard.js
 // ============================================
-// v101.3 修正：
-//   ✅ 移除未使用的 buildTopCategoriesData / buildRecentActivityData import
+// v101.5 修正：
+//   ✅ filterInstance 提升至 module 層級（destroy 完整）
+//   ✅ 使用 registerPageCleanup 註冊清理
+//   ✅ 快速摘要使用共用 builder（不再自己組裝）
 // ============================================
 
 import { api } from '../core/api.js';
 import { AppState } from '../core/state.js';
 import { formatHKD, escapeHtml } from '../core/utils.js';
 import { renderPageFilter } from '../shared/page-filter.js';
-import { renderQuickSummary } from '../shared/quick-summary.js';
+import { renderQuickSummary, buildTopCategoriesData, buildRecentActivityData } from '../shared/quick-summary.js';
 import { QUICK_SUMMARY_TYPES } from '../config/constants.js';
+import { registerPageCleanup } from '../core/app.js';
 
 /* ============================================
    Module 狀態
    ============================================ */
+let _filterInstance = null;
 let _unsubscribeYM = null;
 
 /* ============================================
    主入口
    ============================================ */
 export async function initDashboardPage() {
-  const filterInstance = renderPageFilter({
+  _filterInstance = renderPageFilter({
     containerId: 'page-filter-root',
     fields: ['year', 'month'],
   });
 
-  // 統一資料流：只監聽 AppState 變更
   _unsubscribeYM = AppState.on('ym-change', () => loadDashboard());
 
-  // 初次載入
   await loadDashboard();
 
+  registerPageCleanup(_destroy);
+
   return {
-    destroy: () => {
-      if (_unsubscribeYM) {
-        try { _unsubscribeYM(); } catch (e) { /* noop */ }
-        _unsubscribeYM = null;
-      }
-      filterInstance?.destroy?.();
-    },
+    destroy: _destroy,
   };
 }
 
@@ -94,6 +92,7 @@ function renderAnnual(data) {
   const container = document.getElementById('monthly-cards');
   if (container) {
     container.innerHTML = (data.monthly || []).map((m, i) => _renderMonthCard(m, i + 1)).join('');
+    _bindMonthCardToggles(container);
   }
 
   if (window.lucide) window.lucide.createIcons();
@@ -142,6 +141,16 @@ function _renderMonthCard(m, monthNum) {
   `;
 }
 
+function _bindMonthCardToggles(container) {
+  container.querySelectorAll('.month-toggle').forEach((el) => {
+    el.addEventListener('click', () => {
+      const detail = el.nextElementSibling;
+      if (!detail) return;
+      detail.style.display = detail.style.display === 'none' ? 'block' : 'none';
+    });
+  });
+}
+
 /* ============================================
    單月模式
    ============================================ */
@@ -159,7 +168,6 @@ function renderMonthly(data) {
     netEl.classList.add(data.netBalance >= 0 ? 'emerald' : 'red');
   }
 
-  // 收入明細
   const breakdown = data.incomeBreakdown || {};
   const perMember = data.perMember || {};
   const parts = [];
@@ -173,16 +181,13 @@ function renderMonthly(data) {
   });
   setText('hint-income', parts.length ? parts.join(' ＋ ') : '本月尚未設定收入');
 
-  // 支出筆數
   const totalItems = Object.values(perMember).reduce((s, m) => s + (m.itemCount || 0), 0);
   setText('hint-expense', `共 ${totalItems} 筆項目`);
 
-  // 資產
   setText('hint-assets',
     `銀行 ${formatHKD(data.bankBalance)} ＋ 基金 ${formatHKD(data.fundValue)}`
   );
 
-  // 保單
   setText('hint-insurance', `共 ${data.policyCount || 0} 張保單`);
 
   _renderMonthlyQuickSummary(data);
@@ -195,17 +200,18 @@ function _renderAnnualQuickSummary(data) {
   const root = document.getElementById('quick-summary-root');
   if (!root) return;
 
-  // Top 類別（從全年 perMember 匯總）
-  const categories = {};
+  // 使用共用 builder
+  const perMember = {};
   (data.monthly || []).forEach((m) => {
-    Object.values(m.perMember || {}).forEach((md) => {
-      (md.items || []).forEach((it) => {
-        const catName = it.categoryName || '（未分類）';
-        if (!categories[catName]) categories[catName] = 0;
-        categories[catName] += Number(it.amount) || 0;
-      });
+    Object.entries(m.perMember || {}).forEach(([mid, md]) => {
+      if (!perMember[mid]) perMember[mid] = { items: [] };
+      perMember[mid].items.push(...(md.items || []));
     });
   });
+
+  const categories = _collectCategoriesFromItems(
+    Object.values(perMember).flatMap((m) => m.items)
+  );
 
   const topList = Object.entries(categories)
     .map(([name, amount]) => ({ name, amount }))
@@ -225,36 +231,30 @@ function _renderMonthlyQuickSummary(data) {
   const topEl = document.getElementById('quick-summary-top');
   const recentEl = document.getElementById('quick-summary-recent');
 
-  // Top 類別
-  const categories = {};
-  Object.values(data.perMember || {}).forEach((md) => {
+  const allItems = [];
+  Object.entries(data.perMember || {}).forEach(([memberId, md]) => {
     (md.items || []).forEach((it) => {
-      const catName = it.categoryName || '（未分類）';
-      if (!categories[catName]) categories[catName] = 0;
-      categories[catName] += Number(it.amount) || 0;
+      allItems.push(it);
     });
   });
 
+  const categories = _collectCategoriesFromItems(allItems);
   const topList = Object.entries(categories)
     .map(([name, amount]) => ({ name, amount }))
     .sort((a, b) => b.amount - a.amount)
     .slice(0, 5);
 
-  // 最近活動（從 perMember 項目取前 5 筆）
-  const allItems = [];
-  Object.entries(data.perMember || {}).forEach(([memberId, md]) => {
-    (md.items || []).forEach((it) => {
-      allItems.push({
-        key: it.id,
-        title: it.name || '支出',
-        subtitle: `${md.memberName || ''} · ${it.date || ''}`,
-        amount: -(Number(it.amount) || 0),
-        badge: it.isAutoLinked ? '保險' : '',
-        _ts: it.createdAt || 0,
-      });
-    });
-  });
-  allItems.sort((a, b) => b._ts - a._ts);
+  // 最近活動（使用共用 builder）
+  const recentData = buildRecentActivityData({
+    expenses: allItems.map((it) => ({
+      id: it.id,
+      name: it.name,
+      date: it.date,
+      amount: it.amount,
+      isAutoLinked: it.isAutoLinked,
+      createdAt: it.createdAt || 0,
+    })),
+  }, 5);
 
   if (topEl) {
     renderQuickSummary({
@@ -272,9 +272,19 @@ function _renderMonthlyQuickSummary(data) {
       type: QUICK_SUMMARY_TYPES.RECENT_ACTIVITY,
       title: '最近活動',
       icon: 'activity',
-      data: allItems.slice(0, 5),
+      data: recentData,
     });
   }
+}
+
+function _collectCategoriesFromItems(items) {
+  const categories = {};
+  (items || []).forEach((it) => {
+    const catName = it.categoryName || '（未分類）';
+    if (!categories[catName]) categories[catName] = 0;
+    categories[catName] += Number(it.amount) || 0;
+  });
+  return categories;
 }
 
 /* ============================================
@@ -290,5 +300,19 @@ function showError(msg) {
   if (banner) {
     banner.textContent = '⚠ ' + msg;
     banner.style.display = 'block';
+  }
+}
+
+/* ============================================
+   銷毀
+   ============================================ */
+function _destroy() {
+  if (_unsubscribeYM) {
+    try { _unsubscribeYM(); } catch (e) { /* noop */ }
+    _unsubscribeYM = null;
+  }
+  if (_filterInstance) {
+    try { _filterInstance.destroy(); } catch (e) { /* noop */ }
+    _filterInstance = null;
   }
 }

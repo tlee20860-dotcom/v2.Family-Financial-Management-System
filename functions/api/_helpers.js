@@ -1,10 +1,11 @@
 // ============================================
-// _helpers.js — API 共用輔助函式（v101.2）
+// _helpers.js — API 共用輔助函式（v101.5）
 // 位置：functions/api/_helpers.js
 // ============================================
-// v101.2 修正：
-//   ✅ 就地定義 handleOptions（不用 re-export）
-//   ✅ 避免 Cloudflare bundler 不支援 re-export 的問題
+// v101.5 修正：
+//   ✅ authenticate 的 needFamily 支援 URL query（GET 請求）
+//   ✅ requireFields 錯誤訊息更清楚
+//   ✅ 新增 PLATFORM_RESOURCES（與前端 constants.js 對齊）
 // ============================================
 
 import { SUPERADMIN_EMAIL, jsonResponse } from './_config.js';
@@ -33,6 +34,22 @@ const FIREBASE_API_KEY = 'AIzaSyCQlrNdorKJI9xsqr4m4ME046lrubo9Y7I';
 
 const IDENTITY_TOOLKIT_URL =
   'https://identitytoolkit.googleapis.com/v1/accounts:lookup';
+
+/* ============================================
+   🆕 v101.5：平台資源對照表（與前端 constants.js 對齊）
+   ============================================ */
+export const PLATFORM_RESOURCES = {
+  members:     { path: 'members',             type: 'list' },
+  banks:       { path: 'banks',               type: 'list' },
+  companies:   { path: 'insurance_companies', type: 'list' },
+  payments:    { path: 'payment_methods',     type: 'list' },
+  categories:  { path: 'expense_categories',  type: 'list' },
+  items:       { path: 'expense_items',       type: 'list' },
+  statuses:    { path: 'statuses',            type: 'list' },
+  options:     { path: 'options',             type: 'object' },
+  yearRange:   { path: 'year_range',          type: 'object' },
+  uiConstants: { path: 'ui_constants',        type: 'object' },
+};
 
 /* ============================================
    0. Token 快取
@@ -170,8 +187,18 @@ export function successResponse(data = {}) {
 
 /* ============================================
    6. 通用驗證流程
+   🆕 v101.5：needFamily 支援 URL query（GET 請求）
    ============================================ */
 
+/**
+ * @param {Request} request
+ * @param {Object} options
+ * @param {Object} [options.body] - POST 的 body（若有）
+ * @param {string[]} [options.requiredFields]
+ * @param {boolean} [options.needSuperAdmin]
+ * @param {boolean} [options.needFamily]
+ * @returns {Promise<Response|{token, user, isSuper}>}
+ */
 export async function authenticate(request, options = {}) {
   const { body, requiredFields, needSuperAdmin, needFamily } = options;
 
@@ -189,11 +216,21 @@ export async function authenticate(request, options = {}) {
   }
 
   if (needFamily) {
-    const familyId = body?.familyId;
+    // 🆕 v101.5：familyId 可從 body 或 URL query 取得
+    let familyId = body?.familyId;
+    if (!familyId) {
+      try {
+        const url = new URL(request.url);
+        familyId = url.searchParams.get('familyId');
+      } catch (e) {
+        // 忽略
+      }
+    }
+
     if (!familyId) return errorResponse('MISSING_FIELDS', 'familyId 為必填');
     const result = await verifyFamilyAccess(token, familyId);
     if (!result) return errorResponse('FORBIDDEN', '無權存取此家庭');
-    return { token, user: result.user, isSuper: result.isSuper };
+    return { token, user: result.user, isSuper: result.isSuper, familyId };
   }
 
   const user = await verifyToken(token);
@@ -222,4 +259,13 @@ export function objToList(obj, sortFn) {
 
 export function roundInt(v) {
   return Math.round(Number(v) || 0);
+}
+
+/* ============================================
+   8. 🆕 v101.5：保險連動前綴（與前端 constants.js 對齊）
+   ============================================ */
+export const LINKED_PREFIX = 'linked_';
+
+export function buildLinkedKey(policyId) {
+  return `${LINKED_PREFIX}${policyId}`;
 }

@@ -1,16 +1,10 @@
 // ============================================
-// admin-families.js — 平台管理 API（v101）
+// admin-families.js — 平台管理 API（v101.5）
 // 位置：functions/api/admin-families.js
 // ============================================
-// 端點：
-//   GET  /api/admin-families?action=list
-//   POST /api/admin-families { action: 'add' | 'remove', ... }
-//
-// v101 修正：
-//   ✅ 加 superadmin 權限檢查（原版任何 token 都能呼叫）
-//   ✅ 統一錯誤處理
-//   ✅ 回應格式標準化
-//   ✅ 支援 OPTIONS preflight
+// v101.5 修正：
+//   ✅ 使用 PLATFORM_RESOURCES 的相對路徑（與 _helpers.js 對齊）
+//   ✅ 錯誤訊息標準化
 // ============================================
 
 import { dbGet, dbPut, dbDelete } from './_config.js';
@@ -28,7 +22,6 @@ import {
    ============================================ */
 export async function onRequestGet({ request }) {
   try {
-    // 權限檢查：需要 superadmin
     const auth = await authenticate(request, { needSuperAdmin: true });
     if (auth instanceof Response) return auth;
     const { token } = auth;
@@ -51,7 +44,6 @@ export async function onRequestPost({ request }) {
     const body = await request.json();
     const { action, uid, name, email } = body || {};
 
-    // 權限檢查：需要 superadmin
     const auth = await authenticate(request, { needSuperAdmin: true });
     if (auth instanceof Response) return auth;
     const { token } = auth;

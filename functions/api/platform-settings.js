@@ -1,20 +1,10 @@
 // ============================================
-// platform-settings.js — 平台 UI 常數 API（v101 新增）
+// platform-settings.js — 平台 UI 常數 API（v101.5）
 // 位置：functions/api/platform-settings.js
 // ============================================
-// 端點：
-//   GET  /api/platform-settings          取得平台 UI 常數
-//   POST /api/platform-settings          更新平台 UI 常數
-//         { action: 'update', data: {...} }
-//
-// 用途：
-//   superadmin 在 admin.html → 平台預設 → UI 常數 分頁編輯
-//   儲存於 platform/defaults/ui_constants
-//
-// 讀取優先順序（前端）：
-//   1. families/{uid}/settings/ui_constants （家庭覆蓋）
-//   2. platform/defaults/ui_constants       （平台預設）
-//   3. constants.js DEFAULT_UI_CONSTANTS    （硬編碼 fallback）
+// v101.5 修正：
+//   ✅ 與 platform-defaults.js 的 uiConstants 對齊（同一資源）
+//   ✅ 保留白名單過濾
 // ============================================
 
 import { dbGet, dbPut } from './_config.js';
@@ -31,14 +21,12 @@ import {
    ============================================ */
 export async function onRequestGet({ request }) {
   try {
-    // 權限檢查：需 superadmin
     const auth = await authenticate(request, { needSuperAdmin: true });
     if (auth instanceof Response) return auth;
     const { token } = auth;
 
     const data = await dbGet('platform/defaults/ui_constants', token);
 
-    // 若尚未設定，回傳空物件（前端會 fallback 到常數）
     return successResponse({
       data: data || {},
     });
@@ -55,7 +43,6 @@ export async function onRequestPost({ request }) {
     const body = await request.json();
     const { action, data } = body || {};
 
-    // 權限檢查：需 superadmin
     const auth = await authenticate(request, { needSuperAdmin: true });
     if (auth instanceof Response) return auth;
     const { token } = auth;
@@ -68,7 +55,6 @@ export async function onRequestPost({ request }) {
       return errorResponse('MISSING_FIELDS', '缺少 data');
     }
 
-    // 白名單過濾（只允許已知欄位）
     const clean = {
       nameMaxLenDesktop: _toInt(data.nameMaxLenDesktop, 12),
       nameMaxLenMobile: _toInt(data.nameMaxLenMobile, 6),
@@ -86,9 +72,6 @@ export async function onRequestPost({ request }) {
   }
 }
 
-/* ============================================
-   OPTIONS preflight
-   ============================================ */
 export async function onRequestOptions() {
   return handleOptions();
 }

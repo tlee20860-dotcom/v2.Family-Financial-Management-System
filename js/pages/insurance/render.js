@@ -1,14 +1,18 @@
 // ============================================
-// render.js — 保險渲染模組（v101.4）
+// render.js — 保險渲染模組（v101.5）
 // 位置：js/pages/insurance/render.js
 // ============================================
-// v101.4 修正：
-//   ✅ 卡片顯示「保單持有人」+「受保人」
-//   ✅ fallback：若 policyHolderId 為空，用 memberId
+// v101.5 修正：
+//   ✅ 改 import shared/insurance-calc.js（calc.js 已刪除）
+//   ✅ 持有人 / 受保人 fallback 使用 getPolicyHolderId
 // ============================================
 
 import { escapeHtml, formatHKD } from '../../core/utils.js';
-import { getPeriodRange, calcProgress } from './calc.js';
+import {
+  getPeriodRange,
+  calcProgress,
+  getPolicyHolderId,
+} from '../../shared/insurance-calc.js';
 
 /* ============================================
    全域展開狀態
@@ -22,6 +26,13 @@ export function toggleExpand(key) {
 
 export function isExpanded(key) {
   return _expandedKeys.has(key);
+}
+
+/**
+ * 清除展開狀態（供 index.js 的 _destroy 呼叫）
+ */
+export function clearExpanded() {
+  _expandedKeys.clear();
 }
 
 /* ============================================
@@ -99,20 +110,16 @@ function _renderCardInner(p, members, isCompleted) {
   return _renderNormalPolicyCard(p, members, isCompleted);
 }
 
-/**
- * 取得成員名稱
- */
 function _memberName(members, memberId) {
   const m = members.find((x) => x.id === memberId);
   return m ? m.name : '（未指定）';
 }
 
 /**
- * 🆕 v101.4：取得持有人（fallback 受保人）
+ * v101.5：統一使用 getPolicyHolderId
  */
 function _holderName(members, p) {
-  const holderId = p.policyHolderId || p.memberId;
-  return _memberName(members, holderId);
+  return _memberName(members, getPolicyHolderId(p));
 }
 
 function _renderFundInsuranceCard(p, members) {

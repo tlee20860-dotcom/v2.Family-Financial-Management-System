@@ -1,6 +1,12 @@
 // ============================================
-// tab-fixed.js — 綜合輸入中心：固定支出 Tab（v101）
+// tab-fixed.js — 綜合輸入中心：固定支出 Tab（v101.5）
 // 位置：js/pages/input-center/tab-fixed.js
+// ============================================
+// v101.5 修正：
+//   ✅ 使用 registerPageCleanup 註冊清理
+//   ✅ 寫入加防抖（避免過度寫入）
+//   ✅ 抽出 _debouncedUpdateAmount
+//   ✅ 使用 entity-helpers 的 renderStatusBadge
 // ============================================
 
 import {
@@ -13,18 +19,42 @@ import { escapeHtml, formatHKD } from '../../core/utils.js';
 import { fillStatusSelect } from '../../shared/select-helpers.js';
 import { fillYearSelect, fillMonthSelect } from '../../shared/date-helpers.js';
 import { showToast } from '../../shared/toast.js';
+import { renderStatusBadge } from '../../shared/entity-helpers.js';
 
 /* ============================================
    Module 狀態
    ============================================ */
 let _container = null;
 let _templates = [];
-let _monthlyData = {};        // { '01': [items], ... }
+let _monthlyData = {};
 let _unsubscribers = [];
+let _unsubMonth = null;
 
 let _currentYear = '';
 let _currentMonth = '';
-let _currentView = 'card';    // 'card' | 'table'
+let _currentView = 'card';
+
+/* ============================================
+   防抖：金額更新
+   ============================================ */
+const _pendingAmountUpdates = new Map();
+
+function _debouncedUpdateAmount(id, amount) {
+  const key = `${_currentYear}-${_currentMonth}-${id}`;
+  if (_pendingAmountUpdates.has(key)) {
+    clearTimeout(_pendingAmountUpdates.get(key).timer);
+  }
+  const timer = setTimeout(async () => {
+    _pendingAmountUpdates.delete(key);
+    try {
+      await updateFixedExpense(_currentYear, _currentMonth, id, { amount });
+      showToast('✅ 已更新金額', 'success');
+    } catch (err) {
+      showToast('更新失敗：' + err.message, 'error');
+    }
+  }, 500);
+  _pendingAmountUpdates.set(key, { timer, amount });
+}
 
 /* ============================================
    主入口
@@ -59,7 +89,7 @@ function _buildSkeleton() {
   return `
     <div class="banner" style="margin-bottom:16px;">
       ℹ️ 固定支出每月自動產生，此處只需更新「金額」與「狀態」。
-      若要新增或刪除固定支出項目，請至「基礎資料庫」頁面管理。
+      若要新增或刪除固定支出項目，請使用「+ 新增固定支出」按鈕或至「基礎資料庫」管理。
     </div>
 
     <div class="glass-card collapsible-card collapsible-card-flat" id="ic-fixed-list-card">
@@ -109,7 +139,6 @@ function _buildFilters() {
     _loadAndRender();
   });
 
-  // 檢視切換
   document.getElementById('ic-fixed-view-card')?.addEventListener('click', () => _setView('card'));
   document.getElementById('ic-fixed-view-table')?.addEventListener('click', () => _setView('table'));
 }
@@ -133,7 +162,6 @@ function _setView(view) {
    資料監聽
    ============================================ */
 function _bindListeners() {
-  // 模板
   _unsubscribers.push(
     listenFixedTemplates((list) => {
       _templates = list;
@@ -141,11 +169,9 @@ function _bindListeners() {
     })
   );
 
-  // 監聽當前月份的支出（每次年/月變更會重新監聽）
   _watchMonth();
 }
 
-let _unsubMonth = null;
 function _watchMonth() {
   if (_unsubMonth) {
     try { _unsubMonth(); } catch (e) { /* noop */ }
@@ -160,7 +186,6 @@ function _watchMonth() {
 
 async function _loadAndRender() {
   _watchMonth();
-  // 監聽為即時，無需另外載入
   _render();
 }
 
@@ -181,7 +206,6 @@ function _render() {
     return;
   }
 
-  // 排序：依 createdAt
   const sorted = [...monthList].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 
   if (_currentView === 'card') {
@@ -193,13 +217,10 @@ function _render() {
   if (window.lucide) window.lucide.createIcons();
 }
 
-/* ============================================
-   卡片渲染
-   ============================================ */
 function _renderCard(x) {
   const statuses = getStatusesByCategory('fixed');
   const statusOptions = _buildStatusOptions(statuses, x.status);
-  const statusBadge = _statusBadge(x.status);
+  const statusBadge = renderStatusBadge(x.status, 'fixed');
 
   return `
     <div class="data-card" data-id="${x.id}" style="padding:14px;">
@@ -225,9 +246,6 @@ function _renderCard(x) {
   `;
 }
 
-/* ============================================
-   表格渲染
-   ============================================ */
 function _renderTable(list) {
   const statuses = getStatusesByCategory('fixed');
   return `
@@ -281,39 +299,25 @@ function _buildStatusOptions(statuses, current) {
   ).join('');
 }
 
-function _statusBadge(status) {
-  const statuses = getStatusesByCategory('fixed');
-  const s = statuses.find((x) => x.name === status);
-  const isDone = s ? s.isDone : (status && status.startsWith('已'));
-  const cls = isDone ? 'badge-success' : 'badge-pending';
-  return `<span class="badge ${cls}">${escapeHtml(status || '未付款')}</span>`;
-}
-
 /* ============================================
-   清單事件（改金額 / 改狀態）
+   清單事件
    ============================================ */
 function _bindListEvents() {
   const listEl = document.getElementById('ic-fixed-list');
   if (!listEl) return;
 
-  // 改金額（blur 時寫入）
-  listEl.addEventListener('blur', async (e) => {
+  // 金額 blur → 防抖寫入
+  listEl.addEventListener('blur', (e) => {
     const input = e.target.closest('input[data-action="update-amount"]');
     if (!input) return;
     const row = input.closest('[data-id]');
     if (!row) return;
     const id = row.dataset.id;
     const amount = Math.round(Number(input.value) || 0);
+    _debouncedUpdateAmount(id, amount);
+  }, true);
 
-    try {
-      await updateFixedExpense(_currentYear, _currentMonth, id, { amount });
-      showToast('✅ 已更新金額', 'success');
-    } catch (err) {
-      showToast('更新失敗：' + err.message, 'error');
-    }
-  }, true);  // 使用 capture 因為 blur 不冒泡
-
-  // 改狀態
+  // 狀態 change → 立即寫入
   listEl.addEventListener('change', async (e) => {
     const sel = e.target.closest('select[data-action="update-status"]');
     if (!sel) return;
@@ -338,6 +342,10 @@ function _bindListEvents() {
    銷毀
    ============================================ */
 function _destroy() {
+  // 清除所有待處理的防抖
+  _pendingAmountUpdates.forEach(({ timer }) => clearTimeout(timer));
+  _pendingAmountUpdates.clear();
+
   _unsubscribers.forEach((fn) => {
     try { fn(); } catch (e) { /* noop */ }
   });

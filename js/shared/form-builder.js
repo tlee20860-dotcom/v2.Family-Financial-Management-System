@@ -1,16 +1,20 @@
 // ============================================
-// form-builder.js — 通用動態表單建構器（v101.2）
+// form-builder.js — 通用動態表單建構器（v101.5）
 // 位置：js/shared/form-builder.js
 // ============================================
-// v101.2 修正：
-//   ✅ 必填驗證：0 視為有效值（不擋金額 0 / 排序 0）
-//   ✅ beforeSubmit 回傳 field 自動加 pd- 前綴（若無前綴）
-//   ✅ 支援 idPrefix 選項（統一前綴管理）
-//   ✅ 強化必填空值判斷（只擋 '' / null / undefined）
+// v101.5 修正：
+//   ✅ 新增 optionsSource 支援（動態選項由 entity-helpers 提供）
+//   ✅ 新增 dependsOn 支援（欄位連動）
+//   ✅ 新增 setLoading / clearField 便利方法
+//   ✅ 強化必填驗證：0 視為有效值
+//   ✅ 強化 beforeSubmit：支援 async
+//   ✅ 新增 onFieldChange 回傳 unsubscribe
+//   ✅ 欄位 ID 前綴統一由 idPrefix 管理
 // ============================================
 
 import { escapeHtml } from '../core/utils.js';
 import { showToast } from './toast.js';
+import { getDynamicOptions } from './entity-helpers.js';
 
 /* ============================================
    主函式
@@ -30,15 +34,16 @@ import { showToast } from './toast.js';
  * @param {Function} [options.onSubmit] - (data, api) => Promise
  * @param {Function} [options.onCancel] - () => {}
  * @param {Function} [options.onReset] - () => {}
- * @param {Function} [options.beforeSubmit] - (data) => true | string | {field, message}
+ * @param {Function} [options.beforeSubmit] - (data) => true | string | {field, message} | Promise
  * @param {boolean} [options.autoValidate=true] - 是否自動檢查必填
+ * @param {Object} [options.initialData] - 初始資料
  * @returns {Object|null}
  */
 export function buildForm(options) {
   const {
     containerId,
     fields = [],
-    idPrefix = '',   // 🆕 v101.2：全域前綴
+    idPrefix = '',
     submitText = '儲存',
     cancelText = '取消',
     resetText = '重置',
@@ -49,6 +54,7 @@ export function buildForm(options) {
     onReset,
     beforeSubmit,
     autoValidate = true,
+    initialData = null,
   } = options;
 
   const root = document.getElementById(containerId);
@@ -98,6 +104,7 @@ export function buildForm(options) {
      內部狀態
      ============================================ */
   let _submitting = false;
+  const _dynamicCleanups = [];   // 動態選項的 unsubscribe
 
   /* ============================================
      事件：Submit
@@ -124,16 +131,22 @@ export function buildForm(options) {
       }
     }
 
-    // 自訂驗證
+    // 自訂驗證（支援 async）
     if (typeof beforeSubmit === 'function') {
-      const result = beforeSubmit(data);
+      let result;
+      try {
+        result = await beforeSubmit(data);
+      } catch (err) {
+        console.error('[form-builder] beforeSubmit 失敗：', err);
+        showToast('驗證失敗：' + (err.message || err), 'error');
+        return;
+      }
       if (result === false) return;
       if (typeof result === 'string') {
         showToast(result, 'warning');
         return;
       }
       if (result && result.field && result.message) {
-        // 🆕 v101.2：自動加前綴（若回傳的 field 是「原始 id」）
         const resolvedField = fieldIdMap[result.field] || result.field;
         _showFieldError(resolvedField, result.message, fieldIdMap);
         showToast(result.message, 'warning');
@@ -191,7 +204,6 @@ export function buildForm(options) {
   }
 
   function _showFieldError(fieldId, message, map) {
-    // 若 fieldId 是原始 id（無前綴），轉成最終 id
     const resolvedId = map && map[fieldId] ? map[fieldId] : fieldId;
     const el = document.getElementById(resolvedId);
     if (!el) return;
@@ -199,16 +211,64 @@ export function buildForm(options) {
     if (!fieldEl) return;
     fieldEl.classList.add('has-error');
 
-    // 移除舊錯誤訊息
     const old = fieldEl.querySelector('.field-error');
     if (old) old.remove();
 
-    // 加入錯誤訊息
     const errorDiv = document.createElement('div');
     errorDiv.className = 'field-error';
     errorDiv.style.cssText = 'color:var(--neon-red); font-size:11px; margin-top:4px;';
     errorDiv.textContent = message;
     fieldEl.appendChild(errorDiv);
+  }
+
+  /* ============================================
+     初始化欄位（動態選項 / 連動）
+     ============================================ */
+  async function _initDynamicFields() {
+    for (const f of fields) {
+      const resolvedId = fieldIdMap[f.id] || f.id;
+
+      // 動態選項（optionsSource）
+      if (f.type === 'select' && f.optionsSource) {
+        try {
+          const opts = await getDynamicOptions(f.optionsSource);
+          api.updateOptions(f.id, opts, {
+            includeEmpty: f.includeEmpty !== false,
+            emptyText: f.emptyText || '— 請選擇 —',
+          });
+        } catch (err) {
+          console.warn(`[form-builder] 載入動態選項失敗 (${f.optionsSource})：`, err);
+        }
+      }
+
+      // 初始資料
+      if (initialData && initialData[f.id] !== undefined) {
+        api.setFieldValue(f.id, initialData[f.id]);
+      } else if (f.defaultValue != null) {
+        const def = typeof f.defaultValue === 'function' ? f.defaultValue() : f.defaultValue;
+        api.setFieldValue(f.id, def);
+      }
+
+      // 連動欄位
+      if (f.dependsOn) {
+        const sourceId = fieldIdMap[f.dependsOn] || f.dependsOn;
+        const sourceEl = document.getElementById(sourceId);
+        if (sourceEl) {
+          const handler = async () => {
+            const sourceVal = sourceEl.value;
+            if (f.optionsSource === 'items') {
+              const opts = await getDynamicOptions('items', { categoryId: sourceVal });
+              api.updateOptions(f.id, opts, {
+                includeEmpty: true,
+                emptyText: sourceVal ? '— 請選擇項目 —' : '— 請先選擇類別 —',
+              });
+            }
+          };
+          sourceEl.addEventListener('change', handler);
+          _dynamicCleanups.push(() => sourceEl.removeEventListener('change', handler));
+        }
+      }
+    }
   }
 
   /* ============================================
@@ -218,17 +278,10 @@ export function buildForm(options) {
     root,
     form,
 
-    /**
-     * 取得表單資料（key 為「原始 f.id」，不含前綴）
-     */
     getData: () => _collectData(fields, fieldIdMap),
 
-    /**
-     * 設定表單資料（key 可為「原始 f.id」或「最終 id」）
-     */
     setData: (data) => {
       Object.entries(data || {}).forEach(([k, v]) => {
-        // 優先嘗試「最終 id」，其次「原始 id」
         const resolvedId = fieldIdMap[k] || k;
         const el = document.getElementById(resolvedId);
         if (!el) return;
@@ -240,9 +293,6 @@ export function buildForm(options) {
       });
     },
 
-    /**
-     * 設定單一欄位值（key 可為「原始 f.id」或「最終 id」）
-     */
     setFieldValue: (fieldId, value) => {
       const resolvedId = fieldIdMap[fieldId] || fieldId;
       const el = document.getElementById(resolvedId);
@@ -254,9 +304,6 @@ export function buildForm(options) {
       }
     },
 
-    /**
-     * 取得單一欄位值（key 可為「原始 f.id」或「最終 id」）
-     */
     getFieldValue: (fieldId) => {
       const resolvedId = fieldIdMap[fieldId] || fieldId;
       const el = document.getElementById(resolvedId);
@@ -269,38 +316,23 @@ export function buildForm(options) {
       return el.value;
     },
 
-    /**
-     * 取得欄位 DOM（key 可為「原始 f.id」或「最終 id」）
-     */
     getFieldEl: (fieldId) => {
       const resolvedId = fieldIdMap[fieldId] || fieldId;
       return document.getElementById(resolvedId);
     },
 
-    /**
-     * 重設表單
-     */
     reset: () => {
       form.reset();
       _clearErrors();
       if (typeof onReset === 'function') onReset();
     },
 
-    /**
-     * 顯示欄位錯誤（fieldId 可為原始 id）
-     */
     setError: (fieldId, message) => {
       _showFieldError(fieldId, message, fieldIdMap);
     },
 
-    /**
-     * 清除所有錯誤
-     */
     clearErrors: _clearErrors,
 
-    /**
-     * 動態更新 select 選項
-     */
     updateOptions: (fieldId, options, config = {}) => {
       const resolvedId = fieldIdMap[fieldId] || fieldId;
       const el = document.getElementById(resolvedId);
@@ -315,29 +347,33 @@ export function buildForm(options) {
       if (cur && options.some((o) => String(o.value) === cur)) el.value = cur;
     },
 
-    /**
-     * 綁定欄位變更（fieldId 可為原始 id）
-     */
     onFieldChange: (fieldId, callback) => {
       const resolvedId = fieldIdMap[fieldId] || fieldId;
       const el = document.getElementById(resolvedId);
-      if (el) el.addEventListener('change', callback);
+      if (!el) return () => {};
+      el.addEventListener('change', callback);
+      return () => el.removeEventListener('change', callback);
     },
 
-    /**
-     * 手動觸發送出（debug 用）
-     */
     submit: () => {
       form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
     },
 
-    /**
-     * 銷毀
-     */
+    setSubmitting: _setSubmitting,
+
     destroy: () => {
+      _dynamicCleanups.forEach((fn) => {
+        try { fn(); } catch (e) { /* noop */ }
+      });
+      _dynamicCleanups.length = 0;
       root.innerHTML = '';
     },
   };
+
+  // 非同步初始化（動態選項 + 初始資料）
+  _initDynamicFields().then(() => {
+    if (window.lucide) window.lucide.createIcons();
+  });
 
   if (window.lucide) window.lucide.createIcons();
 
@@ -390,7 +426,6 @@ function _renderField(f, fieldIdMap) {
     hint,
   } = f;
 
-  // 最終 ID
   const finalId = fieldIdMap[id] || id;
 
   let inputHtml = '';
@@ -465,9 +500,7 @@ function _collectData(fields, fieldIdMap) {
     if (f.type === 'checkbox') {
       data[f.id] = el.checked;
     } else if (f.type === 'number') {
-      const num = Number(el.value);
-      // 🆕 空字串 → 0；否則用解析後的數字
-      data[f.id] = el.value === '' ? 0 : (isNaN(num) ? 0 : num);
+      data[f.id] = el.value === '' ? 0 : (isNaN(Number(el.value)) ? 0 : Number(el.value));
     } else {
       data[f.id] = el.value;
     }
@@ -475,19 +508,12 @@ function _collectData(fields, fieldIdMap) {
   return data;
 }
 
-/**
- * 🆕 v101.2：必填驗證
- * - 空值判斷：只擋 '' / null / undefined
- * - 0 視為有效值（可通過）
- */
 function _validateRequired(fields, data, fieldIdMap) {
   for (const f of fields) {
     if (!f.required) continue;
     if (f.type === 'custom' || f.type === 'hidden') continue;
 
     const val = data[f.id];
-
-    // 🆕 只擋「真空值」
     const isEmpty = val === '' || val === null || val === undefined;
 
     if (isEmpty) {

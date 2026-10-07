@@ -1,30 +1,33 @@
 // ============================================
-// tab-members.js — 基礎資料庫：成員 Tab（v101）
+// tab-members.js — 基礎資料庫：成員 Tab（v101.5）
 // 位置：js/pages/database/tab-members.js
 // ============================================
-// 功能：成員的新增 / 編輯 / 刪除 / 排序 / 角色
+// v101.5 修正：
+//   ✅ 新增 / 編輯改用 entity-modal（讀取 entity-definitions.js）
+//   ✅ 表單欄位改由 SSOT 提供
+//   ✅ 刪除使用 entity-helpers 的 deleteEntity
+//   ✅ 使用 registerPageCleanup 註冊清理
 // ============================================
 
 import {
-  listenMembers, addMember, updateMember, removeMember,
-  updateMemberOrders, deleteMemberAndData,
+  listenMembers, updateMemberOrders,
 } from '../../core/db.js';
 import { getOptions } from '../../config/app-config.js';
 import { escapeHtml, sortMembers } from '../../core/utils.js';
 import { showToast } from '../../shared/toast.js';
-import { openModal, closeModal, openConfirm } from '../../shared/modal.js';
-import { buildForm } from '../../shared/form-builder.js';
+import { openConfirm } from '../../shared/modal.js';
+import { openEntityModal } from '../../shared/entity-modal.js';
+import { deleteEntity } from '../../shared/entity-helpers.js';
+import { ENTITY_KEYS } from '../../config/constants.js';
 
 /* ============================================
    Module 狀態
    ============================================ */
 let _container = null;
 let _members = [];
-let _formApi = null;
-let _editingId = null;
-let _unsubscribers = [];
-
-const MODAL_ID = 'db-member-modal';
+let _unsubMembers = null;
+let _listClickHandler = null;
+let _addBtnHandler = null;
 
 /* ============================================
    主入口
@@ -38,10 +41,13 @@ export function initMembersTab(containerId) {
 
   _container.innerHTML = _buildSkeleton();
 
-  _renderForm();
-  _renderModal();
+  _unsubMembers = listenMembers((list) => {
+    _members = sortMembers(list);
+    _render();
+  });
+
   _bindListEvents();
-  _bindListeners();
+  _bindAddButton();
 
   return {
     refresh: _render,
@@ -54,7 +60,12 @@ export function initMembersTab(containerId) {
    ============================================ */
 function _buildSkeleton() {
   return `
-    <div id="db-members-form-root" class="mb-16"></div>
+    <div class="flex flex-between items-center flex-wrap gap-12 mb-16">
+      <div class="text-muted" style="font-size:13px;">管理家庭成員（名稱、角色、排序）</div>
+      <button class="btn btn-primary" id="db-members-add-btn">
+        <i data-lucide="plus"></i> 新增成員
+      </button>
+    </div>
 
     <div class="glass-card collapsible-card collapsible-card-flat" id="db-members-list-card">
       <div class="collapsible-header" id="db-members-list-header">
@@ -72,119 +83,20 @@ function _buildSkeleton() {
 }
 
 /* ============================================
-   新增表單
+   新增按鈕
    ============================================ */
-function _renderForm() {
-  const roleOptions = getOptions('memberRoles');
+function _bindAddButton() {
+  const btn = document.getElementById('db-members-add-btn');
+  if (!btn) return;
 
-  _formApi = buildForm({
-    containerId: 'db-members-form-root',
-    fields: [
-      { type: 'text',   id: 'db-mem-name', label: '名稱', required: true, placeholder: '例如：老公、梓舜', maxlength: 20 },
-      { type: 'select', id: 'db-mem-role', label: '角色', required: true, includeEmpty: false, options: roleOptions },
-    ],
-    submitText: '新增成員',
-    showCancel: false,
-    showReset: true,
-    resetText: '重置',
-    onSubmit: _handleAdd,
-  });
-}
-
-async function _handleAdd(data) {
-  const name = (data['db-mem-name'] || '').trim();
-  const role = data['db-mem-role'];
-  if (!name) {
-    return { field: 'db-mem-name', message: '請填寫名稱' };
-  }
-
-  const maxOrder = _members.reduce(
-    (max, m) => Math.max(max, m.order != null ? m.order : -1),
-    -1
-  );
-
-  try {
-    await addMember({ name, role, order: maxOrder + 1 });
-    showToast(`✅ 已新增成員「${name}」`, 'success');
-    _formApi.reset();
-  } catch (err) {
-    showToast('新增失敗：' + err.message, 'error');
-  }
-}
-
-/* ============================================
-   編輯 Modal
-   ============================================ */
-function _renderModal() {
-  const roleOptions = getOptions('memberRoles');
-
-  // 若已存在 → 移除
-  const existing = document.getElementById(MODAL_ID);
-  if (existing) existing.remove();
-
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.id = MODAL_ID;
-  overlay.innerHTML = `
-    <div class="modal">
-      <h2 class="modal-title" id="db-member-modal-title">編輯成員</h2>
-      <div id="db-member-modal-form-root"></div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-
-  // 建立 Modal 內的表單
-  const modalForm = buildForm({
-    containerId: 'db-member-modal-form-root',
-    fields: [
-      { type: 'text',   id: 'db-mem-edit-name', label: '名稱', required: true, maxlength: 20 },
-      { type: 'select', id: 'db-mem-edit-role', label: '角色', required: true, includeEmpty: false, options: roleOptions },
-    ],
-    submitText: '儲存',
-    showCancel: true,
-    cancelText: '取消',
-    onSubmit: _handleEdit,
-    onCancel: () => closeModal(MODAL_ID),
-  });
-
-  // 儲存供後續使用
-  overlay._formApi = modalForm;
-
-  // Backdrop + ESC
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) closeModal(MODAL_ID);
-  });
-}
-
-async function _handleEdit(data) {
-  if (!_editingId) return;
-
-  const name = (data['db-mem-edit-name'] || '').trim();
-  const role = data['db-mem-edit-role'];
-  if (!name) {
-    return { field: 'db-mem-edit-name', message: '請填寫名稱' };
-  }
-
-  try {
-    await updateMember(_editingId, { name, role });
-    showToast('✅ 已更新成員', 'success');
-    closeModal(MODAL_ID);
-    _editingId = null;
-  } catch (err) {
-    showToast('更新失敗：' + err.message, 'error');
-  }
-}
-
-/* ============================================
-   資料監聽
-   ============================================ */
-function _bindListeners() {
-  _unsubscribers.push(
-    listenMembers((list) => {
-      _members = sortMembers(list);
-      _render();
-    })
-  );
+  _addBtnHandler = () => {
+    openEntityModal({
+      entity: ENTITY_KEYS.MEMBER,
+      mode: 'add',
+      allRows: _members,
+    });
+  };
+  btn.addEventListener('click', _addBtnHandler);
 }
 
 /* ============================================
@@ -198,11 +110,9 @@ function _render() {
   if (countEl) countEl.textContent = `（共 ${_members.length} 位）`;
 
   if (_members.length === 0) {
-    listEl.innerHTML = `<div class="empty-state">尚無成員，請從上方新增</div>`;
+    listEl.innerHTML = `<div class="empty-state">尚無成員，請點擊上方「新增成員」</div>`;
     return;
   }
-
-  const roleMap = _getRoleMap();
 
   listEl.innerHTML = `
     <div style="overflow-x:auto;">
@@ -273,7 +183,7 @@ function _bindListEvents() {
   const listEl = document.getElementById('db-members-list');
   if (!listEl) return;
 
-  listEl.addEventListener('click', async (e) => {
+  _listClickHandler = async (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
 
@@ -296,24 +206,18 @@ function _bindListEvents() {
         await _moveMember(id, 'down');
         break;
     }
-  });
+  };
+
+  listEl.addEventListener('click', _listClickHandler);
 }
 
 function _openEditModal(member) {
-  _editingId = member.id;
-
-  const overlay = document.getElementById(MODAL_ID);
-  if (!overlay || !overlay._formApi) return;
-
-  overlay._formApi.setData({
-    'db-mem-edit-name': member.name || '',
-    'db-mem-edit-role': member.role || 'other',
+  openEntityModal({
+    entity: ENTITY_KEYS.MEMBER,
+    mode: 'edit',
+    id: member.id,
+    allRows: _members,
   });
-
-  openModal(MODAL_ID);
-  setTimeout(() => {
-    document.getElementById('db-mem-edit-name')?.focus();
-  }, 100);
 }
 
 async function _handleDelete(member) {
@@ -324,7 +228,7 @@ async function _handleDelete(member) {
   if (!ok) return;
 
   try {
-    await deleteMemberAndData(member.id);
+    await deleteEntity(ENTITY_KEYS.MEMBER, member.id);
     showToast('✅ 成員與相關紀錄已徹底刪除', 'success');
   } catch (err) {
     showToast('刪除失敗：' + err.message, 'error');
@@ -356,16 +260,18 @@ async function _moveMember(memberId, direction) {
    銷毀
    ============================================ */
 function _destroy() {
-  _unsubscribers.forEach((fn) => {
-    try { fn(); } catch (e) { /* noop */ }
-  });
-  _unsubscribers = [];
-  if (_formApi) _formApi.destroy();
-
-  // 移除 Modal
-  const overlay = document.getElementById(MODAL_ID);
-  if (overlay) {
-    if (overlay._formApi) overlay._formApi.destroy();
-    overlay.remove();
+  if (_unsubMembers) {
+    try { _unsubMembers(); } catch (e) { /* noop */ }
+    _unsubMembers = null;
+  }
+  if (_listClickHandler) {
+    const listEl = document.getElementById('db-members-list');
+    listEl?.removeEventListener('click', _listClickHandler);
+    _listClickHandler = null;
+  }
+  if (_addBtnHandler) {
+    const btn = document.getElementById('db-members-add-btn');
+    btn?.removeEventListener('click', _addBtnHandler);
+    _addBtnHandler = null;
   }
 }

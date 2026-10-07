@@ -1,12 +1,13 @@
 // ============================================
-// constants.js — 全站常數集中管理
+// constants.js — 全站常數集中管理（v101.5）
 // ============================================
-// 用途：
-//   1. localStorage keys（避免散落硬編碼）
-//   2. 數值限制（名稱長度、金額範圍）
-//   3. 保留字（避免與使用者資料衝突）
-//   4. 預設資料（fallback 用，正式由 platform/defaults 提供）
-//   5. 側邊欄分類定義
+// v101.5 修正：
+//   ✅ 新增 LINKED_PREFIX（保險連動支出 key 前綴，與後端統一）
+//   ✅ 新增 PLATFORM_RESOURCES（前端/後端共用的資源對照表）
+//   ✅ 新增 ENTITY_KEYS（entity-definitions.js 的實體識別碼）
+//   ✅ 新增 STATUS_BADGE_CLASS（狀態 badge class 對照）
+//   ✅ 新增 UI_PREFIX_FULL（完整前綴，避免各模組重複拼字串）
+//   ✅ 新增 POLICY_HOLDER_FALLBACK（policyHolderId fallback 規則說明）
 // ============================================
 
 /* ============================================
@@ -53,13 +54,119 @@ export const RESERVED_IDS = {
 };
 
 /* ============================================
-   4. 帳號網域
+   4. 🆕 v101.5：保險連動前綴
+   -------------------------------------------------
+   保險同步時，會在成員支出下建立一筆 linked_{policyId} 的紀錄。
+   前端（db.js）與後端（insurance-sync.js）必須使用同一個前綴。
+   ============================================ */
+export const LINKED_PREFIX = 'linked_';
+
+/**
+ * 產生保險連動的支出 key
+ * @param {string} policyId
+ * @returns {string} `linked_{policyId}`
+ */
+export function buildLinkedKey(policyId) {
+  return `${LINKED_PREFIX}${policyId}`;
+}
+
+/**
+ * 判斷是否為保險連動的支出 key
+ * @param {string} key
+ * @returns {boolean}
+ */
+export function isLinkedKey(key) {
+  return typeof key === 'string' && key.startsWith(LINKED_PREFIX);
+}
+
+/* ============================================
+   5. 🆕 v101.5：平台資源對照表
+   -------------------------------------------------
+   前端短名 → 實際 RTDB 路徑
+   前端（db.js）與後端（platform-defaults.js）共用。
+   ============================================ */
+export const PLATFORM_RESOURCES = {
+  members:     { path: 'members',             type: 'list' },
+  banks:       { path: 'banks',               type: 'list' },
+  companies:   { path: 'insurance_companies', type: 'list' },
+  payments:    { path: 'payment_methods',     type: 'list' },
+  categories:  { path: 'expense_categories',  type: 'list' },
+  items:       { path: 'expense_items',       type: 'list' },
+  statuses:    { path: 'statuses',            type: 'list' },
+  options:     { path: 'options',             type: 'object' },
+  yearRange:   { path: 'year_range',          type: 'object' },
+  uiConstants: { path: 'ui_constants',        type: 'object' },
+};
+
+/* ============================================
+   6. 🆕 v101.5：實體識別碼
+   -------------------------------------------------
+   對應 entity-definitions.js 的 entityKey。
+   ============================================ */
+export const ENTITY_KEYS = {
+  MEMBER:         'member',
+  BANK:           'bank',
+  POLICY:         'policy',
+  FUND:           'fund',
+  CATEGORY:       'category',
+  ITEM:           'item',
+  PAYMENT:        'payment',
+  STATUS:         'status',
+  FIXED_TEMPLATE: 'fixedTemplate',
+};
+
+/* ============================================
+   7. 🆕 v101.5：狀態 badge class 對照
+   -------------------------------------------------
+   統一全站 badge 樣式，避免各頁硬編碼。
+   ============================================ */
+export const STATUS_BADGE_CLASS = {
+  done:    'badge-success',
+  pending: 'badge-pending',
+  skipped: 'badge-muted',
+  info:    'badge-info',
+};
+
+/**
+ * 依狀態名稱與 isDone 取得 badge class
+ * @param {boolean} isDone
+ * @param {boolean} [isSkipped]
+ * @returns {string}
+ */
+export function getStatusBadgeClass(isDone, isSkipped = false) {
+  if (isSkipped) return STATUS_BADGE_CLASS.skipped;
+  return isDone ? STATUS_BADGE_CLASS.done : STATUS_BADGE_CLASS.pending;
+}
+
+/* ============================================
+   8. 🆕 v101.5：policyHolderId fallback 規則
+   -------------------------------------------------
+   保單的「有效成員 ID」= policyHolderId || memberId
+   全站統一使用這個函式，避免三處不一致。
+   ============================================ */
+export const POLICY_HOLDER_FALLBACK = {
+  primary: 'policyHolderId',
+  fallback: 'memberId',
+};
+
+/**
+ * 取得保單的有效成員 ID
+ * @param {Object} policy
+ * @returns {string}
+ */
+export function getPolicyEffectiveMemberId(policy) {
+  if (!policy) return '';
+  return policy.policyHolderId || policy.memberId || '';
+}
+
+/* ============================================
+   9. 帳號網域
    ============================================ */
 export const SUPERADMIN_DOMAIN = '@familyfin.local';
 export const SUPERADMIN_EMAIL = `superadmin${SUPERADMIN_DOMAIN}`;
 
 /* ============================================
-   5. 預設狀態清單（fallback）
+   10. 預設狀態清單（fallback）
    ============================================ */
 export const DEFAULT_STATUSES = [
   { key: 'status_untreated', name: '未處理', category: 'personal',  isDone: false, order: 1 },
@@ -74,7 +181,7 @@ export const DEFAULT_STATUSES = [
 ];
 
 /* ============================================
-   6. 預設下拉選項（fallback）
+   11. 預設下拉選項（fallback）
    ============================================ */
 export const DEFAULT_OPTIONS = {
   memberRoles: [
@@ -103,7 +210,7 @@ export const DEFAULT_OPTIONS = {
 };
 
 /* ============================================
-   7. 預設年份範圍（fallback）
+   12. 預設年份範圍（fallback）
    ============================================ */
 export const DEFAULT_YEAR_RANGE = {
   startYear: null,                              // null → 動態計算（當前年 - 3）
@@ -111,7 +218,7 @@ export const DEFAULT_YEAR_RANGE = {
 };
 
 /* ============================================
-   8. 預設 UI 常數（fallback）
+   13. 預設 UI 常數（fallback）
    ============================================ */
 export const DEFAULT_UI_CONSTANTS = {
   nameMaxLenDesktop: LIMITS.NAME_MAX_LEN_DESKTOP,
@@ -120,12 +227,12 @@ export const DEFAULT_UI_CONSTANTS = {
 };
 
 /* ============================================
-   9. 預設保險公司（fallback）
+   14. 預設保險公司（fallback）
    ============================================ */
 export const DEFAULT_COMPANIES = ['富通', '保誠', 'FWD', 'AIA', '宏利', 'AXA'];
 
 /* ============================================
-   10. 新家庭初始化預設值（fallback）
+   15. 新家庭初始化預設值（fallback）
    ============================================ */
 export const DEFAULT_MEMBERS = [
   { name: '成員1', role: 'husband', order: 0 },
@@ -172,7 +279,7 @@ export const DEFAULT_PAYMENTS = [
 ];
 
 /* ============================================
-   11. 側邊欄分類群組（工作流）
+   16. 側邊欄分類群組（工作流）
    ============================================ */
 export const SIDEBAR_GROUPS = [
   {
@@ -255,7 +362,7 @@ export const SIDEBAR_GROUPS = [
 ];
 
 /* ============================================
-   12. 快速摘要卡類型
+   17. 快速摘要卡類型
    ============================================ */
 export const QUICK_SUMMARY_TYPES = {
   TOP_CATEGORIES: 'top-categories',
@@ -266,7 +373,7 @@ export const QUICK_SUMMARY_TYPES = {
 };
 
 /* ============================================
-   13. 狀態分類
+   18. 狀態分類
    ============================================ */
 export const STATUS_CATEGORIES = {
   PERSONAL: 'personal',

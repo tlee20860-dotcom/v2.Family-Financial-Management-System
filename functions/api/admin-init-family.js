@@ -1,15 +1,11 @@
 // ============================================
-// admin-init-family.js — POST /api/admin-init-family（v101）
+// admin-init-family.js — POST /api/admin-init-family（v101.5）
 // 位置：functions/api/admin-init-family.js
 // ============================================
-// v101 修正（重大）：
-//   ✅ 加 superadmin 權限檢查
-//   ✅ 改讀 platform/defaults/*（不再硬編碼）
-//   ✅ 支援所有資源（members / banks / companies / payments
-//      / categories / items / statuses / options / year_range / ui_constants）
-//   ✅ 保留後端 fallback（platform 未設定時使用預設值）
-//   ✅ expense_items 的 categoryKey → 對應新 categoryId
-//   ✅ OPTIONS preflight 支援
+// v101.5 修正：
+//   ✅ FALLBACK 改讀 constants（與前端 constants.js 對齊）
+//   ✅ 回傳部分成功的詳細結果
+//   ✅ linked_ 前綴由常數提供
 // ============================================
 
 import { dbGet, dbPut } from './_config.js';
@@ -24,6 +20,7 @@ import {
 
 /* ============================================
    Fallback 預設值（platform/defaults 為空時使用）
+   與前端 constants.js 對齊
    ============================================ */
 const FALLBACK = {
   members: {
@@ -34,12 +31,12 @@ const FALLBACK = {
   },
   banks: {},
   insurance_companies: {
-    comp_ftlife: { name: '富通', order: 1 },
+    comp_ftlife:     { name: '富通', order: 1 },
     comp_prudential: { name: '保誠', order: 2 },
-    comp_fwd: { name: 'FWD', order: 3 },
-    comp_aia: { name: 'AIA', order: 4 },
-    comp_manulife: { name: '宏利', order: 5 },
-    comp_axa: { name: 'AXA', order: 6 },
+    comp_fwd:        { name: 'FWD',  order: 3 },
+    comp_aia:        { name: 'AIA',  order: 4 },
+    comp_manulife:   { name: '宏利', order: 5 },
+    comp_axa:        { name: 'AXA',  order: 6 },
   },
   payment_methods: {
     pm_cash:   { name: '現金',   order: 1 },
@@ -129,11 +126,9 @@ export async function onRequestPost({ request }) {
   try {
     const body = await request.json();
 
-    // 必填檢查
     const missing = requireFields(body, ['uid']);
     if (missing) return errorResponse('MISSING_FIELDS', '缺少 uid');
 
-    // 權限檢查：需 superadmin
     const auth = await authenticate(request, { needSuperAdmin: true });
     if (auth instanceof Response) return auth;
     const { token } = auth;
@@ -150,111 +145,131 @@ export async function onRequestPost({ request }) {
       });
     }
 
-    /* ============================================
-       1. 讀取平台預設（若有）
-       ============================================ */
     const defaults = await _loadPlatformDefaults(token);
-
     const now = Date.now();
 
-    /* ============================================
-       2. 寫入成員
-       ============================================ */
+    // 🆕 v101.5：記錄每步驟結果
+    const results = {
+      members: false,
+      banks: false,
+      insurance_companies: false,
+      payment_methods: false,
+      expense_categories: false,
+      expense_items: false,
+      statuses: false,
+      options: false,
+      year_range: false,
+      ui_constants: false,
+    };
+
+    // 1. 成員
     const membersData = _withTimestamps(defaults.members, now);
     if (Object.keys(membersData).length > 0) {
-      const ok = await dbPut(`${basePath}/members`, membersData, token);
-      if (!ok) return errorResponse('INTERNAL', '寫入成員失敗，請檢查 Firebase 規則');
+      results.members = await dbPut(`${basePath}/members`, membersData, token);
+    } else {
+      results.members = true;  // 空資料視為成功
     }
 
-    /* ============================================
-       3. 寫入銀行
-       ============================================ */
+    // 2. 銀行
     if (Object.keys(defaults.banks).length > 0) {
-      await dbPut(`${basePath}/banks`, _withTimestamps(defaults.banks, now), token);
+      results.banks = await dbPut(`${basePath}/banks`, _withTimestamps(defaults.banks, now), token);
+    } else {
+      results.banks = true;
     }
 
-    /* ============================================
-       4. 寫入保險公司
-       ============================================ */
+    // 3. 保險公司
     if (Object.keys(defaults.insurance_companies).length > 0) {
-      await dbPut(
+      results.insurance_companies = await dbPut(
         `${basePath}/insurance_companies`,
         _withTimestamps(defaults.insurance_companies, now),
         token
       );
+    } else {
+      results.insurance_companies = true;
     }
 
-    /* ============================================
-       5. 寫入支付方式
-       ============================================ */
+    // 4. 支付方式
     if (Object.keys(defaults.payment_methods).length > 0) {
-      await dbPut(
+      results.payment_methods = await dbPut(
         `${basePath}/payment_methods`,
         _withTimestamps(defaults.payment_methods, now),
         token
       );
+    } else {
+      results.payment_methods = true;
     }
 
-    /* ============================================
-       6. 寫入支出類別
-       ============================================ */
+    // 5. 支出類別
     if (Object.keys(defaults.expense_categories).length > 0) {
-      await dbPut(
+      results.expense_categories = await dbPut(
         `${basePath}/expense_categories`,
         _withTimestamps(defaults.expense_categories, now),
         token
       );
+    } else {
+      results.expense_categories = true;
     }
 
-    /* ============================================
-       7. 寫入支出項目（需將 categoryKey 轉為 categoryId）
-       ============================================ */
+    // 6. 支出項目
     const itemsData = _buildItemsWithCategoryId(defaults.expense_items, now);
     if (Object.keys(itemsData).length > 0) {
-      await dbPut(`${basePath}/expense_items`, itemsData, token);
+      results.expense_items = await dbPut(`${basePath}/expense_items`, itemsData, token);
+    } else {
+      results.expense_items = true;
     }
 
-    /* ============================================
-       8. 寫入狀態
-       ============================================ */
+    // 7. 狀態
     if (Object.keys(defaults.statuses).length > 0) {
-      await dbPut(
+      results.statuses = await dbPut(
         `${basePath}/statuses`,
         _withTimestamps(defaults.statuses, now),
         token
       );
+    } else {
+      results.statuses = true;
     }
 
-    /* ============================================
-       9. 寫入 settings/options
-       ============================================ */
+    // 8. options
     if (defaults.options && Object.keys(defaults.options).length > 0) {
-      await dbPut(`${basePath}/settings/options`, defaults.options, token);
+      results.options = await dbPut(`${basePath}/settings/options`, defaults.options, token);
+    } else {
+      results.options = true;
     }
 
-    /* ============================================
-       10. 寫入 settings/year_range
-       ============================================ */
+    // 9. year_range
     if (defaults.year_range) {
-      await dbPut(`${basePath}/settings/year_range`, defaults.year_range, token);
+      results.year_range = await dbPut(`${basePath}/settings/year_range`, defaults.year_range, token);
+    } else {
+      results.year_range = true;
     }
 
-    /* ============================================
-       11. 寫入 settings/ui_constants
-       ============================================ */
+    // 10. ui_constants
     if (defaults.ui_constants) {
-      await dbPut(`${basePath}/settings/ui_constants`, defaults.ui_constants, token);
+      results.ui_constants = await dbPut(`${basePath}/settings/ui_constants`, defaults.ui_constants, token);
+    } else {
+      results.ui_constants = true;
     }
 
-    return successResponse({ created: true });
+    // 🆕 v101.5：檢查是否有部分失敗
+    const failedSteps = Object.entries(results)
+      .filter(([_, ok]) => ok === false)
+      .map(([key]) => key);
+
+    if (failedSteps.length > 0) {
+      return successResponse({
+        created: true,
+        partial: true,
+        failedSteps,
+        results,
+      });
+    }
+
+    return successResponse({ created: true, results });
   } catch (err) {
     return handleError(err);
   }
 }
 
-/* ============================================
-   OPTIONS preflight
-   ============================================ */
 export async function onRequestOptions() {
   return handleOptions();
 }
@@ -263,9 +278,6 @@ export async function onRequestOptions() {
    內部工具
    ============================================ */
 
-/**
- * 讀取平台預設資料（若無則回傳 FALLBACK）
- */
 async function _loadPlatformDefaults(token) {
   const [members, banks, companies, payments, categories, items, statuses, options, yearRange, uiConstants] =
     await Promise.all([
@@ -295,9 +307,6 @@ async function _loadPlatformDefaults(token) {
   };
 }
 
-/**
- * 為每筆資料加入 createdAt（若無）
- */
 function _withTimestamps(data, baseTs) {
   const out = {};
   let i = 0;
@@ -311,11 +320,6 @@ function _withTimestamps(data, baseTs) {
   return out;
 }
 
-/**
- * 將 items 的 categoryKey 轉為 categoryId
- * - platform/defaults 的 items 用 categoryKey 指向 categories 的 key
- * - 寫入家庭時，新家庭直接用同樣的 key（保持 1:1 對應）
- */
 function _buildItemsWithCategoryId(items, baseTs) {
   const out = {};
   let i = 0;

@@ -1,32 +1,32 @@
 // ============================================
-// render.js — 結算清單渲染（v101.3）
+// render.js — 結算清單渲染（v101.5）
 // 位置：js/pages/settlements/render.js
 // ============================================
-// v101.3 修正：
-//   ✅ 移除未使用的 bindStatusChangeEvents export
-//   ✅ 移除未使用的 AppState import
-//   ✅ 移除未使用的 renderSummary export
-//   ✅ 新增 setMembersCache / 修正 _getMemberName（顯示真實成員名）
+// v101.5 修正：
+//   ✅ 狀態 badge 改用 entity-helpers 的 renderStatusBadge
+//   ✅ updateRowStatus 使用 db.js 的 updateEntityStatus（跨來源 SSOT）
+//   ✅ 保險的 memberId 統一使用 row._ref.memberId（已由 merge.js 處理 policyHolderId）
 // ============================================
 
 import {
-  updateExpense,
-  updateFixedExpense,
+  updateEntityStatus,
+} from '../../core/db.js';
+import {
   saveInsurancePaymentBatch,
   removeInsurancePaymentBatch,
 } from '../../core/db.js';
 import { api } from '../../core/api.js';
 import { getStatusesByCategory } from '../../config/app-config.js';
 import { escapeHtml, formatHKD } from '../../core/utils.js';
+import { renderStatusBadge, isDoneStatus } from '../../shared/entity-helpers.js';
 
 /* ============================================
-   🆕 v101.3：成員快取（由 index.js 注入）
+   成員快取（由 index.js 注入）
    ============================================ */
 let _membersCache = [];
 
 /**
  * 設定成員快取
- * @param {Array} members - [{ id, name, ... }]
  */
 export function setMembersCache(members) {
   _membersCache = members || [];
@@ -165,7 +165,7 @@ function _renderSourceBadge(r) {
 function _renderStatusCell(r) {
   const statuses = getStatusesByCategory(r.source);
   if (statuses.length === 0) {
-    return _renderStatusBadge(r.status, r.isDone);
+    return renderStatusBadge(r.status, r.source);
   }
 
   const options = statuses.map((s) =>
@@ -180,13 +180,8 @@ function _renderStatusCell(r) {
   `;
 }
 
-function _renderStatusBadge(status, isDone) {
-  const cls = isDone ? 'badge-success' : 'badge-pending';
-  return `<span class="badge ${cls}">${escapeHtml(status || '未處理')}</span>`;
-}
-
 /* ============================================
-   成員名稱（🆕 v101.3：使用 membersCache）
+   成員名稱
    ============================================ */
 function _getMemberName(r) {
   if (r.source === 'fixed') {
@@ -207,35 +202,18 @@ function _getMemberName(r) {
 export async function updateRowStatus(row, newStatus) {
   if (!row) throw new Error('找不到紀錄');
 
-  const isDone = _isDoneByName(newStatus, row.source);
-  const today = new Date().toISOString().slice(0, 10);
+  const isDone = isDoneStatus(newStatus, row.source);
 
   switch (row.source) {
     case 'personal':
-      return _updatePersonalStatus(row, newStatus, isDone ? today : '');
+      return updateEntityStatus('personal', row, newStatus, isDone);
     case 'fixed':
-      return _updateFixedStatus(row, newStatus, isDone ? today : '');
+      return updateEntityStatus('fixed', row, newStatus, isDone);
     case 'insurance':
       return _updateInsuranceStatus(row, newStatus, isDone);
     default:
       throw new Error('未知的來源：' + row.source);
   }
-}
-
-async function _updatePersonalStatus(row, newStatus, repaidDate) {
-  const { memberId, expenseId } = row._ref;
-  await updateExpense(row.year, row.month, memberId, expenseId, {
-    status: newStatus,
-    repaidDate,
-  });
-}
-
-async function _updateFixedStatus(row, newStatus, paidDate) {
-  const { id } = row._ref;
-  await updateFixedExpense(row.year, row.month, id, {
-    status: newStatus,
-    paidDate,
-  });
 }
 
 async function _updateInsuranceStatus(row, newStatus, isDone) {
@@ -265,18 +243,4 @@ async function _updateInsuranceStatus(row, newStatus, isDone) {
       month,
     });
   }
-}
-
-/* ============================================
-   判斷是否「已完成」
-   ============================================ */
-function _isDoneByName(statusName, source) {
-  try {
-    const statuses = getStatusesByCategory(source);
-    const found = statuses.find((s) => s.name === statusName);
-    if (found) return !!found.isDone;
-  } catch (e) {
-    // ignore
-  }
-  return statusName && statusName.startsWith('已');
 }

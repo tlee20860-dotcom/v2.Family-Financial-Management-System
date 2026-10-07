@@ -1,17 +1,18 @@
 // ============================================
-// tab-funds.js — 綜合輸入中心：基金現值 Tab（v101）
+// tab-funds.js — 綜合輸入中心：基金現值 Tab（v101.5）
 // 位置：js/pages/input-center/tab-funds.js
 // ============================================
-// 用途：
-//   更新基金「現時價值」與「持有單位數」
-//   基金的新增 / 刪除請至「基礎資料庫」
+// v101.5 修正：
+//   ✅ 改為「明確編輯」按鈕（避免 blur 全量覆蓋）
+//   ✅ 使用 openEntityModal 編輯基金
+//   ✅ 抽出 _pendingEdits（防抖）
 // ============================================
 
-import {
-  listenFunds, updateFund,
-} from '../../core/db.js';
+import { listenFunds } from '../../core/db.js';
 import { escapeHtml, formatHKD } from '../../core/utils.js';
 import { showToast } from '../../shared/toast.js';
+import { openEntityModal } from '../../shared/entity-modal.js';
+import { ENTITY_KEYS } from '../../config/constants.js';
 
 /* ============================================
    Module 狀態
@@ -47,8 +48,8 @@ export function initFundsTab(containerId) {
 function _buildSkeleton() {
   return `
     <div class="banner" style="margin-bottom:16px;">
-      ℹ️ 直接修改「現時價值」與「持有單位數」即可，修改後會即時儲存。
-      基金的新增 / 刪除請至「基礎資料庫」頁面管理。
+      ℹ️ 點擊「更新現值」按鈕，即可修改個別基金的「現時價值」與「持有單位數」。
+      基金的新增 / 刪除請使用「+ 新增基金」按鈕或至「基礎資料庫」管理。
     </div>
 
     <div class="grid grid-3" style="margin-bottom:20px;">
@@ -106,7 +107,7 @@ function _render() {
   if (countEl) countEl.textContent = `（共 ${_funds.length} 筆）`;
 
   if (_funds.length === 0) {
-    listEl.innerHTML = `<div class="empty-state">尚無基金，請至「基礎資料庫」新增</div>`;
+    listEl.innerHTML = `<div class="empty-state">尚無基金，請使用「+ 新增基金」或至「基礎資料庫」新增</div>`;
     return;
   }
 
@@ -139,7 +140,7 @@ function _renderStats() {
 }
 
 /* ============================================
-   單列
+   單列（改為唯讀顯示 + 編輯按鈕）
    ============================================ */
 function _renderRow(f) {
   const cost = Number(f.cost) || 0;
@@ -164,7 +165,7 @@ function _renderRow(f) {
         </div>
       </div>
 
-      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; align-items:end;">
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; align-items:end; margin-bottom:12px;">
         <div class="field" style="margin-bottom:0;">
           <label class="field-label" style="font-size:11px;">投入成本</label>
           <div class="mono" style="padding:8px 10px; background:rgba(8,11,17,0.4); border-radius:var(--radius-sm); font-size:13px; color:var(--text-muted);">
@@ -173,58 +174,53 @@ function _renderRow(f) {
         </div>
 
         <div class="field" style="margin-bottom:0;">
-          <label class="field-label" style="font-size:11px;">現時價值（HK$）</label>
-          <input type="number" class="input mono" data-action="update-value"
-                 value="${value}" min="0" step="1"
-                 style="padding:6px 10px; font-size:13px; text-align:right;">
+          <label class="field-label" style="font-size:11px;">現時價值</label>
+          <div class="mono" style="padding:8px 10px; background:rgba(8,11,17,0.4); border-radius:var(--radius-sm); font-size:13px; color:var(--neon-cyan); text-align:right;">
+            ${formatHKD(value)}
+          </div>
         </div>
 
         <div class="field" style="margin-bottom:0;">
           <label class="field-label" style="font-size:11px;">持有單位數</label>
-          <input type="number" class="input mono" data-action="update-units"
-                 value="${f.units || 0}" min="0" step="0.0001"
-                 style="padding:6px 10px; font-size:13px; text-align:right;">
+          <div class="mono" style="padding:8px 10px; background:rgba(8,11,17,0.4); border-radius:var(--radius-sm); font-size:13px; color:var(--text-primary); text-align:right;">
+            ${f.units || '—'}
+          </div>
         </div>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end;">
+        <button class="btn btn-sm btn-primary" data-action="edit" data-id="${f.id}">
+          <i data-lucide="pencil" style="width:14px;height:14px;"></i> 更新現值
+        </button>
       </div>
     </div>
   `;
 }
 
 /* ============================================
-   清單事件（改現值 / 改單位數）
+   清單事件
    ============================================ */
 function _bindListEvents() {
   const listEl = document.getElementById('ic-fund-list');
   if (!listEl) return;
 
-  // 用 capture 處理 blur
-  listEl.addEventListener('blur', async (e) => {
-    const input = e.target.closest('input[data-action]');
-    if (!input) return;
-    const row = input.closest('[data-id]');
-    if (!row) return;
-    const id = row.dataset.id;
+  listEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action="edit"]');
+    if (!btn) return;
+    const id = btn.dataset.id;
     const fund = _funds.find((f) => f.id === id);
     if (!fund) return;
 
-    const action = input.dataset.action;
-
-    try {
-      if (action === 'update-value') {
-        const currentValue = Math.round(Number(input.value) || 0);
-        if (currentValue === fund.currentValue) return;
-        await updateFund(id, { ...fund, currentValue });
-        showToast('✅ 已更新現值', 'success');
-      } else if (action === 'update-units') {
-        const units = Number(input.value) || 0;
-        if (units === (fund.units || 0)) return;
-        await updateFund(id, { ...fund, units });
-        showToast('✅ 已更新單位數', 'success');
-      }
-    } catch (err) {
-      showToast('更新失敗：' + err.message, 'error');
-    }
-  }, true);
+    openEntityModal({
+      entity: ENTITY_KEYS.FUND,
+      mode: 'edit',
+      id: fund.id,
+      allRows: _funds,
+      onSuccess: () => {
+        // listenFunds 會自動觸發重繪
+      },
+    });
+  });
 }
 
 /* ============================================

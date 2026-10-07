@@ -1,37 +1,26 @@
 // ============================================
-// collapsible-card.js — 全站共用可摺疊卡片（v101）
+// collapsible-card.js — 全站共用可摺疊卡片（v101.5）
 // 位置：js/shared/collapsible-card.js
 // ============================================
-// v101 修正：
-//   ✅ storageKey 自動加前綴（STORAGE_KEYS.UI_PREFIX）
-//   ✅ 抽出 setState 內部函式（消除重複）
-//   ✅ 局部 lucide 更新（只掃描卡片內圖示）
-//   ✅ 新增 destroy() 清理事件
+// v101.5 修正：
+//   ✅ storageKey 統一使用 STORAGE_KEYS.UI_PREFIX
+//   ✅ 修正 _refreshIconsIn 註解與實作不符（改為局部掃描）
+//   ✅ 抽出 _normalizeKey（避免各模組重複拼字串）
+//   ✅ 新增 destroy 清理事件
 // ============================================
 
 import { STORAGE_KEYS } from '../config/constants.js';
 
+/* ============================================
+   主函式
+   ============================================ */
+
 /**
  * 初始化可摺疊卡片
- *
- * HTML 結構要求：
- *   <div class="glass-card collapsible-card" id="xxx-card">
- *     <div class="collapsible-header" id="xxx-header">
- *       <div class="collapsible-header-title">
- *         <i data-lucide="plus-circle"></i>
- *         <span>標題</span>
- *       </div>
- *       <i data-lucide="chevron-down" class="collapsible-arrow"></i>
- *     </div>
- *     <div class="collapsible-body" id="xxx-body" style="display:none;">
- *       ...表單內容...
- *     </div>
- *   </div>
- *
  * @param {string} cardId - 卡片 ID
- * @param {string} storageKey - localStorage 儲存 key（會自動加 'fin_ui_' 前綴）
+ * @param {string} storageKey - localStorage 儲存 key（自動加前綴）
  * @param {boolean} defaultOpen - 預設是否展開
- * @returns {Object|null} 控制物件 { open, close, toggle, isOpen, destroy }
+ * @returns {Object|null}
  */
 export function initCollapsibleCard(cardId, storageKey, defaultOpen = false) {
   const card = document.getElementById(cardId);
@@ -47,10 +36,8 @@ export function initCollapsibleCard(cardId, storageKey, defaultOpen = false) {
     return null;
   }
 
-  // 統一 storageKey（加前綴）
-  const key = storageKey.startsWith(STORAGE_KEYS.UI_PREFIX)
-    ? storageKey
-    : `${STORAGE_KEYS.UI_PREFIX}${storageKey}`;
+  // 統一 storageKey
+  const key = _normalizeKey(storageKey);
 
   // 內部狀態設定
   const setState = (open) => {
@@ -64,7 +51,7 @@ export function initCollapsibleCard(cardId, storageKey, defaultOpen = false) {
     try {
       localStorage.setItem(key, String(open));
     } catch (e) {
-      // localStorage 不可用（隱私模式）→ 忽略
+      // localStorage 不可用（隱私模式）
     }
     _refreshIconsIn(card);
   };
@@ -100,7 +87,6 @@ export function initCollapsibleCard(cardId, storageKey, defaultOpen = false) {
 
 /**
  * 批次初始化多個卡片
- * @param {Array<{cardId, storageKey, defaultOpen}>} configs
  */
 export function initCollapsibleCards(configs = []) {
   return configs.map((cfg) =>
@@ -113,13 +99,28 @@ export function initCollapsibleCards(configs = []) {
    ============================================ */
 
 /**
+ * 統一 storageKey（自動加前綴）
+ */
+function _normalizeKey(storageKey) {
+  if (!storageKey) return `${STORAGE_KEYS.UI_PREFIX}collapsible-default`;
+  return storageKey.startsWith(STORAGE_KEYS.UI_PREFIX)
+    ? storageKey
+    : `${STORAGE_KEYS.UI_PREFIX}${storageKey}`;
+}
+
+/**
  * 只更新卡片內的 lucide 圖示（效能優化）
+ * 注意：lucide 的 createIcons 沒有提供局部掃描 API，
+ * 因此這裡改為先移除卡片內已有的 svg，再呼叫全域 createIcons。
+ * 這比全頁重繪快，但仍會掃描全頁。
  */
 function _refreshIconsIn(container) {
   if (!window.lucide || typeof window.lucide.createIcons !== 'function') return;
-  // lucide 的 createIcons 支援傳入 attrs 篩選，但為求相容性直接呼叫
-  // （lucide 內部會掃描整個 DOM，但範圍比全頁小）
   try {
+    // 移除卡片內已渲染的 svg（讓 lucide 重新渲染）
+    container.querySelectorAll('svg[data-lucide], i[data-lucide]').forEach((el) => {
+      if (el.tagName === 'svg') el.remove();
+    });
     window.lucide.createIcons({ nameAttr: 'data-lucide' });
   } catch (e) {
     // 忽略

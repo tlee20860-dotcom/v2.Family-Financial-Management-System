@@ -1,9 +1,12 @@
 // ============================================
-// platform-defaults.js — 平台預設資料庫（v101.3）
+// platform-defaults.js — 平台預設資料庫（v101.5）
 // 位置：js/admin/platform-defaults.js
 // ============================================
-// v101.3 修正：
-//   ✅ 移除未使用的 _cache 物件
+// v101.5 修正：
+//   ✅ LIST_TABS 沿用（與 entity-definitions.js 概念對齊）
+//   ✅ _openEditModal / _openSimpleEditModal 合併為 _openEditModal
+//   ✅ 所有 Modal 共用 EDIT_MODAL_ID，避免堆疊
+//   ✅ _instances 完整 destroy
 // ============================================
 
 import { api } from '../core/api.js';
@@ -19,7 +22,6 @@ import { openModal, closeModal, openConfirm } from '../shared/modal.js';
 let _container = null;
 let _tabPanel = null;
 
-// 子 Tab 的實例
 const _instances = {};
 
 const EDIT_MODAL_ID = 'pd-edit-modal';
@@ -256,6 +258,7 @@ async function _renderListTab(panel, tabConfig) {
   });
 
   let _list = [];
+  let _listHandler = null;
 
   async function load() {
     try {
@@ -312,7 +315,7 @@ async function _renderListTab(panel, tabConfig) {
     if (window.lucide) window.lucide.createIcons();
   }
 
-  panel.addEventListener('click', async (e) => {
+  _listHandler = async (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     const id = btn.dataset.id;
@@ -321,7 +324,16 @@ async function _renderListTab(panel, tabConfig) {
     if (!row) return;
 
     if (action === 'edit') {
-      await _openEditModal(tabConfig, row, refresh);
+      // 🆕 v101.5：統一使用 _openEditModal
+      await _openEditModal({
+        title: `編輯「${tabConfig.label}」`,
+        resource: tabConfig.resource,
+        id: row.id,
+        fields: tabConfig.fields,
+        initialData: tabConfig.valueTransform?.toForm ? tabConfig.valueTransform.toForm(row) : row,
+        valueTransform: tabConfig.valueTransform,
+        onSave: refresh,
+      });
     } else if (action === 'delete') {
       const ok = await openConfirm(
         `確定要刪除「${row.name || id}」嗎？\n\n（不會影響已存在的家庭）`,
@@ -336,7 +348,8 @@ async function _renderListTab(panel, tabConfig) {
         showToast('刪除失敗：' + err.message, 'error');
       }
     }
-  });
+  };
+  panel.addEventListener('click', _listHandler);
 
   async function refresh() {
     await load();
@@ -344,13 +357,22 @@ async function _renderListTab(panel, tabConfig) {
 
   await load();
 
-  return { refresh };
+  return {
+    refresh,
+    destroy: () => {
+      if (_listHandler) {
+        panel.removeEventListener('click', _listHandler);
+        _listHandler = null;
+      }
+      formApi.destroy();
+    },
+  };
 }
 
 /* ============================================
-   編輯 Modal
+   🆕 v101.5：統一編輯 Modal（取代原本兩套）
    ============================================ */
-async function _openEditModal(tabConfig, row, onSave) {
+async function _openEditModal({ title, resource, id, fields, initialData, valueTransform, onSave }) {
   let overlay = document.getElementById(EDIT_MODAL_ID);
   if (overlay) overlay.remove();
 
@@ -359,7 +381,7 @@ async function _openEditModal(tabConfig, row, onSave) {
   overlay.id = EDIT_MODAL_ID;
   overlay.innerHTML = `
     <div class="modal" style="max-width:480px;">
-      <h2 class="modal-title">編輯「${escapeHtml(tabConfig.label)}」</h2>
+      <h2 class="modal-title">${escapeHtml(title)}</h2>
       <div id="pd-edit-modal-form-root"></div>
     </div>
   `;
@@ -367,17 +389,17 @@ async function _openEditModal(tabConfig, row, onSave) {
 
   const formApi = buildForm({
     containerId: 'pd-edit-modal-form-root',
-    fields: _buildFormFields(tabConfig.fields),
+    fields: _buildFormFields(fields),
     submitText: '儲存',
     showCancel: true,
     cancelText: '取消',
     onSubmit: async (data) => {
-      const clean = _cleanFormData(data, tabConfig);
+      const clean = _cleanFormData(data, { fields, valueTransform });
       try {
-        await api.platformDefaults.put(tabConfig.resource, row.id, clean);
+        await api.platformDefaults.put(resource, id, clean);
         showToast('✅ 已更新', 'success');
         closeModal(EDIT_MODAL_ID);
-        await onSave();
+        if (onSave) await onSave();
       } catch (err) {
         showToast('更新失敗：' + err.message, 'error');
       }
@@ -385,9 +407,11 @@ async function _openEditModal(tabConfig, row, onSave) {
     onCancel: () => closeModal(EDIT_MODAL_ID),
   });
 
-  const formData = tabConfig.valueTransform?.toForm
-    ? tabConfig.valueTransform.toForm(row)
-    : row;
+  // 設定初始值
+  const formData = {};
+  fields.forEach((f) => {
+    formData[`pd-${f.id}`] = initialData?.[f.id] ?? '';
+  });
   formApi.setData(formData);
 
   overlay.addEventListener('click', (e) => {
@@ -495,6 +519,7 @@ async function _renderCategoriesTab(panel) {
 
   let _categories = [];
   let _items = [];
+  let _clickHandler = null;
 
   const catFormApi = buildForm({
     containerId: 'pd-cat-form-root',
@@ -643,7 +668,7 @@ async function _renderCategoriesTab(panel) {
     if (window.lucide) window.lucide.createIcons();
   }
 
-  panel.addEventListener('click', async (e) => {
+  _clickHandler = async (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     const id = btn.dataset.id;
@@ -653,7 +678,7 @@ async function _renderCategoriesTab(panel) {
       case 'edit-cat': {
         const cat = _categories.find((c) => c.id === id);
         if (!cat) return;
-        await _openSimpleEditModal({
+        await _openEditModal({
           title: '編輯類別',
           resource: 'categories',
           id: cat.id,
@@ -688,7 +713,7 @@ async function _renderCategoriesTab(panel) {
       case 'edit-item': {
         const it = _items.find((x) => x.id === id);
         if (!it) return;
-        await _openSimpleEditModal({
+        await _openEditModal({
           title: '編輯項目',
           resource: 'items',
           id: it.id,
@@ -719,7 +744,8 @@ async function _renderCategoriesTab(panel) {
         break;
       }
     }
-  });
+  };
+  panel.addEventListener('click', _clickHandler);
 
   async function refresh() {
     await load();
@@ -727,73 +753,17 @@ async function _renderCategoriesTab(panel) {
 
   await load();
 
-  return { refresh };
-}
-
-/* ============================================
-   通用編輯 Modal
-   ============================================ */
-async function _openSimpleEditModal({ title, resource, id, fields, initialData, onSave }) {
-  let overlay = document.getElementById(EDIT_MODAL_ID);
-  if (overlay) overlay.remove();
-
-  overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.id = EDIT_MODAL_ID;
-  overlay.innerHTML = `
-    <div class="modal" style="max-width:480px;">
-      <h2 class="modal-title">${escapeHtml(title)}</h2>
-      <div id="pd-edit-modal-form-root"></div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-
-  const formApi = buildForm({
-    containerId: 'pd-edit-modal-form-root',
-    fields: fields.map((f) => ({
-      type: f.type,
-      id: `pd-${f.id}`,
-      label: f.label,
-      required: f.required,
-      maxlength: f.maxlength,
-      min: f.min,
-      max: f.max,
-      options: f.options,
-      includeEmpty: f.includeEmpty !== undefined ? f.includeEmpty : true,
-    })),
-    submitText: '儲存',
-    showCancel: true,
-    cancelText: '取消',
-    onSubmit: async (data) => {
-      const clean = {};
-      fields.forEach((f) => {
-        let val = data[`pd-${f.id}`];
-        if (f.type === 'number') val = Number(val) || 0;
-        else if (f.type === 'text') val = String(val || '').trim();
-        clean[f.id] = val;
-      });
-
-      try {
-        await api.platformDefaults.put(resource, id, clean);
-        showToast('✅ 已更新', 'success');
-        closeModal(EDIT_MODAL_ID);
-        if (onSave) await onSave();
-      } catch (err) {
-        showToast('更新失敗：' + err.message, 'error');
+  return {
+    refresh,
+    destroy: () => {
+      if (_clickHandler) {
+        panel.removeEventListener('click', _clickHandler);
+        _clickHandler = null;
       }
+      catFormApi.destroy();
+      itemFormApi.destroy();
     },
-    onCancel: () => closeModal(EDIT_MODAL_ID),
-  });
-
-  const setData = {};
-  fields.forEach((f) => { setData[`pd-${f.id}`] = initialData[f.id] ?? ''; });
-  formApi.setData(setData);
-
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) closeModal(EDIT_MODAL_ID);
-  });
-
-  openModal(EDIT_MODAL_ID);
+  };
 }
 
 /* ============================================
@@ -809,6 +779,7 @@ async function _renderOptionsTab(panel) {
   ];
 
   let _options = {};
+  let _clickHandler = null;
 
   panel.innerHTML = `
     <div class="banner" style="margin-bottom:16px;">
@@ -873,7 +844,7 @@ async function _renderOptionsTab(panel) {
     `;
   }
 
-  panel.addEventListener('click', async (e) => {
+  _clickHandler = async (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     const action = btn.dataset.action;
@@ -901,7 +872,8 @@ async function _renderOptionsTab(panel) {
         showToast('刪除失敗：' + err.message, 'error');
       }
     }
-  });
+  };
+  panel.addEventListener('click', _clickHandler);
 
   async function refresh() {
     await load();
@@ -909,7 +881,15 @@ async function _renderOptionsTab(panel) {
 
   await load();
 
-  return { refresh };
+  return {
+    refresh,
+    destroy: () => {
+      if (_clickHandler) {
+        panel.removeEventListener('click', _clickHandler);
+        _clickHandler = null;
+      }
+    },
+  };
 }
 
 async function _openOptionEditModal(group, item, index, allOptions, onSave) {
@@ -938,9 +918,20 @@ async function _openOptionEditModal(group, item, index, allOptions, onSave) {
         { type: 'text', id: 'pd-opt-value', label: '名稱', required: true, maxlength: 40 },
       ];
 
-  const formApi = buildForm({
+  const initialData = {};
+  if (!isAdd && item != null) {
+    if (group.type === 'value-label') {
+      initialData['pd-opt-value'] = item.value || '';
+      initialData['pd-opt-label'] = item.label || '';
+    } else {
+      initialData['pd-opt-value'] = item || '';
+    }
+  }
+
+  buildForm({
     containerId: 'pd-edit-modal-form-root',
     fields,
+    initialData,
     submitText: isAdd ? '新增' : '儲存',
     showCancel: true,
     cancelText: '取消',
@@ -981,14 +972,6 @@ async function _openOptionEditModal(group, item, index, allOptions, onSave) {
     onCancel: () => closeModal(EDIT_MODAL_ID),
   });
 
-  if (!isAdd && item != null) {
-    if (group.type === 'value-label') {
-      formApi.setData({ 'pd-opt-value': item.value || '', 'pd-opt-label': item.label || '' });
-    } else {
-      formApi.setData({ 'pd-opt-value': item || '' });
-    }
-  }
-
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) closeModal(EDIT_MODAL_ID);
   });
@@ -1028,7 +1011,7 @@ async function _renderYearRangeTab(panel) {
     submitText: '儲存年份範圍',
     showCancel: false,
     showReset: false,
-    onSubmit: async (data) => {
+    beforeSubmit: (data) => {
       const startYear = (data['pd-yr-start'] === '' || data['pd-yr-start'] == null)
         ? null : Number(data['pd-yr-start']);
       const futureYears = Number(data['pd-yr-future']) || 5;
@@ -1039,6 +1022,12 @@ async function _renderYearRangeTab(panel) {
       if (futureYears < 0 || futureYears > 20) {
         return { field: 'pd-yr-future', message: '請填寫 0 ~ 20 之間的數字' };
       }
+      return true;
+    },
+    onSubmit: async (data) => {
+      const startYear = (data['pd-yr-start'] === '' || data['pd-yr-start'] == null)
+        ? null : Number(data['pd-yr-start']);
+      const futureYears = Number(data['pd-yr-future']) || 5;
 
       try {
         await api.platformDefaults.set('yearRange', { startYear, futureYears });
@@ -1064,7 +1053,10 @@ async function _renderYearRangeTab(panel) {
 
   await load();
 
-  return { refresh: load };
+  return {
+    refresh: load,
+    destroy: () => formApi.destroy(),
+  };
 }
 
 /* ============================================
@@ -1134,7 +1126,10 @@ async function _renderUIConstantsTab(panel) {
 
   await load();
 
-  return { refresh: load };
+  return {
+    refresh: load,
+    destroy: () => formApi.destroy(),
+  };
 }
 
 /* ============================================
@@ -1149,4 +1144,6 @@ function _destroy() {
     try { _tabPanel.destroy(); } catch (e) { /* noop */ }
     _tabPanel = null;
   }
+
+  document.getElementById(EDIT_MODAL_ID)?.remove();
 }

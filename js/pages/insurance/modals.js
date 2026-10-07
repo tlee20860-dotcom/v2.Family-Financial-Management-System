@@ -1,17 +1,16 @@
 // ============================================
-// modals.js — 保險頁面事件綁定（v101.2）
+// modals.js — 保險頁面事件綁定（v101.5）
 // 位置：js/pages/insurance/modals.js
 // ============================================
-// v101.2 修正：
-//   ✅ 移除未使用的 _getMembers / _getCompanies / _getEnriched
-//   ✅ 只保留實際使用的 getter（getPolicies / refresh）
-//   ✅ 對應 index.js 的 bindGlobalListeners 參數變更
+// v101.5 修正：
+//   ✅ _handleRestore 改用 openConfirm
+//   ✅ _bound 改為 module 層級可重置（unbindGlobalListeners 會重置）
+//   ✅ 補 autoSyncAfterEdit 的 policyHolderId 處理
 // ============================================
 
-import {
-  updateInsurancePolicy,
-} from '../../core/db.js';
+import { updateInsurancePolicy } from '../../core/db.js';
 import { showToast } from '../../shared/toast.js';
+import { openConfirm } from '../../shared/modal.js';
 import { toggleExpand } from './render.js';
 import {
   autoSyncPolicyExpenses,
@@ -83,15 +82,17 @@ async function _handleRestore(policyId) {
     return;
   }
 
-  if (!confirm(`確定要恢復保單「${policy.name}」的供款狀態嗎？`)) return;
+  // 🆕 v101.5：改用 openConfirm
+  const ok = await openConfirm(`確定要恢復保單「${policy.name}」的供款狀態嗎？`, {
+    title: '恢復供款',
+    okText: '恢復',
+    okClass: 'btn-primary',
+  });
+  if (!ok) return;
 
   try {
-    await updateInsurancePolicy(policyId, {
-      ...policy,
-      isCompleted: false,
-    });
+    await updateInsurancePolicy(policyId, { isCompleted: false });
 
-    // 重新同步支出
     const updatedPolicy = { ...policy, isCompleted: false };
     await autoSyncAfterEdit(updatedPolicy);
 
@@ -131,5 +132,7 @@ export function unbindGlobalListeners() {
   if (_bound) {
     document.removeEventListener('click', _handleClick);
     _bound = false;
+    _getPolicies = null;
+    _refresh = null;
   }
 }

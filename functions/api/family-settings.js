@@ -1,22 +1,10 @@
 // ============================================
-// family-settings.js — 家庭設定 API（v101 新增）
+// family-settings.js — 家庭設定 API（v101.5）
 // 位置：functions/api/family-settings.js
 // ============================================
-// 端點：
-//   GET  /api/family-settings?familyId=xxx
-//         → 回傳 statuses / options / year_range / ui_constants
-//
-//   POST /api/family-settings
-//         { familyId, action: 'update',       data }
-//         { familyId, action: 'put-status',   id, data }
-//         { familyId, action: 'delete-status', id }
-//
-// 權限：
-//   family 成員（uid === familyId）或 superadmin
-//
-// 用途：
-//   家庭自訂「狀態清單 / 下拉選項 / 年份範圍 / UI 常數」
-//   於 database.html 或 settings.html 編輯
+// v101.5 修正：
+//   ✅ GET / POST 的 authenticate 使用 URL query（不再手動建構 body）
+//   ✅ _sanitizeOptions 白名單與 app-config.js 的 getOptions 對齊
 // ============================================
 
 import { dbGet, dbPut, dbPush, dbDelete } from './_config.js';
@@ -39,11 +27,8 @@ export async function onRequestGet({ request }) {
 
     if (!familyId) return errorResponse('MISSING_FIELDS', '缺少 familyId');
 
-    // 權限檢查
-    const auth = await authenticate(request, {
-      needFamily: true,
-      body: { familyId },
-    });
+    // 🆕 v101.5：needFamily 會自動從 URL query 讀取
+    const auth = await authenticate(request, { needFamily: true });
     if (auth instanceof Response) return auth;
     const { token } = auth;
 
@@ -78,18 +63,14 @@ export async function onRequestPost({ request }) {
 
     if (!familyId) return errorResponse('MISSING_FIELDS', '缺少 familyId');
 
-    // 權限檢查
-    const auth = await authenticate(request, {
-      needFamily: true,
-      body: { familyId },
-    });
+    const auth = await authenticate(request, { needFamily: true, body });
     if (auth instanceof Response) return auth;
-    const { token, isSuper } = auth;
+    const { token } = auth;
 
     const basePath = `families/${familyId}`;
 
     /* ============================================
-       UPDATE — 更新 options / year_range / ui_constants
+       UPDATE
        ============================================ */
     if (action === 'update') {
       if (!data || typeof data !== 'object') {
@@ -98,19 +79,16 @@ export async function onRequestPost({ request }) {
 
       const results = {};
 
-      // options（可部分更新）
       if (data.options !== undefined) {
         const ok = await dbPut(`${basePath}/settings/options`, _sanitizeOptions(data.options), token);
         results.options = ok;
       }
 
-      // year_range
       if (data.yearRange !== undefined) {
         const ok = await dbPut(`${basePath}/settings/year_range`, _sanitizeYearRange(data.yearRange), token);
         results.yearRange = ok;
       }
 
-      // ui_constants
       if (data.uiConstants !== undefined) {
         const ok = await dbPut(`${basePath}/settings/ui_constants`, _sanitizeUIConstants(data.uiConstants), token);
         results.uiConstants = ok;
@@ -125,7 +103,7 @@ export async function onRequestPost({ request }) {
     }
 
     /* ============================================
-       PUT-STATUS — 新增 / 更新單一狀態
+       PUT-STATUS
        ============================================ */
     if (action === 'put-status') {
       if (!data || typeof data !== 'object') {
@@ -158,7 +136,7 @@ export async function onRequestPost({ request }) {
     }
 
     /* ============================================
-       DELETE-STATUS — 刪除狀態
+       DELETE-STATUS
        ============================================ */
     if (action === 'delete-status') {
       if (!id) return errorResponse('MISSING_FIELDS', '缺少 id');
@@ -175,9 +153,6 @@ export async function onRequestPost({ request }) {
   }
 }
 
-/* ============================================
-   OPTIONS preflight
-   ============================================ */
 export async function onRequestOptions() {
   return handleOptions();
 }

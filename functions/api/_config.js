@@ -1,12 +1,11 @@
 // ============================================
-// _config.js — 所有 Functions 共用的 Firebase REST 設定（v101）
+// _config.js — 所有 Functions 共用的 Firebase REST 設定（v101.5）
 // 位置：functions/api/_config.js
 // ============================================
-// v101 修正：
-//   ✅ 補 Access-Control-Allow-Methods / Headers
-//   ✅ 新增 dbPatch / dbPush
-//   ✅ 新增 OPTIONS preflight 處理 helper
-//   ✅ 錯誤回應標準化
+// v101.5 修正：
+//   ✅ 移除未被使用的 handleOptions（改用 _helpers.js 的）
+//   ✅ 保留 REST 操作（GET / PUT / PATCH / POST / DELETE）
+//   ✅ 保留 jsonResponse / CORS 設定
 // ============================================
 
 export const FIREBASE_DB_URL = 'https://family-fin-a6dd1-default-rtdb.asia-southeast1.firebasedatabase.app';
@@ -42,8 +41,7 @@ export async function dbPut(path, data, token = '') {
 }
 
 /**
- * 🆕 v101：部分更新（PATCH）
- * 只更新指定欄位，未指定的保留
+ * 部分更新（PATCH）
  */
 export async function dbPatch(path, data, token = '') {
   const url = `${FIREBASE_DB_URL}/${path}.json${token ? `?auth=${token}` : ''}`;
@@ -56,7 +54,7 @@ export async function dbPatch(path, data, token = '') {
 }
 
 /**
- * 🆕 v101：自動產生 key 並寫入（POST）
+ * 自動產生 key 並寫入（POST）
  * @returns {string|null} 新產生的 key，失敗回傳 null
  */
 export async function dbPush(path, data, token = '') {
@@ -92,21 +90,6 @@ export function jsonResponse(data, status = 200) {
     status,
     headers: {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400',
-    },
-  });
-}
-
-/**
- * 處理 CORS preflight
- */
-export function handleOptions() {
-  return new Response(null, {
-    status: 204,
-    headers: {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',

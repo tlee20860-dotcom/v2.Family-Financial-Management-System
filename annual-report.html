@@ -55,9 +55,8 @@
         <!-- 月份切換（僅按月明細顯示） -->
         <div class="month-switcher" id="month-switcher" style="display:none;"></div>
 
-        <!-- ============ 全年總合檢視 ============ -->
+        <!-- 全年總合檢視 -->
         <div id="summary-view">
-          <!-- 全年總合表格（可折疊） -->
           <div class="glass-card collapsible-card collapsible-card-flat" id="summary-table-card" style="padding:0;">
             <div class="collapsible-header" id="summary-table-header">
               <div class="collapsible-header-title">
@@ -78,7 +77,6 @@
             </div>
           </div>
 
-          <!-- 支付方式統計（可折疊） -->
           <div class="glass-card collapsible-card collapsible-card-flat" id="payment-stats-card" style="display:none; margin-top:20px; padding:0;">
             <div class="collapsible-header" id="payment-stats-header">
               <div class="collapsible-header-title">
@@ -87,13 +85,11 @@
               </div>
               <i data-lucide="chevron-down" class="collapsible-arrow"></i>
             </div>
-            <div class="collapsible-body" id="payment-stats-body" style="display:block;">
-              <!-- JS 動態填入 -->
-            </div>
+            <div class="collapsible-body" id="payment-stats-body" style="display:block;"></div>
           </div>
         </div>
 
-        <!-- ============ 按月明細檢視 ============ -->
+        <!-- 按月明細檢視 -->
         <div id="monthly-view" style="display:none;">
           <div class="glass-card collapsible-card collapsible-card-flat" id="monthly-table-card" style="padding:0;">
             <div class="collapsible-header" id="monthly-table-header">
@@ -126,13 +122,12 @@
   </div>
 
   <script src="https://unpkg.com/lucide@latest"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script type="module">
     import { initApp } from './js/core/app.js';
     import { initAnnualReportPage } from './js/pages/annual-report.js';
 
     await initApp({ activeHref: 'annual-report.html', title: '年度報表' });
-    initAnnualReportPage();
+    await initAnnualReportPage();
   </script>
 </body>
 </html>

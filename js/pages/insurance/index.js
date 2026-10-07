@@ -1,9 +1,12 @@
 // ============================================
-// index.js — 保險付款入口（v101.4）
+// index.js — 保險付款入口（v101.5）
 // 位置：js/pages/insurance/index.js
 // ============================================
-// v101.4 修正：
-//   ✅ 無實質變更，維持 v101.3 版本（相容新 render.js）
+// v101.5 修正：
+//   ✅ computeEnrichedPolicies 改 import shared/insurance-calc.js
+//   ✅ 使用 registerPageCleanup 註冊清理
+//   ✅ bindGlobalListeners 補 unbind
+//   ✅ sync-all 改用 openConfirm
 // ============================================
 
 import {
@@ -15,15 +18,19 @@ import { AppState } from '../../core/state.js';
 import { renderPageFilter } from '../../shared/page-filter.js';
 import { initViewToggle } from '../../shared/view-toggle.js';
 import { showToast } from '../../shared/toast.js';
+import { openConfirm } from '../../shared/modal.js';
+import { registerPageCleanup } from '../../core/app.js';
 
-import { computeEnrichedPolicies } from './calc.js';
+// 🆕 v101.5：改 import shared/insurance-calc.js
+import { computeEnrichedPolicies } from '../../shared/insurance-calc.js';
+
 import {
   renderPolicyGrid,
   renderPolicyTable,
   renderCompletedSection,
   renderStats,
 } from './render.js';
-import { bindGlobalListeners } from './modals.js';
+import { bindGlobalListeners, unbindGlobalListeners } from './modals.js';
 
 /* ============================================
    Module 狀態
@@ -35,6 +42,7 @@ let _enriched = [];
 let _viewToggle = null;
 let _filterInstance = null;
 let _unsubscribers = [];
+let _syncAllHandler = null;
 
 /* ============================================
    主入口
@@ -50,8 +58,14 @@ export async function initInsurancePage() {
     onChange: () => _render(),
   });
 
-  document.getElementById('sync-all-btn')?.addEventListener('click', async () => {
-    if (!confirm('確定要重新同步所有保單的已扣款支出嗎？')) return;
+  // 🆕 v101.5：改 openConfirm
+  _syncAllHandler = async () => {
+    const ok = await openConfirm('確定要重新同步所有保單的已扣款支出嗎？', {
+      title: '同步所有支出',
+      okText: '同步',
+      okClass: 'btn-magenta',
+    });
+    if (!ok) return;
     try {
       const { syncAllPolicyExpenses } = await import('./sync.js');
       await syncAllPolicyExpenses(_policies, _paymentsCache);
@@ -59,7 +73,8 @@ export async function initInsurancePage() {
     } catch (err) {
       showToast('同步失敗：' + err.message, 'error');
     }
-  });
+  };
+  document.getElementById('sync-all-btn')?.addEventListener('click', _syncAllHandler);
 
   _filterInstance = renderPageFilter({
     containerId: 'page-filter-root',
@@ -86,6 +101,8 @@ export async function initInsurancePage() {
   );
 
   _unsubscribers.push(AppState.on('ym-change', () => _reloadAndRender()));
+
+  registerPageCleanup(_destroy);
 
   return {
     destroy: _destroy,
@@ -181,6 +198,9 @@ function _render() {
    銷毀
    ============================================ */
 function _destroy() {
+  // 🆕 v101.5：解除 modals.js 的全域監聽
+  try { unbindGlobalListeners(); } catch (e) { /* noop */ }
+
   _unsubscribers.forEach((fn) => {
     try { fn(); } catch (e) { /* noop */ }
   });
@@ -193,5 +213,9 @@ function _destroy() {
   if (_filterInstance) {
     try { _filterInstance.destroy(); } catch (e) { /* noop */ }
     _filterInstance = null;
+  }
+  if (_syncAllHandler) {
+    document.getElementById('sync-all-btn')?.removeEventListener('click', _syncAllHandler);
+    _syncAllHandler = null;
   }
 }

@@ -1,24 +1,20 @@
 // ============================================
-// tab-yearrange.js — 基礎資料庫：年份範圍 Tab（v101）
+// tab-yearrange.js — 基礎資料庫：年份範圍 Tab（v101.5）
 // 位置：js/pages/database/tab-yearrange.js
 // ============================================
-// 功能：
-//   設定「起始年份」與「往後顯示年數」
-//   邏輯：startYear = min(起始年份, 當前年 - 3)
-//         endYear   = 當前年 + 往後顯示年數
-//
-// 儲存位置：families/{uid}/settings/year_range
-// 讀取順序：家庭 → 平台 → 常數
+// v101.5 修正：
+//   ✅ 使用 beforeSubmit 驗證
+//   ✅ confirm 改用 openConfirm
+//   ✅ 使用 _container.querySelector + 完整清理
+//   ✅ 抽出 _parseFormValues（避免重複解析）
 // ============================================
 
 import { listenYearRange, saveYearRange } from '../../core/db.js';
-import {
-  getYearRange as getMergedYearRange,
-  getYearList,
-} from '../../config/app-config.js';
+import { getYearRange as getMergedYearRange } from '../../config/app-config.js';
 import { LIMITS } from '../../config/constants.js';
 import { escapeHtml } from '../../core/utils.js';
 import { showToast } from '../../shared/toast.js';
+import { openConfirm } from '../../shared/modal.js';
 import { buildForm } from '../../shared/form-builder.js';
 
 /* ============================================
@@ -28,7 +24,8 @@ let _container = null;
 let _formApi = null;
 let _currentRange = { startYear: null, futureYears: LIMITS.YEAR_FUTURE_DEFAULT };
 let _hasFamilyOverride = false;
-let _unsubscribers = [];
+let _unsubYearRange = null;
+let _resetBtnHandler = null;
 
 /* ============================================
    主入口
@@ -44,7 +41,31 @@ export function initYearRangeTab(containerId) {
 
   _renderForm();
   _bindEvents();
-  _bindListeners();
+
+  _unsubYearRange = listenYearRange((data) => {
+    if (data && (data.startYear != null || data.futureYears != null)) {
+      _currentRange = {
+        startYear: data.startYear != null ? Number(data.startYear) : null,
+        futureYears: Number(data.futureYears) || LIMITS.YEAR_FUTURE_DEFAULT,
+      };
+      _hasFamilyOverride = true;
+    } else {
+      const merged = getMergedYearRange();
+      _currentRange = {
+        startYear: merged.startYear,
+        futureYears: merged.endYear - new Date().getFullYear(),
+      };
+      _hasFamilyOverride = false;
+    }
+
+    if (_formApi) {
+      _formApi.setData({
+        'db-yr-start': _currentRange.startYear != null ? _currentRange.startYear : '',
+        'db-yr-future': _currentRange.futureYears,
+      });
+    }
+    _refreshPreview();
+  });
 
   return {
     refresh: _refreshPreview,
@@ -133,26 +154,21 @@ function _renderForm() {
     submitText: '儲存設定',
     showCancel: false,
     showReset: false,
+    beforeSubmit: _validateYearRange,
     onSubmit: _handleSubmit,
   });
 
-  // 預設值
   _formApi.setData({
     'db-yr-start': '',
     'db-yr-future': LIMITS.YEAR_FUTURE_DEFAULT,
   });
 
-  // 輸入時即時更新預覽
   _formApi.onFieldChange('db-yr-start', _refreshPreview);
   _formApi.onFieldChange('db-yr-future', _refreshPreview);
 }
 
-async function _handleSubmit(data) {
-  const rawStart = data['db-yr-start'];
-  const rawFuture = data['db-yr-future'];
-
-  const startYear = (rawStart === '' || rawStart == null) ? null : Number(rawStart);
-  const futureYears = Number(rawFuture);
+function _validateYearRange(data) {
+  const { startYear, futureYears } = _parseFormValues(data);
 
   if (startYear != null && (isNaN(startYear) || startYear < 1900 || startYear > 2200)) {
     return { field: 'db-yr-start', message: '請填寫合理的年份（1900 ~ 2200）' };
@@ -160,6 +176,11 @@ async function _handleSubmit(data) {
   if (isNaN(futureYears) || futureYears < 0 || futureYears > 20) {
     return { field: 'db-yr-future', message: '請填寫 0 ~ 20 之間的數字' };
   }
+  return true;
+}
+
+async function _handleSubmit(data) {
+  const { startYear, futureYears } = _parseFormValues(data);
 
   try {
     await saveYearRange({ startYear, futureYears });
@@ -172,83 +193,45 @@ async function _handleSubmit(data) {
 }
 
 /* ============================================
-   資料監聽
-   ============================================ */
-function _bindListeners() {
-  _unsubscribers.push(
-    listenYearRange((data) => {
-      if (data && (data.startYear != null || data.futureYears != null)) {
-        _currentRange = {
-          startYear: data.startYear != null ? Number(data.startYear) : null,
-          futureYears: Number(data.futureYears) || LIMITS.YEAR_FUTURE_DEFAULT,
-        };
-        _hasFamilyOverride = true;
-      } else {
-        // 使用 app-config 的 fallback（平台或常數）
-        const merged = getMergedYearRange();
-        _currentRange = {
-          startYear: merged.startYear,
-          futureYears: merged.endYear - new Date().getFullYear(),
-        };
-        _hasFamilyOverride = false;
-      }
-
-      // 更新表單
-      if (_formApi) {
-        _formApi.setData({
-          'db-yr-start': _currentRange.startYear != null ? _currentRange.startYear : '',
-          'db-yr-future': _currentRange.futureYears,
-        });
-      }
-      _refreshPreview();
-    })
-  );
-}
-
-/* ============================================
    事件
    ============================================ */
 function _bindEvents() {
-  document.getElementById('db-yearrange-reset')?.addEventListener('click', async () => {
+  _resetBtnHandler = async () => {
     if (!_hasFamilyOverride) {
       showToast('目前已是平台預設', 'info');
       return;
     }
-    if (!confirm('確定要清除家庭自訂，改回使用平台預設嗎？')) return;
+
+    const ok = await openConfirm('確定要清除家庭自訂，改回使用平台預設嗎？', {
+      title: '重置年份範圍',
+      okText: '重置',
+      okClass: 'btn-danger',
+    });
+    if (!ok) return;
 
     try {
-      // 清除家庭覆蓋：寫入空的 year_range
       await saveYearRange({ startYear: null, futureYears: LIMITS.YEAR_FUTURE_DEFAULT });
       _hasFamilyOverride = false;
       showToast('✅ 已重置為平台預設', 'success');
     } catch (err) {
       showToast('重置失敗：' + err.message, 'error');
     }
-  });
+  };
+
+  _container.querySelector('#db-yearrange-reset')?.addEventListener('click', _resetBtnHandler);
 }
 
 /* ============================================
    預覽
    ============================================ */
 function _refreshPreview() {
-  const previewEl = document.getElementById('db-yearrange-preview');
+  const previewEl = _container?.querySelector('#db-yearrange-preview');
   if (!previewEl) return;
 
-  // 從表單讀取當前值（未儲存前的即時預覽）
-  let startYear = null;
-  let futureYears = LIMITS.YEAR_FUTURE_DEFAULT;
-
-  if (_formApi) {
-    const rawStart = _formApi.getFieldValue('db-yr-start');
-    const rawFuture = _formApi.getFieldValue('db-yr-future');
-    startYear = (rawStart === '' || rawStart == null) ? null : Number(rawStart);
-    futureYears = Number(rawFuture);
-    if (isNaN(futureYears)) futureYears = LIMITS.YEAR_FUTURE_DEFAULT;
-  }
+  const { startYear, futureYears } = _parseFormValues();
 
   const curY = new Date().getFullYear();
 
-  // 計算實際範圍
   let actualStart;
   let wasAdjusted = false;
 
@@ -262,14 +245,12 @@ function _refreshPreview() {
 
   const actualEnd = curY + futureYears;
 
-  // 產生年份清單（最多顯示 30 年）
   const years = [];
   for (let y = actualStart; y <= actualEnd && years.length < 30; y++) {
     years.push(y);
   }
   const totalYears = actualEnd - actualStart + 1;
 
-  // 當前年的高亮
   const curYStr = String(curY);
 
   previewEl.innerHTML = `
@@ -319,12 +300,41 @@ function _refreshPreview() {
 }
 
 /* ============================================
+   工具
+   ============================================ */
+function _parseFormValues(data) {
+  let rawStart;
+  let rawFuture;
+
+  if (data) {
+    rawStart = data['db-yr-start'];
+    rawFuture = data['db-yr-future'];
+  } else if (_formApi) {
+    rawStart = _formApi.getFieldValue('db-yr-start');
+    rawFuture = _formApi.getFieldValue('db-yr-future');
+  }
+
+  const startYear = (rawStart === '' || rawStart == null) ? null : Number(rawStart);
+  let futureYears = Number(rawFuture);
+  if (isNaN(futureYears)) futureYears = LIMITS.YEAR_FUTURE_DEFAULT;
+
+  return { startYear, futureYears };
+}
+
+/* ============================================
    銷毀
    ============================================ */
 function _destroy() {
-  _unsubscribers.forEach((fn) => {
-    try { fn(); } catch (e) { /* noop */ }
-  });
-  _unsubscribers = [];
-  if (_formApi) _formApi.destroy();
+  if (_unsubYearRange) {
+    try { _unsubYearRange(); } catch (e) { /* noop */ }
+    _unsubYearRange = null;
+  }
+  if (_formApi) {
+    try { _formApi.destroy(); } catch (e) { /* noop */ }
+    _formApi = null;
+  }
+  if (_resetBtnHandler && _container) {
+    _container.querySelector('#db-yearrange-reset')?.removeEventListener('click', _resetBtnHandler);
+    _resetBtnHandler = null;
+  }
 }

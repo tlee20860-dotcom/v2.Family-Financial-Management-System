@@ -1,21 +1,23 @@
 // ============================================
-// tab-categories.js — 基礎資料庫：支出結構 Tab（v101）
+// tab-categories.js — 基礎資料庫：支出結構 Tab（v101.5）
 // 位置：js/pages/database/tab-categories.js
 // ============================================
-// 功能：
-//   左側：支出類別 CRUD + 排序
-//   右側：支出項目 CRUD（依類別過濾）
-//   桌面：左右並排；手機：上下堆疊
+// v101.5 修正：
+//   ✅ 類別 / 項目新增 / 編輯改用 entity-modal
+//   ✅ 刪除使用 entity-helpers 的 deleteEntity
+//   ✅ 事件監聽改用 _container.querySelector + 完整清理
+//   ✅ 使用 registerPageCleanup 註冊清理
 // ============================================
 
 import {
-  listenCategories, addCategory, updateCategory, removeCategory,
-  listenItems, addItem, updateItem, removeItem,
+  listenCategories, listenItems,
 } from '../../core/db.js';
 import { escapeHtml } from '../../core/utils.js';
 import { showToast } from '../../shared/toast.js';
-import { openModal, closeModal, openConfirm } from '../../shared/modal.js';
-import { buildForm } from '../../shared/form-builder.js';
+import { openConfirm } from '../../shared/modal.js';
+import { openEntityModal } from '../../shared/entity-modal.js';
+import { deleteEntity } from '../../shared/entity-helpers.js';
+import { ENTITY_KEYS } from '../../config/constants.js';
 
 /* ============================================
    Module 狀態
@@ -23,17 +25,13 @@ import { buildForm } from '../../shared/form-builder.js';
 let _container = null;
 let _categories = [];
 let _items = [];
-let _catFormApi = null;
-let _itemFormApi = null;
-let _catModalFormApi = null;
-let _itemModalFormApi = null;
-let _editingCatId = null;
-let _editingItemId = null;
 let _filterCategoryId = '';
 let _unsubscribers = [];
-
-const CAT_MODAL_ID = 'db-cat-modal';
-const ITEM_MODAL_ID = 'db-item-modal';
+let _catListHandler = null;
+let _itemListHandler = null;
+let _catAddHandler = null;
+let _itemAddHandler = null;
+let _filterHandler = null;
 
 /* ============================================
    主入口
@@ -47,12 +45,22 @@ export function initCategoriesTab(containerId) {
 
   _container.innerHTML = _buildSkeleton();
 
-  _renderCatForm();
-  _renderItemForm();
-  _renderCatModal();
-  _renderItemModal();
+  _unsubscribers.push(
+    listenCategories((list) => {
+      _categories = list;
+      _refreshCategoryOptions();
+      _render();
+    })
+  );
+
+  _unsubscribers.push(
+    listenItems((list) => {
+      _items = list;
+      _render();
+    })
+  );
+
   _bindEvents();
-  _bindListeners();
 
   return {
     refresh: _render,
@@ -69,13 +77,18 @@ function _buildSkeleton() {
 
       <!-- 左：類別 -->
       <div>
-        <div id="db-cat-form-root" class="mb-16"></div>
+        <div class="flex flex-between items-center flex-wrap gap-12 mb-12">
+          <div class="text-muted" style="font-size:13px;">支出類別</div>
+          <button class="btn btn-primary btn-sm" id="db-cat-add-btn">
+            <i data-lucide="plus" style="width:14px;height:14px;"></i> 新增類別
+          </button>
+        </div>
 
         <div class="glass-card collapsible-card collapsible-card-flat" id="db-cats-list-card">
           <div class="collapsible-header" id="db-cats-list-header">
             <div class="collapsible-header-title">
               <i data-lucide="tags" style="width:16px;height:16px;"></i>
-              <span>支出類別 <span class="text-muted" id="db-cats-count" style="font-size:12px; margin-left:6px;"></span></span>
+              <span>類別清單 <span class="text-muted" id="db-cats-count" style="font-size:12px; margin-left:6px;"></span></span>
             </div>
             <i data-lucide="chevron-down" class="collapsible-arrow"></i>
           </div>
@@ -87,13 +100,18 @@ function _buildSkeleton() {
 
       <!-- 右：項目 -->
       <div>
-        <div id="db-item-form-root" class="mb-16"></div>
+        <div class="flex flex-between items-center flex-wrap gap-12 mb-12">
+          <div class="text-muted" style="font-size:13px;">支出項目</div>
+          <button class="btn btn-primary btn-sm" id="db-item-add-btn">
+            <i data-lucide="plus" style="width:14px;height:14px;"></i> 新增項目
+          </button>
+        </div>
 
         <div class="glass-card collapsible-card collapsible-card-flat" id="db-items-list-card">
           <div class="collapsible-header" id="db-items-list-header">
             <div class="collapsible-header-title">
               <i data-lucide="list" style="width:16px;height:16px;"></i>
-              <span>支出項目 <span class="text-muted" id="db-items-count" style="font-size:12px; margin-left:6px;"></span></span>
+              <span>項目清單 <span class="text-muted" id="db-items-count" style="font-size:12px; margin-left:6px;"></span></span>
             </div>
             <div style="display:flex; align-items:center; gap:10px;" onclick="event.stopPropagation()">
               <select class="select" id="db-item-filter" style="width:auto; padding:4px 8px; font-size:12px;">
@@ -113,249 +131,11 @@ function _buildSkeleton() {
 }
 
 /* ============================================
-   類別新增表單
-   ============================================ */
-function _renderCatForm() {
-  _catFormApi = buildForm({
-    containerId: 'db-cat-form-root',
-    fields: [
-      { type: 'text',   id: 'db-cat-name',  label: '類別名稱', required: true, placeholder: '例如：醫療類', maxlength: 20 },
-      { type: 'number', id: 'db-cat-order', label: '排序（數字越小越前）', min: 0, placeholder: '0' },
-    ],
-    submitText: '新增類別',
-    showCancel: false,
-    showReset: true,
-    resetText: '重置',
-    onSubmit: _handleCatAdd,
-  });
-}
-
-async function _handleCatAdd(data) {
-  const name = (data['db-cat-name'] || '').trim();
-  const order = Number(data['db-cat-order']) || 0;
-
-  if (!name) {
-    return { field: 'db-cat-name', message: '請填寫類別名稱' };
-  }
-
-  if (_categories.some((c) => c.name === name)) {
-    return { field: 'db-cat-name', message: '此類別名稱已存在' };
-  }
-
-  try {
-    await addCategory({ name, order });
-    showToast(`✅ 已新增類別「${name}」`, 'success');
-    _catFormApi.reset();
-  } catch (err) {
-    showToast('新增失敗：' + err.message, 'error');
-  }
-}
-
-/* ============================================
-   項目新增表單
-   ============================================ */
-function _renderItemForm() {
-  _itemFormApi = buildForm({
-    containerId: 'db-item-form-root',
-    fields: [
-      { type: 'select', id: 'db-item-cat',  label: '所屬類別', required: true, includeEmpty: true, emptyText: '— 請選擇 —' },
-      { type: 'text',   id: 'db-item-name', label: '項目名稱', required: true, placeholder: '例如：看病-濕疹', maxlength: 30 },
-    ],
-    submitText: '新增項目',
-    showCancel: false,
-    showReset: true,
-    resetText: '重置',
-    onSubmit: _handleItemAdd,
-  });
-
-  // 預設跟隨篩選
-  _itemFormApi.onFieldChange('db-item-cat', () => {
-    // 可擴充：切換時自動聚焦
-  });
-}
-
-async function _handleItemAdd(data) {
-  const name = (data['db-item-name'] || '').trim();
-  const categoryId = data['db-item-cat'];
-
-  if (!name || !categoryId) {
-    return { field: 'db-item-name', message: '請選擇類別並填寫項目名稱' };
-  }
-
-  try {
-    await addItem({ name, categoryId });
-    showToast(`✅ 已新增項目「${name}」`, 'success');
-    _itemFormApi.reset();
-    // 若當前篩選 = 該類別，保持一致性
-    if (_filterCategoryId === categoryId) {
-      _render();
-    }
-  } catch (err) {
-    showToast('新增失敗：' + err.message, 'error');
-  }
-}
-
-/* ============================================
-   類別編輯 Modal
-   ============================================ */
-function _renderCatModal() {
-  const existing = document.getElementById(CAT_MODAL_ID);
-  if (existing) existing.remove();
-
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.id = CAT_MODAL_ID;
-  overlay.innerHTML = `
-    <div class="modal">
-      <h2 class="modal-title">編輯類別</h2>
-      <div id="db-cat-modal-form-root"></div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-
-  _catModalFormApi = buildForm({
-    containerId: 'db-cat-modal-form-root',
-    fields: [
-      { type: 'hidden', id: 'db-cat-edit-id' },
-      { type: 'text',   id: 'db-cat-edit-name',  label: '類別名稱', required: true, maxlength: 20 },
-      { type: 'number', id: 'db-cat-edit-order', label: '排序', min: 0 },
-    ],
-    submitText: '儲存',
-    showCancel: true,
-    cancelText: '取消',
-    onSubmit: _handleCatEdit,
-    onCancel: () => closeModal(CAT_MODAL_ID),
-  });
-
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) closeModal(CAT_MODAL_ID);
-  });
-}
-
-async function _handleCatEdit(data) {
-  const id = data['db-cat-edit-id'];
-  if (!id) return;
-
-  const name = (data['db-cat-edit-name'] || '').trim();
-  const order = Number(data['db-cat-edit-order']) || 0;
-
-  if (!name) {
-    return { field: 'db-cat-edit-name', message: '請填寫類別名稱' };
-  }
-
-  try {
-    await updateCategory(id, { name, order });
-    showToast('✅ 已更新類別', 'success');
-    closeModal(CAT_MODAL_ID);
-    _editingCatId = null;
-  } catch (err) {
-    showToast('更新失敗：' + err.message, 'error');
-  }
-}
-
-/* ============================================
-   項目編輯 Modal
-   ============================================ */
-function _renderItemModal() {
-  const existing = document.getElementById(ITEM_MODAL_ID);
-  if (existing) existing.remove();
-
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.id = ITEM_MODAL_ID;
-  overlay.innerHTML = `
-    <div class="modal">
-      <h2 class="modal-title">編輯項目</h2>
-      <div id="db-item-modal-form-root"></div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-
-  _itemModalFormApi = buildForm({
-    containerId: 'db-item-modal-form-root',
-    fields: [
-      { type: 'hidden', id: 'db-item-edit-id' },
-      { type: 'select', id: 'db-item-edit-cat',  label: '所屬類別', required: true, includeEmpty: true, emptyText: '— 請選擇 —' },
-      { type: 'text',   id: 'db-item-edit-name', label: '項目名稱', required: true, maxlength: 30 },
-    ],
-    submitText: '儲存',
-    showCancel: true,
-    cancelText: '取消',
-    onSubmit: _handleItemEdit,
-    onCancel: () => closeModal(ITEM_MODAL_ID),
-  });
-
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) closeModal(ITEM_MODAL_ID);
-  });
-}
-
-async function _handleItemEdit(data) {
-  const id = data['db-item-edit-id'];
-  if (!id) return;
-
-  const name = (data['db-item-edit-name'] || '').trim();
-  const categoryId = data['db-item-edit-cat'];
-
-  if (!name || !categoryId) {
-    return { field: 'db-item-edit-name', message: '請選擇類別並填寫項目名稱' };
-  }
-
-  try {
-    await updateItem(id, { name, categoryId });
-    showToast('✅ 已更新項目', 'success');
-    closeModal(ITEM_MODAL_ID);
-    _editingItemId = null;
-  } catch (err) {
-    showToast('更新失敗：' + err.message, 'error');
-  }
-}
-
-/* ============================================
-   資料監聽
-   ============================================ */
-function _bindListeners() {
-  _unsubscribers.push(
-    listenCategories((list) => {
-      _categories = list;
-      _refreshCategoryOptions();
-      _render();
-    })
-  );
-
-  _unsubscribers.push(
-    listenItems((list) => {
-      _items = list;
-      _render();
-    })
-  );
-}
-
-function _refreshCategoryOptions() {
-  const options = _categories.map((c) => ({ value: c.id, label: c.name }));
-
-  // 新增表單
-  _itemFormApi?.updateOptions('db-item-cat', options, { includeEmpty: true, emptyText: '— 請選擇 —' });
-
-  // 編輯 Modal
-  _itemModalFormApi?.updateOptions('db-item-edit-cat', options, { includeEmpty: true, emptyText: '— 請選擇 —' });
-
-  // 篩選下拉
-  const filterSel = document.getElementById('db-item-filter');
-  if (filterSel) {
-    const cur = filterSel.value;
-    filterSel.innerHTML = `<option value="">全部分類</option>` +
-      _categories.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
-    if (cur && _categories.some((c) => c.id === cur)) filterSel.value = cur;
-  }
-}
-
-/* ============================================
    事件綁定
    ============================================ */
 function _bindEvents() {
   // 類別清單
-  document.getElementById('db-cats-list')?.addEventListener('click', async (e) => {
+  _catListHandler = async (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     const id = btn.dataset.id;
@@ -364,14 +144,20 @@ function _bindEvents() {
     if (!cat) return;
 
     if (action === 'edit') {
-      _openCatEditModal(cat);
+      openEntityModal({
+        entity: ENTITY_KEYS.CATEGORY,
+        mode: 'edit',
+        id: cat.id,
+        allRows: _categories,
+      });
     } else if (action === 'delete') {
       await _handleCatDelete(cat);
     }
-  });
+  };
+  _container.querySelector('#db-cats-list')?.addEventListener('click', _catListHandler);
 
   // 項目清單
-  document.getElementById('db-items-list')?.addEventListener('click', async (e) => {
+  _itemListHandler = async (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     const id = btn.dataset.id;
@@ -380,32 +166,49 @@ function _bindEvents() {
     if (!item) return;
 
     if (action === 'edit') {
-      _openItemEditModal(item);
+      openEntityModal({
+        entity: ENTITY_KEYS.ITEM,
+        mode: 'edit',
+        id: item.id,
+        allRows: _items,
+      });
     } else if (action === 'delete') {
       await _handleItemDelete(item);
     }
-  });
+  };
+  _container.querySelector('#db-items-list')?.addEventListener('click', _itemListHandler);
 
   // 篩選
-  document.getElementById('db-item-filter')?.addEventListener('change', (e) => {
+  _filterHandler = (e) => {
     _filterCategoryId = e.target.value;
     _renderItems();
-  });
+  };
+  _container.querySelector('#db-item-filter')?.addEventListener('change', _filterHandler);
+
+  // 新增按鈕
+  _catAddHandler = () => {
+    openEntityModal({
+      entity: ENTITY_KEYS.CATEGORY,
+      mode: 'add',
+      allRows: _categories,
+    });
+  };
+  _container.querySelector('#db-cat-add-btn')?.addEventListener('click', _catAddHandler);
+
+  _itemAddHandler = () => {
+    openEntityModal({
+      entity: ENTITY_KEYS.ITEM,
+      mode: 'add',
+      initialData: _filterCategoryId ? { categoryId: _filterCategoryId } : null,
+      allRows: _items,
+    });
+  };
+  _container.querySelector('#db-item-add-btn')?.addEventListener('click', _itemAddHandler);
 }
 
 /* ============================================
-   類別 / 項目 操作
+   類別 / 項目刪除
    ============================================ */
-function _openCatEditModal(cat) {
-  _editingCatId = cat.id;
-  _catModalFormApi?.setData({
-    'db-cat-edit-id': cat.id,
-    'db-cat-edit-name': cat.name || '',
-    'db-cat-edit-order': cat.order || 0,
-  });
-  openModal(CAT_MODAL_ID);
-}
-
 async function _handleCatDelete(cat) {
   const used = _items.filter((i) => i.categoryId === cat.id);
   if (used.length > 0) {
@@ -421,21 +224,11 @@ async function _handleCatDelete(cat) {
   if (!ok) return;
 
   try {
-    await removeCategory(cat.id);
+    await deleteEntity(ENTITY_KEYS.CATEGORY, cat.id);
     showToast('✅ 已刪除類別', 'success');
   } catch (err) {
     showToast('刪除失敗：' + err.message, 'error');
   }
-}
-
-function _openItemEditModal(item) {
-  _editingItemId = item.id;
-  _itemModalFormApi?.setData({
-    'db-item-edit-id': item.id,
-    'db-item-edit-cat': item.categoryId || '',
-    'db-item-edit-name': item.name || '',
-  });
-  openModal(ITEM_MODAL_ID);
 }
 
 async function _handleItemDelete(item) {
@@ -447,7 +240,7 @@ async function _handleItemDelete(item) {
   if (!ok) return;
 
   try {
-    await removeItem(item.id);
+    await deleteEntity(ENTITY_KEYS.ITEM, item.id);
     showToast('✅ 已刪除項目', 'success');
   } catch (err) {
     showToast('刪除失敗：' + err.message, 'error');
@@ -463,14 +256,14 @@ function _render() {
 }
 
 function _renderCategories() {
-  const listEl = document.getElementById('db-cats-list');
-  const countEl = document.getElementById('db-cats-count');
+  const listEl = _container.querySelector('#db-cats-list');
+  const countEl = _container.querySelector('#db-cats-count');
   if (!listEl) return;
 
   if (countEl) countEl.textContent = `（共 ${_categories.length} 個）`;
 
   if (_categories.length === 0) {
-    listEl.innerHTML = `<div class="empty-state">尚無類別，請從上方新增</div>`;
+    listEl.innerHTML = `<div class="empty-state">尚無類別，請點擊上方「新增類別」</div>`;
     return;
   }
 
@@ -504,8 +297,8 @@ function _renderCategories() {
 }
 
 function _renderItems() {
-  const listEl = document.getElementById('db-items-list');
-  const countEl = document.getElementById('db-items-count');
+  const listEl = _container.querySelector('#db-items-list');
+  const countEl = _container.querySelector('#db-items-count');
   if (!listEl) return;
 
   const filtered = _filterCategoryId
@@ -553,6 +346,19 @@ function _renderItems() {
 }
 
 /* ============================================
+   篩選下拉更新
+   ============================================ */
+function _refreshCategoryOptions() {
+  const filterSel = _container.querySelector('#db-item-filter');
+  if (filterSel) {
+    const cur = filterSel.value;
+    filterSel.innerHTML = `<option value="">全部分類</option>` +
+      _categories.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+    if (cur && _categories.some((c) => c.id === cur)) filterSel.value = cur;
+  }
+}
+
+/* ============================================
    銷毀
    ============================================ */
 function _destroy() {
@@ -560,11 +366,25 @@ function _destroy() {
     try { fn(); } catch (e) { /* noop */ }
   });
   _unsubscribers = [];
-  if (_catFormApi) _catFormApi.destroy();
-  if (_itemFormApi) _itemFormApi.destroy();
-  if (_catModalFormApi) _catModalFormApi.destroy();
-  if (_itemModalFormApi) _itemModalFormApi.destroy();
 
-  document.getElementById(CAT_MODAL_ID)?.remove();
-  document.getElementById(ITEM_MODAL_ID)?.remove();
+  if (_catListHandler && _container) {
+    _container.querySelector('#db-cats-list')?.removeEventListener('click', _catListHandler);
+    _catListHandler = null;
+  }
+  if (_itemListHandler && _container) {
+    _container.querySelector('#db-items-list')?.removeEventListener('click', _itemListHandler);
+    _itemListHandler = null;
+  }
+  if (_filterHandler && _container) {
+    _container.querySelector('#db-item-filter')?.removeEventListener('change', _filterHandler);
+    _filterHandler = null;
+  }
+  if (_catAddHandler && _container) {
+    _container.querySelector('#db-cat-add-btn')?.removeEventListener('click', _catAddHandler);
+    _catAddHandler = null;
+  }
+  if (_itemAddHandler && _container) {
+    _container.querySelector('#db-item-add-btn')?.removeEventListener('click', _itemAddHandler);
+    _itemAddHandler = null;
+  }
 }

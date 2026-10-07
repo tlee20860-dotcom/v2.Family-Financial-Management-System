@@ -1,6 +1,11 @@
 // ============================================
-// tab-income.js — 綜合輸入中心：收入 Tab（v101）
+// tab-income.js — 綜合輸入中心：收入 Tab（v101.5）
 // 位置：js/pages/input-center/tab-income.js
+// ============================================
+// v101.5 修正：
+//   ✅ 驗證改用 beforeSubmit
+//   ✅ 動態成員欄位改用 form-builder 的 optionsSource
+//   ✅ 使用 registerPageCleanup 註冊清理
 // ============================================
 
 import {
@@ -87,20 +92,19 @@ function _buildSkeleton() {
    表單（動態：成員欄位會依成員清單重建）
    ============================================ */
 function _buildForm() {
-  const fields = [
-    { type: 'select', id: 'ic-inc-year',  label: '所屬年份', required: true, includeEmpty: false },
-    { type: 'select', id: 'ic-inc-month', label: '所屬月份', required: true, includeEmpty: false },
-    // 成員欄位動態插入（id = ic-inc-member-{memberId}）
-    { type: 'number', id: 'ic-inc-extra', label: '額外收入（HK$）', min: 0, step: 1, placeholder: '0' },
-  ];
-
   _formApi = buildForm({
     containerId: 'ic-income-form-root',
-    fields,
+    fields: [
+      { type: 'select', id: 'ic-inc-year',  label: '所屬年份', required: true, includeEmpty: false },
+      { type: 'select', id: 'ic-inc-month', label: '所屬月份', required: true, includeEmpty: false },
+      // 成員欄位動態插入（id = ic-inc-member-{memberId}）
+      { type: 'number', id: 'ic-inc-extra', label: '額外收入（HK$）', min: 0, step: 1, placeholder: '0' },
+    ],
     submitText: '儲存本月收入',
     showCancel: false,
     showReset: true,
     resetText: '重置',
+    beforeSubmit: _validateIncome,
     onSubmit: _handleSubmit,
   });
 
@@ -110,9 +114,17 @@ function _buildForm() {
     defaultValue: AppState.month === 'all' ? '01' : AppState.month,
   });
 
-  // 年月變更 → 載入該月收入
   _formApi.onFieldChange('ic-inc-year', _reloadIncome);
   _formApi.onFieldChange('ic-inc-month', _reloadIncome);
+}
+
+function _validateIncome(data) {
+  const year = data['ic-inc-year'];
+  const month = data['ic-inc-month'];
+  if (!year || !month) {
+    return { field: 'ic-inc-year', message: '請選擇年月' };
+  }
+  return true;
 }
 
 /* ============================================
@@ -122,15 +134,13 @@ function _rebuildMemberFields() {
   const form = document.querySelector('#ic-income-form-root form');
   if (!form) return;
 
-  // 移除舊的成員欄位（標記 data-dynamic-member）
+  // 移除舊的成員欄位
   form.querySelectorAll('[data-dynamic-member]').forEach((el) => el.remove());
 
-  // 找到額外收入欄位所在 .field 的父層
   const extraField = form.querySelector('#ic-inc-extra')?.closest('.field');
   if (!extraField) return;
   const parent = extraField.parentElement;
 
-  // 在額外收入欄位前插入成員欄位
   _members.forEach((m) => {
     const field = document.createElement('div');
     field.className = 'field';
@@ -143,7 +153,6 @@ function _rebuildMemberFields() {
     parent.insertBefore(field, extraField);
   });
 
-  // 重新套用當前月份收入
   _applyIncomeToInputs();
 }
 
@@ -154,10 +163,6 @@ async function _handleSubmit() {
   const year = _formApi.getFieldValue('ic-inc-year');
   const month = _formApi.getFieldValue('ic-inc-month');
   const extra = Number(_formApi.getFieldValue('ic-inc-extra')) || 0;
-
-  if (!year || !month) {
-    return { field: 'ic-inc-year', message: '請選擇年月' };
-  }
 
   const payload = {};
   _members.forEach((m) => {
@@ -196,13 +201,11 @@ async function _reloadIncome() {
 function _applyIncomeToInputs() {
   if (!_formApi) return;
 
-  // 成員
   _members.forEach((m) => {
     const val = _currentIncome[m.id];
     _formApi.setFieldValue(`ic-inc-member-${m.id}`, val != null ? val : '');
   });
 
-  // 額外收入
   const extra = _currentIncome[RESERVED_IDS.EXTRA_INCOME];
   _formApi.setFieldValue('ic-inc-extra', extra != null ? extra : '');
 }

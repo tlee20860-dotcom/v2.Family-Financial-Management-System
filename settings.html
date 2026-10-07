@@ -21,10 +21,9 @@
           <p class="page-subtitle">平台設定與個人化</p>
         </div>
 
-        <!-- Tab 容器 -->
         <div id="settings-tabs"></div>
 
-        <!-- ============ 平台設定 Panel（superadmin 專用） ============ -->
+        <!-- 平台設定 Panel（superadmin 專用） -->
         <div id="settings-panel-platform" class="tab-panel" style="display:none;">
           <div class="banner mb-16">
             ℹ️ 平台 UI 常數為全站預設值，家庭可在「基礎資料庫 → 下拉選項」中覆蓋。
@@ -44,7 +43,7 @@
           </div>
         </div>
 
-        <!-- ============ 個人化 Panel（所有人可見） ============ -->
+        <!-- 個人化 Panel -->
         <div id="settings-panel-personal" class="tab-panel" style="display:none;">
           <div class="grid grid-2" style="gap:16px; align-items:start;">
 
@@ -110,7 +109,7 @@
     import { initSettingsPage } from './js/pages/settings.js';
 
     await initApp({ activeHref: 'settings.html', title: '系統設定' });
-    initSettingsPage();
+    await initSettingsPage();
   </script>
 </body>
 </html>
