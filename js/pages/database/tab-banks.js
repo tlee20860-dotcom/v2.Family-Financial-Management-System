@@ -1,39 +1,46 @@
 // ============================================
-// tab-banks.js — 基礎資料庫：銀行 Tab（v101）
+// tab-banks.js — 基礎資料庫：銀行 Tab（v101.2）
 // 位置：js/pages/database/tab-banks.js
 // ============================================
-// 功能：銀行的新增 / 編輯 / 刪除 / 排序
+// v101.2 修正：
+//   ✅ 新增「編輯」功能（與 v101 計畫一致）
+//   ✅ 移除未使用的 removeBank import
+//   ✅ 移除未使用的 _container 儲存
 // ============================================
 
 import {
-  listenBanks, addBank, removeBank, deleteBankAndBalances,
+  listenBanks, addBank, updateBank, removeBank, deleteBankAndBalances,
 } from '../../core/db.js';
 import { escapeHtml } from '../../core/utils.js';
 import { showToast } from '../../shared/toast.js';
-import { openConfirm } from '../../shared/modal.js';
+import { openModal, closeModal, openConfirm } from '../../shared/modal.js';
 import { buildForm } from '../../shared/form-builder.js';
 
 /* ============================================
    Module 狀態
    ============================================ */
-let _container = null;
 let _banks = [];
 let _formApi = null;
+let _modalFormApi = null;
+let _editingId = null;
 let _unsubscribers = [];
+
+const MODAL_ID = 'db-bank-modal';
 
 /* ============================================
    主入口
    ============================================ */
 export function initBanksTab(containerId) {
-  _container = document.getElementById(containerId);
-  if (!_container) {
+  const container = document.getElementById(containerId);
+  if (!container) {
     console.warn(`⚠️ initBanksTab: 找不到容器 #${containerId}`);
     return null;
   }
 
-  _container.innerHTML = _buildSkeleton();
+  container.innerHTML = _buildSkeleton();
 
   _renderForm();
+  _renderModal();
   _bindListEvents();
   _bindListeners();
 
@@ -103,6 +110,66 @@ async function _handleAdd(data) {
 }
 
 /* ============================================
+   編輯 Modal
+   ============================================ */
+function _renderModal() {
+  const existing = document.getElementById(MODAL_ID);
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = MODAL_ID;
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2 class="modal-title">編輯銀行</h2>
+      <div id="db-bank-modal-form-root"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  _modalFormApi = buildForm({
+    containerId: 'db-bank-modal-form-root',
+    fields: [
+      { type: 'hidden', id: 'db-bank-edit-id' },
+      { type: 'text',   id: 'db-bank-edit-name', label: '銀行名稱', required: true, maxlength: 20 },
+    ],
+    submitText: '儲存',
+    showCancel: true,
+    cancelText: '取消',
+    onSubmit: _handleEdit,
+    onCancel: () => closeModal(MODAL_ID),
+  });
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeModal(MODAL_ID);
+  });
+}
+
+async function _handleEdit(data) {
+  const id = data['db-bank-edit-id'];
+  if (!id) return;
+
+  const name = (data['db-bank-edit-name'] || '').trim();
+  if (!name) {
+    return { field: 'db-bank-edit-name', message: '請填寫銀行名稱' };
+  }
+
+  // 檢查重複（排除自己）
+  if (_banks.some((b) => b.id !== id && b.name === name)) {
+    return { field: 'db-bank-edit-name', message: '此銀行名稱已存在' };
+  }
+
+  try {
+    await updateBank(id, name);
+    showToast('✅ 已更新銀行', 'success');
+    closeModal(MODAL_ID);
+    _editingId = null;
+  } catch (err) {
+    showToast('更新失敗：' + err.message, 'error');
+  }
+}
+
+/* ============================================
    資料監聽
    ============================================ */
 function _bindListeners() {
@@ -155,6 +222,7 @@ function _renderRow(b, index) {
       <td data-label="序號" class="mono" style="color:var(--text-muted);">${index + 1}</td>
       <td data-primary="1">${escapeHtml(b.name)}</td>
       <td data-label="操作">
+        <button class="btn btn-sm btn-ghost" data-action="edit" data-id="${b.id}">編輯</button>
         <button class="btn btn-sm btn-danger" data-action="delete" data-id="${b.id}">刪除</button>
       </td>
     </tr>
@@ -177,7 +245,9 @@ function _bindListEvents() {
     const bank = _banks.find((b) => b.id === id);
     if (!bank) return;
 
-    if (action === 'delete') {
+    if (action === 'edit') {
+      _openEditModal(bank);
+    } else if (action === 'delete') {
       const ok = await openConfirm(
         `⚠️ 確定要刪除「${bank.name}」嗎？\n\n這將會一併刪除該銀行在所有月份的結餘紀錄，此操作無法復原。`,
         { title: '刪除銀行', okText: '刪除', okClass: 'btn-danger' }
@@ -194,6 +264,21 @@ function _bindListEvents() {
   });
 }
 
+function _openEditModal(bank) {
+  _editingId = bank.id;
+  if (!_modalFormApi) return;
+
+  _modalFormApi.setData({
+    'db-bank-edit-id': bank.id,
+    'db-bank-edit-name': bank.name || '',
+  });
+
+  openModal(MODAL_ID);
+  setTimeout(() => {
+    document.getElementById('db-bank-edit-name')?.focus();
+  }, 100);
+}
+
 /* ============================================
    銷毀
    ============================================ */
@@ -203,4 +288,8 @@ function _destroy() {
   });
   _unsubscribers = [];
   if (_formApi) _formApi.destroy();
+  if (_modalFormApi) _modalFormApi.destroy();
+
+  const overlay = document.getElementById(MODAL_ID);
+  if (overlay) overlay.remove();
 }
