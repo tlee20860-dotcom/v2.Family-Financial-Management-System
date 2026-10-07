@@ -1,9 +1,11 @@
 /* ============================================
-   layout.css — App Shell 版型（v101）
+   layout.css — App Shell 版型（v101.2）
    ============================================
-   v101 新增：
-     ✅ 側邊欄分類群組樣式（nav-group / nav-sub-group）
-     ✅ 側邊欄群組展開/收合動畫
+   v101.2 修正：
+     ✅ 手機版 sidebar z-index 提升至 10001（高於 navbar）
+     ✅ backdrop z-index 設為 10000
+     ✅ navbar z-index 明確設為 100（低於 sidebar）
+     ✅ 修正手機版側邊欄點擊被 navbar 攔截問題
    ============================================ */
 
 .app-shell {
@@ -150,10 +152,6 @@
   transform: rotate(180deg);
 }
 
-.nav-group-body {
-  /* 子項目縮排 */
-}
-
 /* 成員子群組（雙層摺疊） */
 .nav-sub-group {
   margin: 2px 0;
@@ -163,10 +161,6 @@
   padding-left: 32px;
   font-size: 11px;
   letter-spacing: 1px;
-}
-
-.nav-sub {
-  /* 成員項目 */
 }
 
 .nav-sub .nav-item {
@@ -218,7 +212,7 @@
   border-bottom: 1px solid var(--glass-border);
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 100;   /* 🆕 明確設定：低於 sidebar */
 }
 
 .navbar-title {
@@ -285,24 +279,25 @@
 .grid-3 { grid-template-columns: repeat(3, 1fr); }
 .grid-4 { grid-template-columns: repeat(4, 1fr); }
 
-/* ================= 響應式 ================= */
+/* ================= 平板 (1024px) ================= */
 @media (max-width: 1024px) {
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
   .grid-3 { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* ================= 手機 (640px) ================= */
 @media (max-width: 640px) {
   .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
   .content { padding: 16px; }
 
-  /* 手機：Sidebar 變抽屜 */
+  /* Sidebar 抽屜模式（最高層級） */
   .sidebar {
     position: fixed !important;
     top: 0 !important;
     left: -260px !important;
     height: 100vh !important;
     width: 260px !important;
-    z-index: 1000 !important;
+    z-index: 10001 !important;   /* 🔧 高於 navbar 與 backdrop */
     transition: left 0.3s ease !important;
   }
   .sidebar.mobile-open { left: 0 !important; }
@@ -325,21 +320,21 @@
     padding-left: 52px;
   }
 
+  /* Backdrop（低於 sidebar 一階） */
   .sidebar-backdrop {
     display: none;
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.6);
-    z-index: 999 !important;
+    z-index: 10000 !important;   /* 🔧 低於 sidebar、高於 navbar */
   }
   .sidebar-backdrop.active { display: block; }
-}
 
-/* ================= 手機版 Navbar 優化 ================= */
-@media (max-width: 640px) {
+  /* Navbar 手機版優化 */
   .navbar {
     padding: 0 12px;
     gap: 8px;
+    z-index: 100 !important;
   }
 
   .navbar-title {
