@@ -1,19 +1,14 @@
 // ============================================
-// fixed-expenses.js — 固定支出明細（v101 只讀化）
+// fixed-expenses.js — 固定支出明細（v101.2 只讀化）
 // 位置：js/pages/fixed-expenses.js
 // ============================================
-// v101 改動：
-//   ✅ 移除新增 / 編輯 / 刪除（移至綜合輸入中心）
-//   ✅ 移除 checkbox（改為只讀狀態 badge）
-//   ✅ 保留卡片 / 表格雙模式
-//   ✅ 加「前往輸入中心」按鈕
-//   ✅ 狀態依 app-config
-//   ✅ 底部快速摘要（待處理固定支出）
+// v101.2 修正：
+//   ✅ 移除未使用的 getFixedExpensesForYear import（致命 Bug）
+//   ✅ 移除未使用的 getFixedExpensesOnce import
 // ============================================
 
 import {
   listenFixedTemplates, listenFixedExpenses,
-  getFixedExpensesOnce, getFixedExpensesForYear,
 } from '../core/db.js';
 import { AppState } from '../core/state.js';
 import { getStatusesByCategory } from '../config/app-config.js';
@@ -29,7 +24,7 @@ import { QUICK_SUMMARY_TYPES } from '../config/constants.js';
 let _templates = [];
 let _monthlyData = {};
 let _unsubTemplates = null;
-let _unsubMonth = null;
+let _unsubMonths = [];
 let _unsubYM = null;
 let _filterInstance = null;
 let _viewToggle = null;
@@ -64,11 +59,14 @@ export async function initFixedExpensesPage() {
   // 監聽模板
   _unsubTemplates = listenFixedTemplates((list) => {
     _templates = list;
-    _loadYearData();
+    _watchAllMonths();
   });
 
   // 監聽 AppState
-  _unsubYM = AppState.on('ym-change', () => _loadYearData());
+  _unsubYM = AppState.on('ym-change', () => _watchAllMonths());
+
+  // 初次啟動
+  _watchAllMonths();
 
   return {
     destroy: _destroy,
@@ -76,28 +74,28 @@ export async function initFixedExpensesPage() {
 }
 
 /* ============================================
-   載入整年資料
+   監聽整年 12 個月
    ============================================ */
-async function _loadYearData() {
+function _watchAllMonths() {
+  // 清除舊監聽
+  _unsubMonths.forEach((fn) => {
+    try { fn(); } catch (e) { /* noop */ }
+  });
+  _unsubMonths = [];
+  _monthlyData = {};
+
   const year = AppState.year;
   if (!year) return;
 
-  try {
-    const monthlyData = {};
-    const promises = [];
-    for (let m = 1; m <= 12; m++) {
-      const mm = String(m).padStart(2, '0');
-      promises.push(
-        getFixedExpensesOnce(year, mm).then((list) => {
-          monthlyData[mm] = list;
-        })
-      );
-    }
-    await Promise.all(promises);
-    _monthlyData = monthlyData;
-    _render();
-  } catch (err) {
-    console.error('[fixed-expenses] 載入失敗：', err);
+  for (let m = 1; m <= 12; m++) {
+    const mm = String(m).padStart(2, '0');
+    const unsub = listenFixedExpenses(year, mm, (list) => {
+      _monthlyData[mm] = list;
+      _render();
+    }, () => {
+      _monthlyData[mm] = [];
+    });
+    _unsubMonths.push(unsub);
   }
 }
 
@@ -122,12 +120,22 @@ function _render() {
         <div class="empty-state">
           <i data-lucide="file-text" style="width:48px;height:48px;opacity:0.4;"></i>
           <p style="margin-top:12px;">尚無固定支出</p>
-          <button class="btn btn-primary" onclick="window.location.href='input-center.html'" style="margin-top:12px;">
-            <i data-lucide="plus"></i> 前往輸入中心
-          </button>
+          <p style="font-size:12px; color:var(--text-muted); margin-top:8px;">
+            請先至「基礎資料庫」新增，或於「綜合輸入中心」新增固定支出
+          </p>
+          <div style="margin-top:16px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+            <a class="btn btn-ghost" href="database.html">
+              <i data-lucide="database"></i> 基礎資料庫
+            </a>
+            <a class="btn btn-primary" href="input-center.html">
+              <i data-lucide="plus"></i> 綜合輸入中心
+            </a>
+          </div>
         </div>
       </div>
     `;
+    cardEl.style.display = 'block';
+    tableEl.style.display = 'none';
     cardEl.innerHTML = emptyHtml;
     tableEl.innerHTML = '';
     if (window.lucide) window.lucide.createIcons();
@@ -146,7 +154,6 @@ function _render() {
     tableEl.innerHTML = _renderTable();
   }
 
-  // 底部快速摘要
   _renderQuickSummary();
 
   if (window.lucide) window.lucide.createIcons();
@@ -181,7 +188,7 @@ function _renderCard(t) {
       </div>
 
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
-        <span class="badge badge-muted">已付款 ${summary.paid} / ${summary.total}</span>
+        <span class="badge badge-success">已付款 ${summary.paid} / ${summary.total}</span>
         <span class="badge badge-pending">未付款 ${summary.pending}</span>
         ${summary.skipped > 0 ? `<span class="badge badge-muted">不適用 ${summary.skipped}</span>` : ''}
       </div>
@@ -202,7 +209,6 @@ function _renderCard(t) {
    每月明細
    ============================================ */
 function _renderTemplateDetail(t) {
-  const year = AppState.year;
   const rows = [];
 
   for (let m = 1; m <= 12; m++) {
@@ -283,7 +289,6 @@ function _renderQuickSummary() {
   const root = document.getElementById('quick-summary-root');
   if (!root) return;
 
-  // 收集當前月份所有未付款項目
   const ym = AppState.getYearMonth();
   if (ym.month === 'all') {
     root.innerHTML = '';
@@ -356,7 +361,7 @@ function _getTemplateSummary(t) {
 /* ============================================
    明細展開事件（委派）
    ============================================ */
-document.addEventListener('click', (e) => {
+const _expandClickHandler = (e) => {
   const btn = e.target.closest('.fixed-expand-btn');
   if (!btn) return;
   const key = btn.dataset.toggleKey;
@@ -366,7 +371,8 @@ document.addEventListener('click', (e) => {
   else _expandedKeys.add(key);
 
   _render();
-});
+};
+document.addEventListener('click', _expandClickHandler);
 
 /* ============================================
    銷毀
@@ -376,10 +382,10 @@ function _destroy() {
     try { _unsubTemplates(); } catch (e) { /* noop */ }
     _unsubTemplates = null;
   }
-  if (_unsubMonth) {
-    try { _unsubMonth(); } catch (e) { /* noop */ }
-    _unsubMonth = null;
-  }
+  _unsubMonths.forEach((fn) => {
+    try { fn(); } catch (e) { /* noop */ }
+  });
+  _unsubMonths = [];
   if (_unsubYM) {
     try { _unsubYM(); } catch (e) { /* noop */ }
     _unsubYM = null;
@@ -392,4 +398,5 @@ function _destroy() {
     try { _viewToggle.destroy(); } catch (e) { /* noop */ }
     _viewToggle = null;
   }
+  document.removeEventListener('click', _expandClickHandler);
 }
