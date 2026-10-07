@@ -1,12 +1,11 @@
 // ============================================
-// insurance-sync.js — POST /api/insurance-sync（v101）
+// insurance-sync.js — POST /api/insurance-sync（v101.4）
 // 位置：functions/api/insurance-sync.js
 // ============================================
-// v101 修正：
-//   ✅ 加 token 驗證 + 家庭權限檢查
-//   ✅ 狀態動態化（從 families/{uid}/statuses 讀取，不再硬編碼）
-//   ✅ 允許 body 傳入自訂 statusName
-//   ✅ 統一路徑組裝 / 金額 roundInt
+// v101.4 修正：
+//   ✅ 保險連動自動帶入「第一個類別」（依 order 排序）
+//   ✅ 支援 policyHolderId（保單持有人）
+//   ✅ 狀態動態化（從 families/{uid}/statuses 讀取）
 // ============================================
 
 import { dbGet, dbPut, dbDelete } from './_config.js';
@@ -14,6 +13,7 @@ import {
   authenticate,
   errorResponse,
   handleError,
+  handleOptions,
   successResponse,
   requireFields,
   roundInt,
@@ -32,7 +32,7 @@ export async function onRequestPost({ request }) {
       monthlyAverage,
       year,
       month,
-      // 🆕 v101：允許自訂狀態名稱
+      // 🆕 v101.4
       expenseStatusName,
       paymentStatusName,
     } = body || {};
@@ -64,8 +64,12 @@ export async function onRequestPost({ request }) {
        UPSERT 分支
        ============================================ */
 
-    // 讀取家庭狀態清單（動態決定狀態名稱）
+    // 讀取家庭狀態清單
     const statuses = await dbGet(`${basePath}/statuses`, token) || {};
+
+    // 🆕 v101.4：讀取家庭類別清單，取「第一個類別」（order 最小）
+    const categories = await dbGet(`${basePath}/expense_categories`, token) || {};
+    const firstCategoryId = _getFirstCategoryId(categories);
 
     // 解析最終狀態名稱
     const resolvedExpenseStatus =
@@ -81,7 +85,7 @@ export async function onRequestPost({ request }) {
       amount,
       status: resolvedExpenseStatus,
       date: '',
-      categoryId: '',
+      categoryId: firstCategoryId,   // 🆕 自動帶入第一個類別
       itemId: '',
       paymentMethodId: '',
       isAutoLinked: true,
@@ -105,17 +109,14 @@ export async function onRequestPost({ request }) {
       path: expensePath,
       expenseStatus: resolvedExpenseStatus,
       paymentStatus: resolvedPaymentStatus,
+      categoryId: firstCategoryId,
     });
   } catch (err) {
     return handleError(err);
   }
 }
 
-/**
- * 處理 OPTIONS preflight
- */
 export async function onRequestOptions() {
-  const { handleOptions } = await import('./_config.js');
   return handleOptions();
 }
 
@@ -124,10 +125,21 @@ export async function onRequestOptions() {
    ============================================ */
 
 /**
+ * 從類別清單中取得「第一個類別」的 ID
+ * 依 order 升序排序，取第一個
+ * @param {Object} categories - { catId: { name, order } }
+ * @returns {string} 類別 ID，或空字串（若無類別）
+ */
+function _getFirstCategoryId(categories) {
+  const list = Object.entries(categories || {})
+    .map(([id, c]) => ({ id, ...c }))
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  return list.length > 0 ? list[0].id : '';
+}
+
+/**
  * 從狀態清單找出指定類別的「已完成」狀態名稱
- * @param {Object} statuses - { id: { name, category, isDone } }
- * @param {'personal'|'fixed'|'insurance'} category
- * @returns {string|null}
  */
 function _findDoneStatus(statuses, category) {
   const list = Object.entries(statuses)
