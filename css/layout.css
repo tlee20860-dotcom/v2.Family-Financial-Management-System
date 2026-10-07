@@ -1,11 +1,9 @@
 /* ============================================
-   layout.css — App Shell 版型（v101.2）
+   layout.css — App Shell 版型（v101.3）
    ============================================
-   v101.2 修正：
-     ✅ 手機版 sidebar z-index 提升至 10001（高於 navbar）
-     ✅ backdrop z-index 設為 10000
-     ✅ navbar z-index 明確設為 100（低於 sidebar）
-     ✅ 修正手機版側邊欄點擊被 navbar 攔截問題
+   v101.3 修正：
+     ✅ 手機版 backdrop 從 sidebar 右側開始（left: 260px）
+     ✅ backdrop 不再覆蓋 sidebar，避免點擊被攔截
    ============================================ */
 
 .app-shell {
@@ -94,7 +92,7 @@
 }
 
 /* ============================================
-   🆕 v101：分類群組（工作流）
+   分類群組
    ============================================ */
 .nav-group {
   margin-bottom: 4px;
@@ -152,7 +150,6 @@
   transform: rotate(180deg);
 }
 
-/* 成員子群組（雙層摺疊） */
 .nav-sub-group {
   margin: 2px 0;
 }
@@ -168,7 +165,7 @@
   font-size: 13px;
 }
 
-/* 摺疊狀態（桌面）：只顯示 icon */
+/* 摺疊狀態（桌面） */
 .sidebar.collapsed {
   width: 64px;
 }
@@ -212,7 +209,7 @@
   border-bottom: 1px solid var(--glass-border);
   position: sticky;
   top: 0;
-  z-index: 100;   /* 🆕 明確設定：低於 sidebar */
+  z-index: 100;
 }
 
 .navbar-title {
@@ -279,18 +276,18 @@
 .grid-3 { grid-template-columns: repeat(3, 1fr); }
 .grid-4 { grid-template-columns: repeat(4, 1fr); }
 
-/* ================= 平板 (1024px) ================= */
+/* ================= 平板 ================= */
 @media (max-width: 1024px) {
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
   .grid-3 { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* ================= 手機 (640px) ================= */
+/* ================= 手機 ================= */
 @media (max-width: 640px) {
   .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
   .content { padding: 16px; }
 
-  /* Sidebar 抽屜模式（明確 fixed + 最高 z-index） */
+  /* Sidebar 抽屜 */
   .sidebar {
     position: fixed !important;
     top: 0 !important;
@@ -298,14 +295,15 @@
     height: 100vh !important;
     width: 260px !important;
     z-index: 10001 !important;
-    pointer-events: auto !important;   /* 🆕 確保可點擊 */
+    overflow-y: auto !important;     /* 🆕 允許內部滾動 */
+    overflow-x: hidden !important;
     transition: left 0.3s ease !important;
   }
   .sidebar.mobile-open {
     left: 0 !important;
   }
 
-  /* 取消摺疊狀態 */
+  /* 取消摺疊 */
   .sidebar.collapsed {
     width: 260px !important;
   }
@@ -323,30 +321,28 @@
     padding-left: 52px;
   }
 
-  /* Backdrop（低一階） */
+  /* 🆕 Backdrop：從 sidebar 右側開始，不覆蓋 sidebar */
   .sidebar-backdrop {
     display: none;
     position: fixed;
-    inset: 0;
+    top: 0;
+    left: 260px;                    /* 🔑 從 sidebar 寬度開始 */
+    right: 0;
+    bottom: 0;
     background: rgba(0, 0, 0, 0.6);
     z-index: 10000 !important;
-    pointer-events: auto !important;
     cursor: pointer;
   }
   .sidebar-backdrop.active {
     display: block;
   }
 
-  /* Navbar 手機版 */
+  /* Navbar */
   .navbar {
     padding: 0 12px;
     gap: 8px;
     z-index: 100 !important;
   }
-  .navbar-title {
-    display: none !important;
-  }
-  .navbar-user {
-    margin-left: auto;
-  }
+  .navbar-title { display: none !important; }
+  .navbar-user { margin-left: auto; }
 }
