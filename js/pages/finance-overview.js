@@ -1,11 +1,12 @@
 // ============================================
-// finance-overview.js — 財務總覽（v101.6 🆕）
+// finance-overview.js — 財務總覽（v101.6.1）
 // 位置：js/pages/finance-overview.js
 // ============================================
-// 職責：
-//   合併「收入」與「銀行結餘」為單一頁面
-//   共用一個年月選擇器
-//   各自總計 + 合併總計
+// v101.6.1 修正：
+//   ✅ 統計卡新增「當月總支出」
+//   ✅ 「合計可用資金」改為「動用資金」
+//       公式：收入 + 上月銀行結餘 − 當月總支出
+//   ✅ 銀行結餘區塊保留「當月結餘」
 // ============================================
 
 import { AppState } from '../core/state.js';
@@ -14,6 +15,8 @@ import {
   listenMembers,
   getIncomeOnce,
   getBankBalancesOnce,
+  getAllMemberExpensesOnce,
+  getPrevMonthBankTotal,
 } from '../core/db.js';
 import {
   escapeHtml, formatHKD, sortMembers, setText,
@@ -31,6 +34,8 @@ let _members = [];
 let _banks = [];
 let _income = {};
 let _balances = {};
+let _expenses = [];
+let _prevBankTotal = 0;
 
 let _filterInstance = null;
 let _statsApi = null;
@@ -89,21 +94,29 @@ async function _reload() {
   if (month === 'all') {
     _income = {};
     _balances = {};
+    _expenses = [];
+    _prevBankTotal = 0;
     _render();
     return;
   }
 
   try {
-    const [income, balances] = await Promise.all([
+    const [income, balances, expenses, prevBankTotal] = await Promise.all([
       getIncomeOnce(year, month),
       getBankBalancesOnce(year, month),
+      getAllMemberExpensesOnce(year, month),
+      getPrevMonthBankTotal(year, month),
     ]);
     _income = income || {};
     _balances = balances || {};
+    _expenses = expenses || [];
+    _prevBankTotal = Number(prevBankTotal) || 0;
   } catch (err) {
     console.error('[finance-overview] 載入失敗：', err);
     _income = {};
     _balances = {};
+    _expenses = [];
+    _prevBankTotal = 0;
   }
 
   _render();
@@ -122,9 +135,18 @@ function _render() {
    統計卡
    ============================================ */
 function _renderStats() {
+  // 收入總計
   const totalIncome = Object.values(_income).reduce((s, v) => s + (Number(v) || 0), 0);
+
+  // 當月銀行結餘
   const totalBank = Object.values(_balances).reduce((s, b) => s + (Number(b.amount) || 0), 0);
-  const total = totalIncome + totalBank;
+
+  // 當月總支出
+  const totalExpense = _expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+  // 動用資金 = 收入 + 上月銀行結餘 − 當月總支出
+  const availableBefore = totalIncome + _prevBankTotal;
+  const remaining = availableBefore - totalExpense;
 
   const cards = [
     {
@@ -135,17 +157,24 @@ function _renderStats() {
       icon: 'trending-up',
     },
     {
-      title: '當月銀行結餘',
-      value: formatHKD(totalBank),
+      title: '上月銀行結餘',
+      value: formatHKD(_prevBankTotal),
       valueClass: 'cyan',
-      hint: `共 ${_banks.length} 間銀行`,
+      hint: '可動用的起始資金',
       icon: 'landmark',
     },
     {
-      title: '合計可用資金',
-      value: formatHKD(total),
-      valueClass: 'magenta',
-      hint: '收入 + 銀行結餘',
+      title: '當月總支出',
+      value: formatHKD(totalExpense),
+      valueClass: 'red',
+      hint: `共 ${_expenses.length} 筆`,
+      icon: 'trending-down',
+    },
+    {
+      title: '動用資金',
+      value: formatHKD(remaining),
+      valueClass: remaining >= 0 ? 'magenta' : 'red',
+      hint: `收入 + 上月結餘 − 支出`,
       icon: 'wallet',
     },
   ];
@@ -158,7 +187,7 @@ function _renderStats() {
   _statsApi = renderStatsCards({
     container: 'finance-stats-root',
     cards,
-    columns: 3,
+    columns: 4,
   });
 }
 
@@ -295,4 +324,6 @@ function _destroy() {
   _banks = [];
   _income = {};
   _balances = {};
+  _expenses = [];
+  _prevBankTotal = 0;
 }
