@@ -1,28 +1,26 @@
 // ============================================
-// index.js — 保險付款入口（v101，拆檔重構）
+// index.js — 保險付款入口（v101.2）
 // 位置：js/pages/insurance/index.js
 // ============================================
-// 職責：組裝 5 個子模組 + 頁面初始化 + 檢視切換
-//
-// 子模組：
-//   calc.js    → 純計算（年繳 / 月分攤 / 期間範圍）
-//   render.js  → 渲染（卡片 / 表格 / 明細）
-//   sync.js    → 支出同步（與後端 API 互動）
-//   modals.js  → 編輯 Modal 綁定
+// v101.2 修正：
+//   ✅ 移除重複的 getInsurancePaymentsOnce import
+//   ✅ 移除未使用的 getCurrentPolicies / getCurrentMembers 等 export
+//   ✅ modals.js 只用必要的 getter
 // ============================================
 
 import {
-  listenInsurancePolicies, listenMembers, listenInsuranceCompanies,
+  listenInsurancePolicies,
+  listenMembers,
+  listenInsuranceCompanies,
+  getInsurancePaymentsOnce,
 } from '../../core/db.js';
 import { AppState } from '../../core/state.js';
 import { renderPageFilter } from '../../shared/page-filter.js';
 import { initViewToggle } from '../../shared/view-toggle.js';
 import { showToast } from '../../shared/toast.js';
-import { getInsurancePaymentsOnce } from '../../core/db.js';
 
 import {
   computeEnrichedPolicies,
-  countCompletedPolicies,
 } from './calc.js';
 import {
   renderPolicyGrid,
@@ -59,16 +57,6 @@ export async function initInsurancePage() {
     onChange: () => _render(),
   });
 
-  // 前往輸入中心（更新每月扣款）
-  document.getElementById('go-input-center-btn')?.addEventListener('click', () => {
-    window.location.href = 'input-center.html';
-  });
-
-  // 前往基礎資料庫（管理保單定義）
-  document.getElementById('manage-policies-btn')?.addEventListener('click', () => {
-    window.location.href = 'database.html';
-  });
-
   // 同步所有支出按鈕
   document.getElementById('sync-all-btn')?.addEventListener('click', async () => {
     if (!confirm('確定要重新同步所有保單的已扣款支出嗎？')) return;
@@ -87,12 +75,10 @@ export async function initInsurancePage() {
     fields: ['year', 'month'],
   });
 
-  // 綁定 Modal 與全域事件
+  // 綁定全域事件（展開 / 恢復供款 / 單一同步）
   bindGlobalListeners({
     getPolicies: () => _policies,
     getMembers: () => _members,
-    getCompanies: () => _companies,
-    getEnriched: () => _enriched,
     refresh: () => _reloadAndRender(),
   });
 
@@ -114,7 +100,7 @@ export async function initInsurancePage() {
   _unsubscribers.push(
     listenInsuranceCompanies((list) => {
       _companies = list;
-      _reloadAndRender();
+      // 註：公司清單目前未在 render 使用，保留監聽供未來擴充
     })
   );
 
@@ -224,15 +210,6 @@ function _render() {
 
   if (window.lucide) window.lucide.createIcons();
 }
-
-/* ============================================
-   對外：取得當前資料（供 modals.js 使用）
-   ============================================ */
-export function getCurrentPolicies() { return _policies; }
-export function getCurrentMembers() { return _members; }
-export function getCurrentCompanies() { return _companies; }
-export function getCurrentPaymentsCache() { return _paymentsCache; }
-export function refreshAll() { return _reloadAndRender(); }
 
 /* ============================================
    銷毀
