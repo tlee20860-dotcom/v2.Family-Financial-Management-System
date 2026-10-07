@@ -1,15 +1,10 @@
 // ============================================
-// db.js — Firebase Realtime Database 讀寫封裝（v101）
+// db.js — Firebase Realtime Database 讀寫封裝（v101.3）
 // 位置：js/core/db.js
 // ============================================
-// v101 修正：
-//   ✅ 路徑統一用 familyPath()
-//   ✅ 抽 listenList 高階函式（消除 10 處重複）
-//   ✅ 移除 V2 後綴（listenFixedExpensesV2 → listenFixedExpenses）
-//   ✅ 廢除 fixed_repayments 相關函式
-//   ✅ 新增 statuses / settings/options / year_range / platform/defaults 相關函式
-//   ✅ 金額寫入統一 Math.round
-//   ✅ markMemberExpenseRepaid 改為傳入狀態名稱
+// v101.3 修正：
+//   ✅ 新增 updateBank（配合 database/tab-banks.js 的編輯功能）
+//   ✅ 新增 getMemberExpensesForYear（配合 member-detail.js 改用 db 封裝）
 // ============================================
 
 import { db } from '../config/firebase-config.js';
@@ -33,9 +28,6 @@ export function familyRef(subpath) {
   return ref(db, familyPath(subpath));
 }
 
-/**
- * 監聽單一節點
- */
 function listen(subpath, callback, onError) {
   const familyId = AppState.getFamilyId();
   if (!familyId) {
@@ -50,13 +42,6 @@ function listen(subpath, callback, onError) {
   });
 }
 
-/**
- * 高階：監聽清單（消除重複的 Object.entries + sort 模式）
- * @param {string} subpath
- * @param {Function} sortFn - 排序函式
- * @param {Function} callback - (list) => void
- * @param {Function} onError
- */
 function listenList(subpath, sortFn, callback, onError) {
   return listen(subpath, (snap) => {
     const val = snap.val() || {};
@@ -66,7 +51,6 @@ function listenList(subpath, sortFn, callback, onError) {
   }, onError);
 }
 
-/* 常用排序函式 */
 const byCreatedAt = (a, b) => (a.createdAt || 0) - (b.createdAt || 0);
 const byOrder = (a, b) => (a.order || 0) - (b.order || 0);
 const byOrderThenCreated = (a, b) => {
@@ -76,7 +60,6 @@ const byOrderThenCreated = (a, b) => {
   return (a.createdAt || 0) - (b.createdAt || 0);
 };
 
-/* 工具：整數化 */
 const roundInt = (v) => Math.round(Number(v) || 0);
 
 /* ============================================
@@ -157,6 +140,13 @@ export async function addBank(name) {
     createdAt: Date.now(),
   });
   return newRef.key;
+}
+
+// 🆕 v101.3：新增 updateBank
+export async function updateBank(id, newName) {
+  await update(familyRef(`banks/${id}`), {
+    name: String(newName || '').trim(),
+  });
 }
 
 export async function removeBank(id) {
@@ -350,7 +340,7 @@ export async function removeItem(id) {
 }
 
 /* ============================================
-   🆕 v101：狀態清單
+   狀態清單
    ============================================ */
 
 export function listenStatuses(cb, err) {
@@ -391,7 +381,7 @@ export async function removeStatus(id) {
 }
 
 /* ============================================
-   🆕 v101：家庭設定（options / year_range / ui_constants）
+   家庭設定
    ============================================ */
 
 export function listenFamilyOptions(cb, err) {
@@ -422,7 +412,7 @@ export async function saveUIConstants(data) {
 }
 
 /* ============================================
-   🆕 v101：平台預設資料庫
+   平台預設資料庫
    ============================================ */
 
 const PLATFORM_RESOURCES = {
@@ -556,6 +546,36 @@ export async function getAllMemberExpensesOnce(year, month) {
   return flat;
 }
 
+/**
+ * 🆕 v101.3：取得某成員在整年 12 個月的支出
+ * @param {string|number} year
+ * @param {string} memberId
+ * @returns {Promise<Object>} { '01': [...], '02': [...], ... }
+ */
+export async function getMemberExpensesForYear(year, memberId) {
+  const familyId = AppState.getFamilyId();
+  if (!familyId) throw new Error('尚未選擇家庭');
+  if (!year || !memberId) return {};
+
+  try {
+    const snap = await get(ref(db, `families/${familyId}/expenses/${year}`));
+    const yearData = snap.val() || {};
+
+    const result = {};
+    for (let m = 1; m <= 12; m++) {
+      const mm = String(m).padStart(2, '0');
+      const memberExpenses = yearData[mm]?.member_expenses?.[memberId] || {};
+      const items = Object.entries(memberExpenses).map(([id, e]) => ({ id, ...e }));
+      items.sort(byCreatedAt);
+      result[mm] = items;
+    }
+    return result;
+  } catch (e) {
+    console.warn(`[db] getMemberExpensesForYear 讀取失敗：`, e);
+    return {};
+  }
+}
+
 export async function addExpense(year, month, memberId, expense) {
   if (!year || !month) {
     const ym = AppState.getYearMonth();
@@ -595,9 +615,6 @@ export async function removeExpense(year, month, memberId, expId) {
   await remove(familyRef(`${expensePath(year, month, memberId)}/${expId}`));
 }
 
-/**
- * 🆕 v101：改為傳入狀態名稱
- */
 export async function markMemberExpenseRepaid(year, month, memberId, expId, statusName) {
   await update(familyRef(`${expensePath(year, month, memberId)}/${expId}`), {
     status: statusName,
@@ -608,7 +625,7 @@ export async function markMemberExpenseRepaid(year, month, memberId, expId, stat
 }
 
 /* ============================================
-   批次更新支出（支援跨月 / 跨成員移動）
+   批次更新支出
    ============================================ */
 
 export async function batchUpdateExpenses(updates) {
