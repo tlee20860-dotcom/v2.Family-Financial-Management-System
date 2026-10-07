@@ -1,13 +1,10 @@
 // ============================================
-// navbar.js — 頂部導覽列（v101）
+// navbar.js — 頂部導覽列（v101.2）
 // 位置：js/shared/navbar.js
 // ============================================
-// v101 修正：
-//   ✅ 移除與 app.js 重複的 #navbar-user 設定（統一在 navbar 處理）
-//   ✅ 硬編碼 @familyfin.local → 用 getDisplayName
-//   ✅ localStorage key 加前綴（STORAGE_KEYS）
-//   ✅ 全域事件監聽只綁一次（用 module-level flag）
-//   ✅ 支援 destroy
+// v101.2 修正：
+//   ✅ 事件處理改為「只在點 backdrop 本身時關閉」
+//   ✅ 加入 closest 判斷，避免點 sidebar 內部被攔截
 // ============================================
 
 import { AppState } from '../core/state.js';
@@ -19,8 +16,6 @@ let _unsubscribeUserChange = null;
 
 /**
  * 渲染頂部導覽列
- * @param {string} containerId - 容器 ID（預設 'navbar-root'）
- * @param {string} title - 頁面標題
  */
 export function renderNavbar(containerId = 'navbar-root', title = '') {
   const root = document.getElementById(containerId);
@@ -44,10 +39,8 @@ export function renderNavbar(containerId = 'navbar-root', title = '') {
     <div class="navbar-user" id="navbar-user"></div>
   `;
 
-  // 初次渲染使用者資訊
   _renderUserInfo();
 
-  // 全域事件（只需綁定一次）
   if (!_eventBound) {
     _eventBound = true;
     _bindGlobalEvents();
@@ -78,19 +71,42 @@ function _renderUserInfo() {
    全域事件
    ============================================ */
 function _bindGlobalEvents() {
-  // Hamburger 按鈕 / Backdrop 點擊
   document.addEventListener('click', (e) => {
+    /* ---------- 1. 漢堡按鈕 ---------- */
     if (e.target.closest('#hamburger-btn')) {
+      e.preventDefault();
+      e.stopPropagation();
       _toggleSidebar();
       return;
     }
-    const backdrop = e.target.closest('.sidebar-backdrop');
-    if (backdrop && backdrop.classList.contains('active')) {
+
+    /* ---------- 2. 點 backdrop（僅點 backdrop 本身）---------- */
+    if (e.target.classList.contains('sidebar-backdrop')) {
       _closeMobileSidebar();
+      return;
+    }
+
+    /* ---------- 3. 點 sidebar 內部的連結 → 讓它自然跳轉 ---------- */
+    const navLink = e.target.closest('.sidebar .nav-item');
+    if (navLink) {
+      // 手機版：點擊後關閉 sidebar（但不阻止跳轉）
+      if (window.innerWidth < 640) {
+        _closeMobileSidebar();
+      }
+      // 不 stopPropagation，讓 <a> 的預設跳轉繼續
+      return;
+    }
+
+    /* ---------- 4. 點 sidebar 群組標題 → 由 sidebar.js 處理 ---------- */
+    const groupToggle = e.target.closest('[data-group-toggle]');
+    if (groupToggle) {
+      // 群組展開由 sidebar.js 的 document listener 處理
+      // 這裡不做事，避免衝突
+      return;
     }
   });
 
-  // 監聽使用者變更
+  /* ---------- 監聽使用者變更 ---------- */
   if (_unsubscribeUserChange) {
     try { _unsubscribeUserChange(); } catch (err) { /* noop */ }
   }
@@ -106,17 +122,15 @@ function _toggleSidebar() {
   if (!sidebar) return;
 
   if (window.innerWidth < 640) {
-    // 手機版：抽屜模式
-    sidebar.classList.toggle('mobile-open');
-    let backdrop = document.querySelector('.sidebar-backdrop');
-    if (!backdrop) {
-      backdrop = document.createElement('div');
-      backdrop.className = 'sidebar-backdrop';
-      document.body.appendChild(backdrop);
+    // 手機版
+    const isOpen = sidebar.classList.contains('mobile-open');
+    if (isOpen) {
+      _closeMobileSidebar();
+    } else {
+      _openMobileSidebar();
     }
-    backdrop.classList.toggle('active');
   } else {
-    // 桌面版：摺疊模式
+    // 桌面版：摺疊
     sidebar.classList.toggle('collapsed');
     try {
       localStorage.setItem(
@@ -127,9 +141,25 @@ function _toggleSidebar() {
   }
 }
 
+function _openMobileSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  if (!sidebar) return;
+  sidebar.classList.add('mobile-open');
+
+  // 確保 backdrop 存在
+  let backdrop = document.querySelector('.sidebar-backdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.className = 'sidebar-backdrop';
+    document.body.appendChild(backdrop);
+  }
+  backdrop.classList.add('active');
+}
+
 function _closeMobileSidebar() {
   const sidebar = document.querySelector('.sidebar');
   if (sidebar) sidebar.classList.remove('mobile-open');
+
   const backdrop = document.querySelector('.sidebar-backdrop');
   if (backdrop) backdrop.classList.remove('active');
 }
@@ -137,29 +167,18 @@ function _closeMobileSidebar() {
 /* ============================================
    對外 API
    ============================================ */
-
-/**
- * 更新 navbar 標題（不重新渲染整個 navbar）
- */
 export function setNavbarTitle(title) {
   const el = document.querySelector('.navbar-title');
   if (el) el.textContent = title || '';
 }
 
-/**
- * 手動刷新使用者資訊
- */
 export function refreshNavbarUser() {
   _renderUserInfo();
 }
 
-/**
- * 銷毀 navbar 事件綁定（用於 SPA 切頁）
- */
 export function destroyNavbar() {
   if (_unsubscribeUserChange) {
     try { _unsubscribeUserChange(); } catch (err) { /* noop */ }
     _unsubscribeUserChange = null;
   }
-  // 註：document 層級的事件用 _eventBound 保護，不主動移除
 }
