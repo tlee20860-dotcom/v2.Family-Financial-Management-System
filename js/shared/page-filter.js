@@ -1,12 +1,12 @@
 // ============================================
-// page-filter.js — 全站共用的頁面篩選欄（v101）
+// page-filter.js — 全站共用的頁面篩選欄（v101.2）
 // 位置：js/shared/page-filter.js
 // ============================================
-// v101 修正：
-//   ✅ 年份範圍改讀 app-config（settings/year_range）
-//   ✅ onChange 只負責回呼，不自動設定 AppState（統一由呼叫端決定）
-//   ✅ 新增 destroy() 清理監聽器
-//   ✅ 支援額外篩選欄位重新渲染（updateExtra）
+// v101.2 修正：
+//   ✅ updateExtra 首次產生的欄位也加 data-extra-group
+//     （原本只有 re-render 時才加，導致第一次 extra 不會被清）
+//   ✅ 統一 extra 欄位處理邏輯，抽 _collectExtraElements()
+//   ✅ 修正初次回呼順序（先綁事件，後回呼）
 // ============================================
 
 import { AppState } from '../core/state.js';
@@ -74,13 +74,14 @@ export function renderPageFilter(options = {}) {
     `);
   }
 
-  if (typeof renderExtra === 'function') {
-    const extra = renderExtra();
-    if (extra) parts.push(extra);
-  }
+  // 🆕 v101.2：extra 欄位統一由 _renderExtraInto() 產生（含 data-extra-group）
+  const extraHtml = _renderExtraInto(renderExtra);
 
-  root.innerHTML = `<div class="page-filter-bar">${parts.join('')}</div>`;
+  root.innerHTML = `<div class="page-filter-bar">${parts.join('')}${extraHtml}</div>`;
 
+  /* ============================================
+     事件綁定
+     ============================================ */
   const changeHandler = () => {
     const filters = collectFilters(root);
     if (autoSyncAppState && filters.year && filters.month) {
@@ -89,11 +90,16 @@ export function renderPageFilter(options = {}) {
     if (typeof onChange === 'function') onChange(filters);
   };
 
-  root.querySelectorAll('select[data-filter]').forEach((sel) => {
-    sel.addEventListener('change', changeHandler);
-  });
+  const bindSelects = () => {
+    root.querySelectorAll('select[data-filter]').forEach((sel) => {
+      sel.removeEventListener('change', changeHandler);
+      sel.addEventListener('change', changeHandler);
+    });
+  };
 
-  // 監聽 AppState 變更（表單儲存後同步）
+  bindSelects();
+
+  // 監聽 AppState 變更（表單儲存後同步 UI）
   let unsubscribeYMEvent = null;
   if (autoSyncAppState) {
     unsubscribeYMEvent = AppState.on('ym-change', ({ year, month }) => {
@@ -127,24 +133,25 @@ export function renderPageFilter(options = {}) {
     updateExtra: (newRenderExtra) => {
       const bar = root.querySelector('.page-filter-bar');
       if (!bar) return;
-      // 移除舊的額外欄位
-      const old = bar.querySelectorAll('[data-extra-group]');
-      old.forEach((el) => el.remove());
+
+      // 移除所有舊的 extra 欄位（含首次產生的）
+      bar.querySelectorAll('[data-extra-group]').forEach((el) => el.remove());
+
       // 加入新的
-      if (typeof newRenderExtra === 'function') {
+      const newHtml = _renderExtraInto(newRenderExtra);
+      if (newHtml) {
         const temp = document.createElement('div');
-        temp.innerHTML = newRenderExtra();
+        temp.innerHTML = newHtml;
         const children = [...temp.children];
         children.forEach((el) => {
           el.setAttribute('data-extra-group', '1');
           bar.appendChild(el);
         });
       }
-      // 重新綁定 change
-      root.querySelectorAll('select[data-filter]').forEach((sel) => {
-        sel.removeEventListener('change', changeHandler);
-        sel.addEventListener('change', changeHandler);
-      });
+
+      // 重新綁定 change（新增的 select 需要）
+      bindSelects();
+
       if (window.lucide) window.lucide.createIcons();
     },
 
@@ -162,6 +169,27 @@ export function renderPageFilter(options = {}) {
 /* ============================================
    內部工具
    ============================================ */
+
+/**
+ * 🆕 v101.2：產生 extra HTML，並自動加 data-extra-group 標記
+ * 這樣第一次 render 也會被 updateExtra 清除
+ */
+function _renderExtraInto(renderExtra) {
+  if (typeof renderExtra !== 'function') return '';
+
+  const extra = renderExtra();
+  if (!extra) return '';
+
+  // 包一層 div 加 data-extra-group，讓它可被 updateExtra 清除
+  // 並保留原本 HTML 結構
+  const wrapper = document.createElement('div');
+  wrapper.setAttribute('data-extra-group', '1');
+  wrapper.style.display = 'contents';   // 不影響 flex layout
+
+  wrapper.innerHTML = extra;
+  return wrapper.outerHTML;
+}
+
 function collectFilters(root) {
   const filters = {};
   root.querySelectorAll('select[data-filter]').forEach((sel) => {
