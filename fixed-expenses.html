@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>固定支出 | 家庭財務</title>
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/layout.css">
+  <link rel="stylesheet" href="./css/components.css">
+  <link rel="stylesheet" href="./css/utilities.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside id="sidebar-root"></aside>
+    <div class="main-area">
+      <header id="navbar-root"></header>
+
+      <main class="content content-min-height">
+        <div class="page-header flex flex-between items-end flex-wrap gap-12">
+          <div>
+            <h1 class="page-title">家庭固定支出</h1>
+            <p class="page-subtitle" id="fixed-month"></p>
+          </div>
+          <div class="flex items-center gap-12 flex-wrap">
+            <div id="view-toggle-root"></div>
+            <button class="btn btn-primary" id="go-input-center-btn">
+              <i data-lucide="plus"></i> 前往輸入中心
+            </button>
+          </div>
+        </div>
+
+        <div id="page-filter-root" class="mb-16"></div>
+
+        <div class="banner mb-16">
+          ℹ️ 固定支出每月自動產生。此頁僅顯示明細；新增 / 刪除項目請至「基礎資料庫」，
+          更新每月金額與狀態請至「綜合輸入中心」。
+        </div>
+
+        <!-- 卡片模式 -->
+        <div id="fixed-card-view"></div>
+
+        <!-- 表格模式 -->
+        <div id="fixed-table-view" style="display:none;"></div>
+
+        <!-- 快速摘要 -->
+        <div id="quick-summary-root"></div>
+      </main>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script type="module">
+    import { initApp } from './js/core/app.js';
+    import { initFixedExpensesPage } from './js/pages/fixed-expenses.js';
+
+    await initApp({ activeHref: 'fixed-expenses.html', title: '家庭固定支出' });
+    initFixedExpensesPage();
+  </script>
+</body>
+</html>

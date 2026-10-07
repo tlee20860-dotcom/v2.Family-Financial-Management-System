@@ -1,0 +1,21 @@
+{
+  "name": "家庭財務與固定供款管理",
+  "short_name": "FAMILY.FIN",
+  "description": "全家財務、保險供款、基金資產即時管理",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#080B11",
+  "theme_color": "#080B11",
+  "lang": "zh-Hant",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>總覽儀表板 | 家庭財務</title>
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/layout.css">
+  <link rel="stylesheet" href="./css/components.css">
+  <link rel="stylesheet" href="./css/utilities.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside id="sidebar-root"></aside>
+    <div class="main-area">
+      <header id="navbar-root"></header>
+
+      <main class="content content-min-height">
+        <div class="page-header">
+          <h1 class="page-title">總覽儀表板</h1>
+          <p class="page-subtitle" id="dashboard-month">全家財務即時概況</p>
+        </div>
+
+        <div id="page-filter-root" class="mb-16"></div>
+
+        <div id="dashboard-error" class="banner banner-magenta" style="display:none;"></div>
+
+        <!-- 全年模式 -->
+        <div id="annual-view" style="display:none;">
+          <div class="grid grid-4 mb-16">
+            <div class="glass-card">
+              <div class="glass-card-title">年度總收入</div>
+              <div class="glass-card-value emerald mono" id="annual-income">HK$ 0</div>
+            </div>
+            <div class="glass-card">
+              <div class="glass-card-title">年度總支出</div>
+              <div class="glass-card-value red mono" id="annual-expense">HK$ 0</div>
+            </div>
+            <div class="glass-card">
+              <div class="glass-card-title">年度淨結餘</div>
+              <div class="glass-card-value mono" id="annual-net">HK$ 0</div>
+            </div>
+            <div class="glass-card">
+              <div class="glass-card-title">家庭總資產</div>
+              <div class="glass-card-value emerald mono" id="annual-assets">HK$ 0</div>
+            </div>
+          </div>
+
+          <div class="glass-card mb-16">
+            <div class="glass-card-title">年度保費總負擔</div>
+            <div class="glass-card-value magenta mono" id="annual-insurance">HK$ 0</div>
+          </div>
+
+          <h2 style="font-size:16px; color:var(--neon-cyan); margin:20px 0 12px;">月度明細</h2>
+          <div id="monthly-cards"></div>
+        </div>
+
+        <!-- 單月模式 -->
+        <div id="monthly-view" style="display:none;">
+          <div class="grid grid-4">
+            <div class="glass-card">
+              <div class="glass-card-title">家庭當月總收入</div>
+              <div class="glass-card-value emerald mono" id="stat-income">HK$ 0</div>
+              <div class="glass-card-hint" id="hint-income">—</div>
+            </div>
+            <div class="glass-card">
+              <div class="glass-card-title">家庭當月總支出</div>
+              <div class="glass-card-value red mono" id="stat-expense">HK$ 0</div>
+              <div class="glass-card-hint" id="hint-expense">—</div>
+            </div>
+            <div class="glass-card">
+              <div class="glass-card-title">當月淨結餘</div>
+              <div class="glass-card-value mono" id="stat-net">HK$ 0</div>
+              <div class="glass-card-hint">總收入 − 總支出</div>
+            </div>
+            <div class="glass-card">
+              <div class="glass-card-title">全年保費總負擔</div>
+              <div class="glass-card-value magenta mono" id="stat-insurance">HK$ 0</div>
+              <div class="glass-card-hint" id="hint-insurance">—</div>
+            </div>
+          </div>
+          <div class="grid grid-2" style="margin-top:16px;">
+            <div class="glass-card">
+              <div class="glass-card-title">家庭總資產</div>
+              <div class="glass-card-value emerald mono" id="stat-assets">HK$ 0</div>
+              <div class="glass-card-hint" id="hint-assets">—</div>
+            </div>
+            <div class="glass-card">
+              <div class="glass-card-title">本月保險平攤</div>
+              <div class="glass-card-value magenta mono" id="stat-monthly-insurance">HK$ 0</div>
+              <div class="glass-card-hint">所有保單年費 ÷ 12 加總</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 快速摘要（單月模式） -->
+        <div id="quick-summary-top"></div>
+        <div id="quick-summary-recent"></div>
+
+        <!-- 快速摘要（全年模式） -->
+        <div id="quick-summary-root"></div>
+      </main>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script type="module">
+    import { initApp } from './js/core/app.js';
+    import { initDashboardPage } from './js/pages/dashboard.js';
+
+    await initApp({ activeHref: 'index.html', title: '總覽儀表板' });
+    await initDashboardPage();
+  </script>
+</body>
+</html>

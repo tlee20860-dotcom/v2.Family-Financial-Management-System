@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>結算清單 | 家庭財務</title>
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/layout.css">
+  <link rel="stylesheet" href="./css/components.css">
+  <link rel="stylesheet" href="./css/utilities.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside id="sidebar-root"></aside>
+    <div class="main-area">
+      <header id="navbar-root"></header>
+
+      <main class="content content-min-height">
+        <div class="page-header flex flex-between items-end flex-wrap gap-12">
+          <div>
+            <h1 class="page-title">結算清單</h1>
+            <p class="page-subtitle" id="settlement-month"></p>
+          </div>
+          <div class="flex items-center gap-12 flex-wrap">
+            <div id="view-toggle-root"></div>
+            <select class="select" id="settlement-sort" style="width:auto; padding:8px 12px;">
+              <option value="pending-first">未處理置頂</option>
+              <option value="date-desc">日期（新→舊）</option>
+              <option value="date-asc">日期（舊→新）</option>
+              <option value="amount-desc">金額（大→小）</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="banner mb-16">
+          ℹ️ 整合「個人支出 / 固定支出 / 保險扣款」三大來源。
+          可直接於此變更狀態，會自動連動各來源頁面。
+        </div>
+
+        <div id="page-filter-root" class="mb-16"></div>
+
+        <!-- 統計卡 -->
+        <div class="grid grid-3 mb-20">
+          <div class="glass-card">
+            <div class="glass-card-title">待處理</div>
+            <div class="glass-card-value magenta mono" id="settlement-pending-total">HK$ 0</div>
+            <div class="glass-card-hint" id="settlement-pending-count">0 筆</div>
+          </div>
+          <div class="glass-card">
+            <div class="glass-card-title">已處理</div>
+            <div class="glass-card-value emerald mono" id="settlement-done-total">HK$ 0</div>
+            <div class="glass-card-hint" id="settlement-done-count">0 筆</div>
+          </div>
+          <div class="glass-card">
+            <div class="glass-card-title">總計</div>
+            <div class="glass-card-value cyan mono" id="settlement-grand-total">HK$ 0</div>
+            <div class="glass-card-hint">
+              <span id="settlement-grand-count">0 筆</span>
+              ｜ <span id="settlement-count" style="color:var(--text-muted);"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 卡片模式 -->
+        <div id="settlements-card-view"></div>
+
+        <!-- 表格模式 -->
+        <div id="settlements-table-view" style="display:none;"></div>
+      </main>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script type="module">
+    import { initApp } from './js/core/app.js';
+    import { initSettlementsPage } from './js/pages/settlements/index.js';
+
+    await initApp({ activeHref: 'settlements.html', title: '結算清單' });
+    await initSettlementsPage();
+  </script>
+</body>
+</html>

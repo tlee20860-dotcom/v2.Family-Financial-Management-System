@@ -1,0 +1,224 @@
+/* ============================================
+   annual-report.css — 年度報表專屬樣式（v101）
+   ============================================ */
+
+/* ================= 控制列 ================= */
+.report-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+/* ================= 年份切換 ================= */
+.year-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.year-switcher .year-btn {
+  padding: 6px 12px;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-secondary);
+  transition: all var(--transition);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.year-switcher .year-btn:hover {
+  color: var(--neon-cyan);
+  border-color: var(--glass-border-hover);
+}
+
+.year-switcher .year-btn.active {
+  background: rgba(0, 240, 255, 0.15);
+  border-color: rgba(0, 240, 255, 0.5);
+  color: var(--neon-cyan);
+  font-weight: 700;
+  cursor: default;
+}
+
+.year-switcher .year-arrow {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ================= 月份切換 ================= */
+.month-switcher {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.month-switcher .month-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
+  font-family: inherit;
+}
+
+.month-switcher .month-btn:hover {
+  color: var(--neon-cyan);
+  border-color: var(--glass-border-hover);
+}
+
+.month-switcher .month-btn.active {
+  background: rgba(0, 240, 255, 0.15);
+  border-color: rgba(0, 240, 255, 0.5);
+  color: var(--neon-cyan);
+  font-weight: 700;
+}
+
+/* ================= 全年總合表格 ================= */
+.summary-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+}
+
+.annual-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 900px;
+}
+
+.annual-table th,
+.annual-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  text-align: left;
+}
+
+.annual-table thead th {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  background: rgba(0, 240, 255, 0.03);
+}
+
+.annual-table .num {
+  text-align: right;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.annual-table tr:hover td {
+  background: rgba(0, 240, 255, 0.03);
+}
+
+.annual-table .group-header td {
+  background: rgba(0, 240, 255, 0.06);
+  color: var(--neon-cyan);
+  font-weight: 700;
+}
+
+.annual-table .shared-row td {
+  background: rgba(217, 70, 239, 0.06);
+  color: var(--neon-magenta);
+  font-weight: 600;
+}
+
+/* ================= 月度明細表格 ================= */
+.monthly-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+}
+
+.monthly-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 520px;
+}
+
+.monthly-table th,
+.monthly-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  text-align: left;
+}
+
+.monthly-table thead th {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  background: rgba(0, 240, 255, 0.03);
+}
+
+.monthly-table .num {
+  text-align: right;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.monthly-table tr:hover td {
+  background: rgba(0, 240, 255, 0.03);
+}
+
+.monthly-table .group-header td {
+  background: rgba(0, 240, 255, 0.06);
+  color: var(--neon-cyan);
+  font-weight: 700;
+}
+
+.monthly-table .subtotal-row td {
+  font-weight: 700;
+  color: var(--text-primary);
+  border-top: 1px solid rgba(0, 240, 255, 0.15);
+}
+
+.monthly-table .total-row td {
+  font-weight: 700;
+  background: rgba(0, 240, 255, 0.08);
+}
+
+.monthly-table .net-row td {
+  font-weight: 700;
+  background: rgba(217, 70, 239, 0.06);
+}
+
+/* ================= 手機版優化 ================= */
+@media (max-width: 640px) {
+  .annual-table th,
+  .annual-table td {
+    padding: 8px 8px;
+    font-size: 11px;
+  }
+  .monthly-table th,
+  .monthly-table td {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  .month-switcher .month-btn {
+    padding: 5px 9px;
+    font-size: 11px;
+  }
+  .year-switcher .year-btn {
+    padding: 5px 9px;
+    font-size: 12px;
+  }
+}

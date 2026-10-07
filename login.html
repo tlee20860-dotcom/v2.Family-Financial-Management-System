@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登入 | 家庭財務</title>
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/layout.css">
+  <link rel="stylesheet" href="./css/components.css">
+  <link rel="stylesheet" href="./css/utilities.css">
+</head>
+<body class="auth-page">
+  <div class="glass-card auth-card">
+    <h1 class="auth-title">◈ FAMILY.FIN</h1>
+    <p class="auth-subtitle">家庭財務與固定供款管理</p>
+
+    <form id="login-form">
+      <div class="field">
+        <label class="field-label" for="account">帳號</label>
+        <input class="input" type="text" id="account" required
+               placeholder="例如：superadmin" autocomplete="username">
+      </div>
+      <div class="field">
+        <label class="field-label" for="password">密碼</label>
+        <input class="input" type="password" id="password" required
+               minlength="6" placeholder="至少 6 位" autocomplete="current-password">
+      </div>
+
+      <div id="login-error" class="banner banner-magenta" style="display:none;"></div>
+
+      <button class="btn btn-primary" type="submit" id="login-btn"
+              style="width:100%; justify-content:center;">
+        登入
+      </button>
+    </form>
+
+    <p style="margin-top:16px; font-size:13px; color:var(--text-muted); text-align:center;">
+      沒有帳號？請聯繫平台管理員開通
+    </p>
+  </div>
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script type="module">
+    import { loginWithCustomAccount, isSuperAdmin } from './js/core/auth.js';
+    import { AppState } from './js/core/state.js';
+    import { initPWA } from './js/core/pwa.js';
+
+    initPWA();
+    AppState.init();
+
+    const form = document.getElementById('login-form');
+    const errorBox = document.getElementById('login-error');
+    const btn = document.getElementById('login-btn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorBox.style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = '登入中…';
+
+      const account = document.getElementById('account').value.trim();
+      const password = document.getElementById('password').value;
+
+      try {
+        const user = await loginWithCustomAccount(account, password);
+        AppState.setUser(user);
+        AppState.setSuperAdmin(isSuperAdmin(user));
+
+        if (isSuperAdmin(user)) {
+          // superadmin 進入平台管理
+          window.location.href = 'admin.html';
+        } else {
+          // 一般家庭帳號：自動設定 familyId = uid
+          AppState.setFamily(user.uid, '我的家庭');
+          window.location.href = 'index.html';
+        }
+      } catch (err) {
+        console.error(err);
+        errorBox.textContent = '登入失敗：帳號或密碼錯誤';
+        errorBox.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = '登入';
+      }
+    });
+  </script>
+</body>
+</html>

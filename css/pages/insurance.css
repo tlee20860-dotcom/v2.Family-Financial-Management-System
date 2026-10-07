@@ -1,0 +1,229 @@
+/* ============================================
+   insurance.css — 保險頁面專屬樣式（v101）
+   ============================================
+   說明：
+     保險的主體樣式（.policy-card / .policy-table 等）已於
+     components.css 定義，本檔案只負責「保險頁專屬」的
+     額外微調與裝飾性樣式。
+
+   用途：
+     - 卡片 hover 效果強化
+     - 進度條顏色多樣化
+     - 已供滿區塊的裝飾
+     - 表格行的 hover 強調
+     - 列印友善
+   ============================================ */
+
+/* ============================================
+   1. 保單卡片 hover 強化
+   ============================================ */
+.policy-card {
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.policy-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--neon-cyan), var(--neon-magenta));
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.policy-card:hover::before {
+  opacity: 1;
+}
+
+.policy-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--glass-border-hover);
+}
+
+/* 已供滿卡片：綠色頂邊 */
+.completed-body .policy-card::before {
+  background: linear-gradient(90deg, var(--neon-emerald), var(--neon-cyan));
+  opacity: 0.6;
+}
+
+/* ============================================
+   2. 進度條顏色多樣化（依百分比自動變色）
+   ============================================ */
+.policy-progress .progress-bar {
+  background: linear-gradient(90deg, var(--neon-cyan), var(--neon-magenta));
+}
+
+/* 100% 完成：全綠 */
+.policy-progress .progress-bar[style*="width:100%"] {
+  background: linear-gradient(90deg, var(--neon-emerald), #34D399);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.6);
+}
+
+/* ============================================
+   3. 已供滿區塊裝飾
+   ============================================ */
+.completed-section .completed-header {
+  position: relative;
+}
+
+.completed-section .completed-header::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 60px;
+  height: 2px;
+  background: var(--neon-emerald);
+  border-radius: 1px;
+}
+
+.completed-body .policy-card {
+  filter: grayscale(15%);
+}
+
+.completed-body .policy-card:hover {
+  filter: grayscale(0%);
+}
+
+/* ============================================
+   4. 保單統計卡 hover
+   ============================================ */
+#grand-total-premium,
+#active-policy-count,
+#stat-completed-policies {
+  transition: all 0.3s ease;
+}
+
+.glass-card:hover #grand-total-premium {
+  text-shadow: 0 0 20px rgba(0, 240, 255, 0.6);
+}
+
+.glass-card:hover #active-policy-count {
+  text-shadow: 0 0 20px rgba(16, 185, 129, 0.6);
+}
+
+/* ============================================
+   5. 表格模式 hover 強調
+   ============================================ */
+.policy-table tbody tr:hover td {
+  background: rgba(0, 240, 255, 0.05);
+  border-bottom-color: rgba(0, 240, 255, 0.15);
+}
+
+.policy-table tbody tr.insurance-table-detail-row:hover td {
+  background: rgba(0, 240, 255, 0.02);
+}
+
+/* ============================================
+   6. 展開按鈕微調
+   ============================================ */
+.insurance-expand-btn {
+  transition: all 0.25s ease;
+  border: 1px solid transparent;
+}
+
+.insurance-expand-btn:hover {
+  border-color: var(--glass-border);
+  background: rgba(0, 240, 255, 0.04);
+}
+
+.insurance-expand-btn span {
+  font-weight: 500;
+}
+
+/* ============================================
+   7. 年度區塊 header 強調
+   ============================================ */
+.insurance-year-block {
+  transition: border-color 0.2s ease;
+}
+
+.insurance-year-block:hover {
+  border-color: rgba(0, 240, 255, 0.15);
+}
+
+.insurance-year-header {
+  position: relative;
+}
+
+.insurance-year-header::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  background: var(--neon-cyan);
+  opacity: 0.5;
+  border-radius: 0 2px 2px 0;
+  transition: opacity 0.2s ease;
+}
+
+.insurance-year-header:hover::before {
+  opacity: 1;
+}
+
+/* ============================================
+   8. 每月扣款列 hover
+   ============================================ */
+.insurance-month-row {
+  transition: background 0.15s ease;
+  border-radius: var(--radius-sm);
+}
+
+.insurance-month-row:hover {
+  background: rgba(0, 240, 255, 0.03);
+}
+
+/* ============================================
+   9. 空狀態插圖
+   ============================================ */
+#insurance-empty-state .empty-state i {
+  color: var(--neon-cyan);
+  filter: drop-shadow(0 0 12px rgba(0, 240, 255, 0.4));
+}
+
+/* ============================================
+   10. 手機版進度條加粗
+   ============================================ */
+@media (max-width: 640px) {
+  .policy-progress .progress {
+    height: 6px;
+  }
+
+  .policy-card:hover {
+    transform: none;   /* 手機不做位移，避免誤觸 */
+  }
+
+  .policy-card::before {
+    opacity: 0.4;      /* 手機顯示淡色頂邊，不需 hover */
+  }
+}
+
+/* ============================================
+   11. 列印友善（供日後擴充）
+   ============================================ */
+@media print {
+  .policy-card,
+  .policy-table,
+  .glass-card {
+    background: #fff !important;
+    color: #000 !important;
+    border: 1px solid #ccc !important;
+    box-shadow: none !important;
+  }
+
+  .policy-progress .progress-bar {
+    background: #10B981 !important;
+  }
+
+  .insurance-expand-btn,
+  .btn {
+    display: none !important;
+  }
+}

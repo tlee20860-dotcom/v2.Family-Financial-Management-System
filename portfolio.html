@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>基金投資 | 家庭財務</title>
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/layout.css">
+  <link rel="stylesheet" href="./css/components.css">
+  <link rel="stylesheet" href="./css/utilities.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside id="sidebar-root"></aside>
+    <div class="main-area">
+      <header id="navbar-root"></header>
+
+      <main class="content content-min-height">
+        <div class="page-header flex flex-between items-end flex-wrap gap-12">
+          <div>
+            <h1 class="page-title">基金投資資產</h1>
+            <p class="page-subtitle">基金持倉與最新現值（唯讀）</p>
+          </div>
+          <div class="flex items-center gap-12 flex-wrap">
+            <div id="view-toggle-root"></div>
+            <button class="btn btn-ghost" id="go-database-btn">
+              <i data-lucide="database"></i> 基礎資料庫
+            </button>
+            <button class="btn btn-primary" id="go-input-center-btn">
+              <i data-lucide="plus"></i> 更新現值
+            </button>
+          </div>
+        </div>
+
+        <!-- 統計卡 -->
+        <div class="grid grid-3 mb-20">
+          <div class="glass-card">
+            <div class="glass-card-title">總投入成本</div>
+            <div class="glass-card-value mono" id="stat-fund-cost">HK$ 0</div>
+          </div>
+          <div class="glass-card">
+            <div class="glass-card-title">總現時價值</div>
+            <div class="glass-card-value emerald mono" id="stat-fund-value">HK$ 0</div>
+          </div>
+          <div class="glass-card">
+            <div class="glass-card-title">總帳面盈虧</div>
+            <div class="glass-card-value mono" id="stat-fund-pnl">HK$ 0</div>
+            <div class="glass-card-hint" id="fund-count"></div>
+          </div>
+        </div>
+
+        <!-- 卡片模式 -->
+        <div id="fund-card-view"></div>
+
+        <!-- 表格模式 -->
+        <div id="fund-table-view" style="display:none;"></div>
+
+        <!-- 快速摘要 -->
+        <div id="quick-summary-root"></div>
+      </main>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script type="module">
+    import { initApp } from './js/core/app.js';
+    import { initPortfolioPage } from './js/pages/portfolio.js';
+
+    await initApp({ activeHref: 'portfolio.html', title: '基金投資資產' });
+    initPortfolioPage();
+  </script>
+</body>
+</html>

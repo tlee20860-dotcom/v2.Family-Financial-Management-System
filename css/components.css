@@ -1,0 +1,1011 @@
+/* ============================================
+   components.css — 卡片、按鈕、表格、Modal、表單
+   -------------------------------------------------
+   v101 更新：
+     ✅ 補基礎 .collapsible-card 樣式（從 HTML 內嵌抽出）
+     ✅ 刪除重複的 .form-stack 定義（只保留一份）
+     ✅ 刪除舊版 .filter-bar（統一用 .page-filter-bar）
+     ✅ 統一 .view-toggle-group（只保留一份）
+     ✅ 補 .collapsible-card-flat 樣式
+   ============================================ */
+
+/* ================= GlassCard ================= */
+.glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  transition: all var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-card:hover {
+  border-color: var(--glass-border-hover);
+  box-shadow: var(--glass-shadow-hover);
+}
+
+.glass-card-title {
+  font-size: 12px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.glass-card-value {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--neon-cyan);
+  line-height: 1.2;
+}
+
+.glass-card-value.magenta { color: var(--neon-magenta); }
+.glass-card-value.emerald { color: var(--neon-emerald); }
+.glass-card-value.red     { color: var(--neon-red); }
+.glass-card-value.orange  { color: var(--neon-orange); }
+
+.glass-card-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+/* ================= 按鈕 ================= */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+  background: rgba(0, 240, 255, 0.05);
+  color: var(--neon-cyan);
+  transition: all var(--transition);
+  white-space: nowrap;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: rgba(0, 240, 255, 0.12);
+  border-color: var(--glass-border-hover);
+  box-shadow: var(--glass-shadow-hover);
+}
+
+.btn-primary {
+  background: rgba(0, 240, 255, 0.15);
+  border-color: rgba(0, 240, 255, 0.5);
+}
+
+.btn-magenta {
+  background: rgba(217, 70, 239, 0.1);
+  border-color: rgba(217, 70, 239, 0.4);
+  color: var(--neon-magenta);
+}
+.btn-magenta:hover {
+  background: rgba(217, 70, 239, 0.2);
+  box-shadow: 0 0 15px rgba(217, 70, 239, 0.2);
+}
+
+.btn-danger {
+  background: rgba(244, 63, 94, 0.1);
+  border-color: rgba(244, 63, 94, 0.4);
+  color: var(--neon-red);
+}
+.btn-danger:hover { background: rgba(244, 63, 94, 0.2); }
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--neon-cyan);
+  box-shadow: none;
+}
+
+.btn-sm { padding: 6px 10px; font-size: 12px; }
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* ================= 輸入框 ================= */
+.input, .select {
+  width: 100%;
+  padding: 10px 12px;
+  background: rgba(8, 11, 17, 0.6);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  transition: all var(--transition);
+}
+
+.input:focus, .select:focus {
+  outline: none;
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.1);
+}
+
+.input::placeholder { color: var(--text-muted); }
+
+.field { margin-bottom: 14px; }
+
+.field-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
+}
+
+/* ================= 通用表格 ================= */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.data-table th {
+  text-align: left;
+  padding: 12px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--glass-border);
+  background: rgba(0, 240, 255, 0.03);
+}
+
+.data-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+}
+
+.data-table tr:hover td { background: rgba(0, 240, 255, 0.03); }
+
+.data-table .num {
+  font-family: var(--font-mono);
+  text-align: right;
+}
+
+/* ================= 霓虹進度條 ================= */
+.progress {
+  height: 8px;
+  background: rgba(0, 240, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--neon-cyan), var(--neon-magenta));
+  border-radius: 4px;
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.6);
+  transition: width 0.5s ease;
+}
+
+/* ================= Badge ================= */
+.badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  border: 1px solid currentColor;
+}
+
+.badge-success { color: var(--neon-emerald); background: rgba(16, 185, 129, 0.1); }
+.badge-pending { color: var(--neon-orange);  background: rgba(251, 146, 60, 0.1); }
+.badge-info    { color: var(--neon-cyan);    background: rgba(0, 240, 255, 0.1); }
+.badge-magenta { color: var(--neon-magenta); background: rgba(217, 70, 239, 0.1); }
+.badge-muted   { color: var(--text-muted);   background: rgba(255, 255, 255, 0.04); }
+
+/* ================= 空狀態 / 橫幅 ================= */
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.banner {
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: rgba(0, 240, 255, 0.05);
+  font-size: 13px;
+  margin-bottom: 16px;
+  color: var(--text-secondary);
+}
+
+.banner-magenta {
+  border-color: rgba(217, 70, 239, 0.3);
+  background: rgba(217, 70, 239, 0.06);
+  color: var(--neon-magenta);
+}
+
+.banner-success {
+  border-color: rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.06);
+  color: var(--neon-emerald);
+}
+
+.banner-error {
+  border-color: rgba(244, 63, 94, 0.3);
+  background: rgba(244, 63, 94, 0.06);
+  color: var(--neon-red);
+}
+
+/* ================= Modal ================= */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+.modal-overlay.active { display: flex; }
+
+.modal {
+  width: 100%;
+  max-width: 440px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid var(--glass-border-hover);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: 0 0 30px rgba(0, 240, 255, 0.15);
+  animation: modalIn 0.2s ease-out;
+}
+
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--neon-cyan);
+  margin-bottom: 16px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+/* ============================================
+   🆕 可摺疊卡片（v101 統一，從 HTML 內嵌抽出）
+   -------------------------------------------------
+   用法：
+     <div class="glass-card collapsible-card" id="xxx-card">
+       <div class="collapsible-header">...</div>
+       <div class="collapsible-body" style="display:none;">...</div>
+     </div>
+   ============================================ */
+.collapsible-card {
+  margin-bottom: 16px;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.collapsible-card .collapsible-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s ease;
+}
+
+.collapsible-card .collapsible-header:hover {
+  background: rgba(0, 240, 255, 0.04);
+}
+
+.collapsible-card .collapsible-header-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--neon-cyan);
+}
+
+.collapsible-card .collapsible-arrow {
+  color: var(--text-muted);
+  transition: transform 0.25s ease;
+}
+
+.collapsible-card.open .collapsible-arrow {
+  transform: rotate(180deg);
+}
+
+.collapsible-card .collapsible-body {
+  padding: 0 20px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding-top: 16px;
+}
+
+/* 表格專用變體（body padding: 0） */
+.collapsible-card-flat .collapsible-body {
+  padding: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+.collapsible-card-flat .collapsible-body > table {
+  margin: 0;
+}
+.collapsible-card-flat .collapsible-body .data-table thead th {
+  border-top: none;
+}
+
+/* ============================================
+   表單單欄直落（v101 統一，只保留一份）
+   ============================================ */
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.form-stack > .field {
+  margin-bottom: 0;
+}
+
+.form-stack-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.form-stack-row > .field {
+  margin-bottom: 0;
+}
+
+.form-stack textarea.input {
+  resize: vertical;
+  min-height: 60px;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+@media (max-width: 640px) {
+  .form-stack-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================
+   頁面篩選欄（v101 統一）
+   ============================================ */
+.page-filter-bar {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.page-filter-bar .filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 100px;
+}
+
+.page-filter-bar .filter-group .field-label {
+  font-size: 11px;
+  margin-bottom: 0;
+}
+
+.page-filter-bar .select {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .page-filter-bar {
+    gap: 8px;
+    flex-direction: row;
+  }
+  .page-filter-bar .filter-group {
+    min-width: auto;
+    flex: 1;
+  }
+  .page-filter-bar .select {
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+}
+
+/* ============================================
+   View Toggle（卡片 / 表格切換）
+   ============================================ */
+.view-toggle-group {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+}
+
+.view-toggle-group .btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  border: none;
+}
+
+/* ============================================
+   保險卡片
+   ============================================ */
+.policy-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.policy-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.policy-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--neon-cyan);
+  line-height: 1.3;
+}
+
+.policy-company {
+  font-size: 11px;
+  color: var(--neon-magenta);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+.policy-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  font-size: 12px;
+}
+
+.policy-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.policy-info-label {
+  color: var(--text-muted);
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.policy-info-value {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.policy-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.policy-progress-text {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.policy-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+/* ============================================
+   保險表格視圖
+   ============================================ */
+.policy-table-wrapper {
+  overflow: hidden;
+}
+
+.policy-table-wrapper > div {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.policy-table {
+  width: 100%;
+  min-width: 1080px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.policy-table thead th {
+  padding: 12px 8px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--glass-border);
+  background: rgba(0, 240, 255, 0.03);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.policy-table td {
+  padding: 12px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.policy-table tbody tr:hover td {
+  background: rgba(0, 240, 255, 0.03);
+}
+
+.policy-table .num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.policy-table thead th:nth-child(1)  { width: 36px; padding: 12px 4px; }
+.policy-table thead th:nth-child(2)  { width: 85px; }
+.policy-table thead th:nth-child(3)  { width: 60px; }
+.policy-table thead th:nth-child(4)  { width: auto; }
+.policy-table thead th:nth-child(5)  { width: 100px; }
+.policy-table thead th:nth-child(6)  { width: 95px; }
+.policy-table thead th:nth-child(7)  { width: 100px; }
+.policy-table thead th:nth-child(8)  { width: 95px; }
+.policy-table thead th:nth-child(9)  { width: 85px; }
+.policy-table thead th:nth-child(10) { width: 130px; }
+.policy-table thead th:nth-child(11) { width: 115px; }
+
+.policy-table td.policy-name-cell {
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.35;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.policy-table .progress-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.policy-table .btn-sm {
+  padding: 4px 6px;
+  font-size: 11px;
+  margin-right: 2px;
+}
+
+/* ============================================
+   明細行
+   ============================================ */
+.insurance-table-detail-row > td {
+  padding: 0 !important;
+  background: rgba(0, 240, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+
+.detail-wrapper {
+  padding: 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
+
+/* ============================================
+   年度區間 header
+   ============================================ */
+.insurance-year-block {
+  margin-bottom: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  min-width: 480px;
+}
+
+.insurance-year-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(0, 240, 255, 0.04);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s ease;
+}
+
+.insurance-year-header:hover {
+  background: rgba(0, 240, 255, 0.08);
+}
+
+.ins-year-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--neon-cyan);
+}
+
+.ins-year-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ins-paid-sum {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.insurance-year-body {
+  padding: 8px 12px;
+}
+
+/* ============================================
+   保險：每月 row
+   ============================================ */
+.insurance-month-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.insurance-month-row .ins-date {
+  width: 70px;
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.insurance-month-row .ins-paid-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  flex: 0 0 auto;
+  min-width: 70px;
+  color: var(--text-secondary);
+}
+
+.insurance-month-row .ins-paid {
+  width: auto;
+  cursor: pointer;
+}
+
+.insurance-month-row input.ins-amount {
+  width: 110px;
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: 12px;
+  text-align: right;
+  background: rgba(8, 11, 17, 0.6);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.insurance-month-row input.ins-amount:focus {
+  outline: none;
+  border-color: var(--neon-cyan);
+}
+
+/* ============================================
+   固定支出：每月 row
+   -------------------------------------------------
+   順序：月份 → 金額 input → 已付款 → 不適用
+   ============================================ */
+.fixed-month-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.fixed-month-row .fix-month-label {
+  width: 50px;
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.fixed-month-row input.fix-amount {
+  width: 110px;
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  font-size: 12px;
+  text-align: right;
+  background: rgba(8, 11, 17, 0.6);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.fixed-month-row input.fix-amount:focus {
+  outline: none;
+  border-color: var(--neon-cyan);
+}
+
+.fixed-month-row .fix-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+}
+
+.fixed-month-row .fix-checkbox-label input[type="checkbox"] {
+  width: auto;
+  cursor: pointer;
+}
+
+/* ============================================
+   已供滿保單區塊
+   ============================================ */
+.completed-section {
+  border-color: rgba(16, 185, 129, 0.3) !important;
+  background: rgba(16, 185, 129, 0.03) !important;
+}
+.completed-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+.completed-arrow {
+  transition: transform 0.25s ease;
+  color: var(--neon-emerald);
+}
+.completed-section.open .completed-arrow {
+  transform: rotate(180deg);
+}
+.completed-body {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed rgba(16, 185, 129, 0.2);
+}
+.completed-body .policy-card {
+  opacity: 0.85;
+}
+
+/* ============================================
+   固定支出：年度折疊
+   ============================================ */
+.fixed-year-header {
+  transition: background 0.2s ease;
+}
+.fixed-year-header:hover {
+  background: rgba(0, 240, 255, 0.08) !important;
+}
+
+.insurance-expand-btn {
+  justify-content: space-between;
+}
+.insurance-expand-body {
+  animation: fadeIn 0.2s ease;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ============================================
+   手機版優化
+   ============================================ */
+@media (max-width: 640px) {
+  .data-table th, .data-table td {
+    padding: 8px 6px;
+    font-size: 12px;
+  }
+  .data-table .badge {
+    padding: 2px 6px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .policy-info-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .policy-info-value {
+    font-size: 12px;
+    word-break: break-all;
+  }
+  .policy-name {
+    font-size: 14px;
+  }
+  .policy-company {
+    font-size: 10px;
+  }
+
+  .btn {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+  .btn-sm {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+
+  .badge {
+    display: inline-block;
+    white-space: nowrap;
+  }
+
+  .modal {
+    padding: 16px;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+  .modal-title {
+    font-size: 16px;
+  }
+
+  .policy-table {
+    min-width: 480px;
+  }
+
+  .policy-table .hide-mobile {
+    display: none;
+  }
+
+  .policy-table thead th:nth-child(1)  { width: 30px; padding: 8px 3px; }
+  .policy-table thead th:nth-child(4)  { width: auto; min-width: 100px; }
+  .policy-table thead th:nth-child(6)  { width: 80px; }
+  .policy-table thead th:nth-child(8)  { width: 80px; }
+  .policy-table thead th:nth-child(10) { width: 100px; }
+  .policy-table thead th:nth-child(11) { width: 90px; }
+
+  .policy-table thead th,
+  .policy-table td {
+    padding: 8px 5px;
+    font-size: 11px;
+  }
+  .policy-table .num {
+    font-size: 11px;
+  }
+  .policy-table .progress-text {
+    font-size: 10px;
+    white-space: nowrap;
+    margin-bottom: 3px;
+  }
+  .policy-table .progress {
+    height: 5px;
+  }
+  .policy-table .btn-sm {
+    padding: 3px 5px;
+    font-size: 10px;
+    margin-right: 2px;
+  }
+
+  .detail-wrapper {
+    padding: 8px;
+  }
+  .insurance-year-block {
+    min-width: 360px;
+  }
+  .insurance-year-header {
+    padding: 6px 8px;
+  }
+  .ins-year-title {
+    font-size: 11px;
+  }
+  .ins-paid-sum {
+    font-size: 10px;
+  }
+
+  /* 手機版：保險每月 row */
+  .insurance-month-row {
+    gap: 8px;
+    padding: 4px 0;
+  }
+  .insurance-month-row .ins-date {
+    width: 60px;
+    font-size: 11px;
+  }
+  .insurance-month-row .ins-paid-label {
+    font-size: 11px;
+    gap: 4px;
+    min-width: 60px;
+  }
+  .insurance-month-row input.ins-amount {
+    width: 80px;
+    padding: 3px 6px;
+    font-size: 11px;
+  }
+  .insurance-month-row .ins-paid {
+    transform: scale(0.9);
+  }
+
+  /* 手機版：固定支出每月 row */
+  .fixed-month-row {
+    gap: 6px;
+    padding: 4px 0;
+  }
+  .fixed-month-row .fix-month-label {
+    width: 40px;
+    font-size: 11px;
+  }
+  .fixed-month-row input.fix-amount {
+    width: 80px;
+    padding: 3px 6px;
+    font-size: 11px;
+  }
+  .fixed-month-row .fix-checkbox-label {
+    font-size: 10px;
+    gap: 3px;
+  }
+  .fixed-month-row .fix-checkbox-label input[type="checkbox"] {
+    transform: scale(0.9);
+  }
+
+  /* 可摺疊卡片手機版 */
+  .collapsible-card .collapsible-header {
+    padding: 12px 16px;
+  }
+  .collapsible-card .collapsible-body {
+    padding: 0 16px 16px;
+    padding-top: 14px;
+  }
+}

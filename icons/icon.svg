@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a0e17"/>
+      <stop offset="100%" stop-color="#131a2a"/>
+    </linearGradient>
+    <linearGradient id="neonGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F0FF"/>
+      <stop offset="50%" stop-color="#4FC3F7"/>
+      <stop offset="100%" stop-color="#D946EF"/>
+    </linearGradient>
+    <filter id="neonGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- 背景 -->
+  <rect width="512" height="512" rx="96" ry="96" fill="url(#bgGradient)"/>
+
+  <!-- 邊框微光 -->
+  <rect x="8" y="8" width="496" height="496" rx="88" ry="88"
+        fill="none" stroke="rgba(0,240,255,0.15)" stroke-width="2"/>
+
+  <!-- 中央菱形（保險盾牌意象） -->
+  <g filter="url(#neonGlow)">
+    <path d="M 256 96
+             L 416 256
+             L 256 416
+             L 96 256 Z"
+          fill="none"
+          stroke="url(#neonGradient)"
+          stroke-width="14"
+          stroke-linejoin="round"/>
+  </g>
+
+  <!-- 中央字母 F -->
+  <g filter="url(#neonGlow)">
+    <path d="M 210 180
+             L 310 180
+             L 310 210
+             L 245 210
+             L 245 245
+             L 300 245
+             L 300 275
+             L 245 275
+             L 245 330
+             L 210 330
+             Z"
+          fill="url(#neonGradient)"/>
+  </g>
+
+  <!-- 頂部裝飾點 -->
+  <circle cx="256" cy="70" r="4" fill="#00F0FF" opacity="0.6"/>
+  <circle cx="256" cy="442" r="4" fill="#D946EF" opacity="0.6"/>
+</svg>

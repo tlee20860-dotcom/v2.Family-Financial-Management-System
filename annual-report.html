@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>年度報表 | 家庭財務</title>
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/layout.css">
+  <link rel="stylesheet" href="./css/components.css">
+  <link rel="stylesheet" href="./css/utilities.css">
+  <link rel="stylesheet" href="./css/pages/annual-report.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside id="sidebar-root"></aside>
+    <div class="main-area">
+      <header id="navbar-root"></header>
+
+      <main class="content content-min-height">
+        <div class="page-header flex flex-between items-end flex-wrap gap-12">
+          <div>
+            <h1 class="page-title" id="report-year-title">2026 年</h1>
+            <p class="page-subtitle">年度報表</p>
+          </div>
+          <button class="btn btn-magenta" id="export-excel-btn">
+            <i data-lucide="file-spreadsheet"></i> 匯出 Excel
+          </button>
+        </div>
+
+        <!-- 統計卡 -->
+        <div class="grid grid-3 mb-20">
+          <div class="glass-card">
+            <div class="glass-card-title">年度總收入</div>
+            <div class="glass-card-value emerald mono" id="annual-income">HK$ 0</div>
+          </div>
+          <div class="glass-card">
+            <div class="glass-card-title">年度總支出</div>
+            <div class="glass-card-value red mono" id="annual-expense">HK$ 0</div>
+          </div>
+          <div class="glass-card">
+            <div class="glass-card-title">年度淨結餘</div>
+            <div class="glass-card-value mono" id="annual-balance">HK$ 0</div>
+          </div>
+        </div>
+
+        <!-- 控制列 -->
+        <div class="report-controls">
+          <div class="view-toggle-group">
+            <button class="btn btn-sm btn-primary" id="view-summary-btn">全年總合</button>
+            <button class="btn btn-sm btn-ghost" id="view-monthly-btn">按月明細</button>
+          </div>
+          <div class="year-switcher" id="year-switcher"></div>
+        </div>
+
+        <!-- 月份切換（僅按月明細顯示） -->
+        <div class="month-switcher" id="month-switcher" style="display:none;"></div>
+
+        <!-- ============ 全年總合檢視 ============ -->
+        <div id="summary-view">
+          <!-- 全年總合表格（可折疊） -->
+          <div class="glass-card collapsible-card collapsible-card-flat" id="summary-table-card" style="padding:0;">
+            <div class="collapsible-header" id="summary-table-header">
+              <div class="collapsible-header-title">
+                <i data-lucide="table" style="width:16px;height:16px;"></i>
+                <span>全年總合</span>
+              </div>
+              <i data-lucide="chevron-down" class="collapsible-arrow"></i>
+            </div>
+            <div class="collapsible-body" id="summary-table-body" style="display:block;">
+              <div class="summary-table-wrapper" style="border:none; border-radius:0;">
+                <table class="annual-table">
+                  <thead id="summary-thead"></thead>
+                  <tbody id="summary-tbody">
+                    <tr><td colspan="9" class="empty-state">載入中…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 支付方式統計（可折疊） -->
+          <div class="glass-card collapsible-card collapsible-card-flat" id="payment-stats-card" style="display:none; margin-top:20px; padding:0;">
+            <div class="collapsible-header" id="payment-stats-header">
+              <div class="collapsible-header-title">
+                <i data-lucide="credit-card" style="width:16px;height:16px;"></i>
+                <span>支付方式統計</span>
+              </div>
+              <i data-lucide="chevron-down" class="collapsible-arrow"></i>
+            </div>
+            <div class="collapsible-body" id="payment-stats-body" style="display:block;">
+              <!-- JS 動態填入 -->
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ 按月明細檢視 ============ -->
+        <div id="monthly-view" style="display:none;">
+          <div class="glass-card collapsible-card collapsible-card-flat" id="monthly-table-card" style="padding:0;">
+            <div class="collapsible-header" id="monthly-table-header">
+              <div class="collapsible-header-title">
+                <i data-lucide="calendar" style="width:16px;height:16px;"></i>
+                <span>月度明細</span>
+              </div>
+              <i data-lucide="chevron-down" class="collapsible-arrow"></i>
+            </div>
+            <div class="collapsible-body" id="monthly-table-body" style="display:block;">
+              <div class="monthly-table-wrapper" style="border:none; border-radius:0;">
+                <table class="monthly-table">
+                  <thead>
+                    <tr>
+                      <th style="min-width:180px;">項目</th>
+                      <th class="num" style="width:130px;">當月</th>
+                      <th class="num" style="width:130px;">年度累計</th>
+                    </tr>
+                  </thead>
+                  <tbody id="monthly-tbody">
+                    <tr><td colspan="3" class="empty-state">載入中…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script type="module">
+    import { initApp } from './js/core/app.js';
+    import { initAnnualReportPage } from './js/pages/annual-report.js';
+
+    await initApp({ activeHref: 'annual-report.html', title: '年度報表' });
+    initAnnualReportPage();
+  </script>
+</body>
+</html>

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>保險付款 | 家庭財務</title>
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/layout.css">
+  <link rel="stylesheet" href="./css/components.css">
+  <link rel="stylesheet" href="./css/utilities.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside id="sidebar-root"></aside>
+    <div class="main-area">
+      <header id="navbar-root"></header>
+
+      <main class="content content-min-height">
+        <div class="page-header flex flex-between items-end flex-wrap gap-12">
+          <div>
+            <h1 class="page-title">保險付款</h1>
+            <p class="page-subtitle" id="insurance-month"></p>
+          </div>
+          <div class="flex items-center gap-12 flex-wrap">
+            <div id="view-toggle-root"></div>
+            <button class="btn btn-magenta" id="sync-all-btn">
+              <i data-lucide="refresh-cw"></i> 同步所有支出
+            </button>
+          </div>
+        </div>
+
+        <div id="page-filter-root" class="mb-16"></div>
+
+        <div class="banner mb-16">
+          ℹ️ 每張保單依「保單年度」自動產生每月分攤。此頁僅顯示明細；
+          保單定義請至「基礎資料庫」管理，每月扣款狀態請至「綜合輸入中心」。
+        </div>
+
+        <!-- 統計卡 -->
+        <div class="grid grid-3 mb-20">
+          <div class="glass-card">
+            <div class="glass-card-title">本年度保單總供款</div>
+            <div class="glass-card-value cyan mono" id="grand-total-premium">HK$ 0</div>
+            <div class="glass-card-hint" id="grand-total-hint">—</div>
+          </div>
+          <div class="glass-card">
+            <div class="glass-card-title">供款中保單數</div>
+            <div class="glass-card-value emerald mono" id="active-policy-count">0 張</div>
+            <div class="glass-card-hint">未供滿的保單數量</div>
+          </div>
+          <div class="glass-card">
+            <div class="glass-card-title">已供滿保單</div>
+            <div class="glass-card-value emerald mono" id="stat-completed-policies">0 張</div>
+            <div class="glass-card-hint">已完成供款年期的保單</div>
+          </div>
+        </div>
+
+        <!-- 已供滿保單區塊 -->
+        <div class="glass-card completed-section" id="completed-section" style="margin-bottom:20px; display:none;">
+          <div class="completed-header" id="completed-header">
+            <div class="flex items-center gap-10">
+              <i data-lucide="check-circle" style="width:18px;height:18px;color:var(--neon-emerald);"></i>
+              <span style="font-weight:700; color:var(--neon-emerald);">已供滿保單</span>
+              <span class="badge badge-success" id="completed-count">0</span>
+            </div>
+            <i data-lucide="chevron-down" class="completed-arrow"></i>
+          </div>
+          <div class="completed-body" id="completed-body" style="display:none;">
+            <div class="grid grid-3" id="completed-grid"></div>
+          </div>
+        </div>
+
+        <!-- 卡片模式 -->
+        <div id="insurance-card-view"></div>
+
+        <!-- 表格模式 -->
+        <div id="insurance-table-view" style="display:none;"></div>
+
+        <!-- 空狀態 -->
+        <div class="glass-card" id="insurance-empty-state" style="display:none;">
+          <div class="empty-state">
+            <i data-lucide="shield" style="width:48px;height:48px;opacity:0.4;"></i>
+            <p style="margin-top:12px;">尚無保單資料</p>
+            <button class="btn btn-primary" onclick="window.location.href='database.html'" style="margin-top:12px;">
+              <i data-lucide="plus"></i> 前往基礎資料庫
+            </button>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script type="module">
+    import { initApp } from './js/core/app.js';
+    import { initInsurancePage } from './js/pages/insurance/index.js';
+
+    await initApp({ activeHref: 'insurance.html', title: '保險付款' });
+    initInsurancePage();
+  </script>
+</body>
+</html>

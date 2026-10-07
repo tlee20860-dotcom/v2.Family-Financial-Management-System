@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>基礎資料庫 | 家庭財務</title>
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/layout.css">
+  <link rel="stylesheet" href="./css/components.css">
+  <link rel="stylesheet" href="./css/utilities.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside id="sidebar-root"></aside>
+    <div class="main-area">
+      <header id="navbar-root"></header>
+
+      <main class="content content-min-height">
+        <div class="page-header">
+          <h1 class="page-title">基礎資料庫</h1>
+          <p class="page-subtitle">管理所有基礎資料與選項（成員、銀行、保單、基金、支出結構、支付/狀態、下拉選項、年份範圍）</p>
+        </div>
+
+        <div id="database-root"></div>
+      </main>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script type="module">
+    import { initApp } from './js/core/app.js';
+    import { initDatabasePage } from './js/pages/database/index.js';
+
+    await initApp({ activeHref: 'database.html', title: '基礎資料庫' });
+    initDatabasePage();
+  </script>
+</body>
+</html>

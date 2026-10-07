@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>每月收入 | 家庭財務</title>
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/layout.css">
+  <link rel="stylesheet" href="./css/components.css">
+  <link rel="stylesheet" href="./css/utilities.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside id="sidebar-root"></aside>
+    <div class="main-area">
+      <header id="navbar-root"></header>
+
+      <main class="content content-min-height">
+        <div class="page-header flex flex-between items-end flex-wrap gap-12">
+          <div>
+            <h1 class="page-title">每月收入</h1>
+            <p class="page-subtitle">家庭成員每月收入明細（唯讀）</p>
+          </div>
+          <div class="flex items-center gap-12 flex-wrap">
+            <div id="view-toggle-root"></div>
+            <button class="btn btn-ghost" id="view-annual-income-btn">
+              <i data-lucide="table"></i> 年度明細
+            </button>
+            <button class="btn btn-primary" id="go-input-center-btn">
+              <i data-lucide="plus"></i> 前往輸入中心
+            </button>
+          </div>
+        </div>
+
+        <div id="page-filter-root" class="mb-16"></div>
+
+        <!-- 卡片模式 -->
+        <div id="income-card-view"></div>
+
+        <!-- 表格模式 -->
+        <div id="income-table-view" style="display:none;"></div>
+
+        <!-- 快速摘要 -->
+        <div id="quick-summary-root"></div>
+      </main>
+    </div>
+  </div>
+
+  <!-- 年度收入明細 Modal -->
+  <div class="modal-overlay" id="income-detail-modal">
+    <div class="modal" style="max-width:800px; max-height:90vh; overflow-y:auto;">
+      <h2 class="modal-title" id="income-detail-title">年度收入明細</h2>
+      <div id="income-detail-body" style="overflow-x:auto;"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="income-detail-cancel-btn">關閉</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script type="module">
+    import { initApp } from './js/core/app.js';
+    import { initIncomePage } from './js/pages/income.js';
+
+    await initApp({ activeHref: 'income.html', title: '每月收入' });
+    initIncomePage();
+  </script>
+</body>
+</html>

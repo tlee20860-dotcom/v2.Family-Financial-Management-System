@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>綜合輸入中心 | 家庭財務</title>
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/layout.css">
+  <link rel="stylesheet" href="./css/components.css">
+  <link rel="stylesheet" href="./css/utilities.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside id="sidebar-root"></aside>
+    <div class="main-area">
+      <header id="navbar-root"></header>
+
+      <main class="content content-min-height">
+        <div class="page-header">
+          <h1 class="page-title">綜合輸入中心</h1>
+          <p class="page-subtitle">所有交易資料的統一輸入入口</p>
+        </div>
+
+        <div id="input-center-root"></div>
+      </main>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script type="module">
+    import { initApp } from './js/core/app.js';
+    import { initInputCenterPage } from './js/pages/input-center/index.js';
+
+    await initApp({ activeHref: 'input-center.html', title: '綜合輸入中心' });
+    initInputCenterPage();
+  </script>
+</body>
+</html>
