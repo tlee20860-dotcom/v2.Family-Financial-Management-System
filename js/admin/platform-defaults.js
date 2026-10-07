@@ -1,20 +1,9 @@
 // ============================================
-// platform-defaults.js — 平台預設資料庫（v101）
+// platform-defaults.js — 平台預設資料庫（v101.3）
 // 位置：js/admin/platform-defaults.js
 // ============================================
-// 9 個子 Tab 整合（superadmin 專用）
-//   1. 成員       members
-//   2. 銀行       banks
-//   3. 保險公司   companies
-//   4. 支付方式   payments
-//   5. 支出結構   categories + items
-//   6. 狀態       statuses
-//   7. 下拉選項   options
-//   8. 年份範圍   yearRange
-//   9. UI 常數    uiConstants
-//
-// 資料位置：platform/defaults/*
-// 影響：新家庭初始化時套用（不影響既有家庭）
+// v101.3 修正：
+//   ✅ 移除未使用的 _cache 物件
 // ============================================
 
 import { api } from '../core/api.js';
@@ -30,21 +19,7 @@ import { openModal, closeModal, openConfirm } from '../shared/modal.js';
 let _container = null;
 let _tabPanel = null;
 
-// 每個 Tab 的資料快取
-const _cache = {
-  members: [],
-  banks: [],
-  companies: [],
-  payments: [],
-  categories: [],
-  items: [],
-  statuses: [],
-  options: null,
-  yearRange: null,
-  uiConstants: null,
-};
-
-// 子 Tab 的實例（僅特殊處理的 Tab 需要）
+// 子 Tab 的實例
 const _instances = {};
 
 const EDIT_MODAL_ID = 'pd-edit-modal';
@@ -132,9 +107,7 @@ const LIST_TABS = [
     ],
     displayColumns: ['name', 'category', 'order'],
     valueTransform: {
-      // isDone 從 boolean 轉字串（表單 select）
       toForm: (data) => ({ ...data, isDone: data.isDone ? 'true' : 'false' }),
-      // 從表單轉回 boolean
       fromForm: (data) => ({ ...data, isDone: data.isDone === 'true' }),
     },
   },
@@ -165,7 +138,6 @@ export function initPlatformDefaults(containerId) {
     return null;
   }
 
-  // 渲染骨架
   _container.innerHTML = `
     <div id="pd-tabs-root"></div>
     ${ALL_TABS.map((t) => `
@@ -173,7 +145,6 @@ export function initPlatformDefaults(containerId) {
     `).join('')}
   `;
 
-  // 初始化 Tab 面板
   _tabPanel = initTabPanel({
     containerId: 'pd-tabs-root',
     tabs: ALL_TABS.map((t) => ({
@@ -208,7 +179,6 @@ async function _activateTab(key, force = false) {
   const panel = document.getElementById(`pd-panel-${key}`);
   if (!panel) return;
 
-  // 若已載入且不強制 → 只做 refresh
   if (!force && panel.dataset.loaded === '1' && _instances[key]?.refresh) {
     try { _instances[key].refresh(); } catch (e) { /* noop */ }
     return;
@@ -218,14 +188,12 @@ async function _activateTab(key, force = false) {
   panel.innerHTML = `<div class="empty-state">載入中…</div>`;
 
   try {
-    // 泛型清單 Tab
     const listTab = LIST_TABS.find((t) => t.key === key);
     if (listTab) {
       _instances[key] = await _renderListTab(panel, listTab);
       return;
     }
 
-    // 特殊 Tab
     switch (key) {
       case 'categories':
         _instances[key] = await _renderCategoriesTab(panel);
@@ -249,9 +217,8 @@ async function _activateTab(key, force = false) {
 }
 
 /* ============================================
-   === 泛型清單 Tab ===
+   泛型清單 Tab
    ============================================ */
-
 async function _renderListTab(panel, tabConfig) {
   panel.innerHTML = `
     <div id="pd-${tabConfig.key}-form-root" class="mb-16"></div>
@@ -268,7 +235,6 @@ async function _renderListTab(panel, tabConfig) {
     </div>
   `;
 
-  // 新增表單
   const formApi = buildForm({
     containerId: `pd-${tabConfig.key}-form-root`,
     fields: _buildFormFields(tabConfig.fields),
@@ -289,7 +255,6 @@ async function _renderListTab(panel, tabConfig) {
     },
   });
 
-  /* 資料載入 */
   let _list = [];
 
   async function load() {
@@ -302,7 +267,6 @@ async function _renderListTab(panel, tabConfig) {
     renderList();
   }
 
-  /* 清單渲染 */
   function renderList() {
     const listEl = document.getElementById(`pd-${tabConfig.key}-list`);
     const countEl = document.getElementById(`pd-${tabConfig.key}-count`);
@@ -348,7 +312,6 @@ async function _renderListTab(panel, tabConfig) {
     if (window.lucide) window.lucide.createIcons();
   }
 
-  /* 清單事件 */
   panel.addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
@@ -375,7 +338,6 @@ async function _renderListTab(panel, tabConfig) {
     }
   });
 
-  /* refresh */
   async function refresh() {
     await load();
   }
@@ -386,10 +348,9 @@ async function _renderListTab(panel, tabConfig) {
 }
 
 /* ============================================
-   編輯 Modal（泛型）
+   編輯 Modal
    ============================================ */
 async function _openEditModal(tabConfig, row, onSave) {
-  // 建立 Modal
   let overlay = document.getElementById(EDIT_MODAL_ID);
   if (overlay) overlay.remove();
 
@@ -404,7 +365,6 @@ async function _openEditModal(tabConfig, row, onSave) {
   `;
   document.body.appendChild(overlay);
 
-  // 表單
   const formApi = buildForm({
     containerId: 'pd-edit-modal-form-root',
     fields: _buildFormFields(tabConfig.fields),
@@ -425,7 +385,6 @@ async function _openEditModal(tabConfig, row, onSave) {
     onCancel: () => closeModal(EDIT_MODAL_ID),
   });
 
-  // 填入現值
   const formData = tabConfig.valueTransform?.toForm
     ? tabConfig.valueTransform.toForm(row)
     : row;
@@ -465,7 +424,6 @@ function _cleanFormData(data, tabConfig) {
     const key = `pd-${f.id}`;
     let val = data[key];
 
-    // 型別轉換
     if (f.type === 'number') {
       val = Number(val) || 0;
     } else if (f.type === 'text') {
@@ -475,7 +433,6 @@ function _cleanFormData(data, tabConfig) {
     clean[f.id] = val;
   });
 
-  // 額外轉換（如 isDone 從 'true' 轉 true）
   if (tabConfig.valueTransform?.fromForm) {
     return tabConfig.valueTransform.fromForm(clean);
   }
@@ -486,24 +443,21 @@ function _cleanFormData(data, tabConfig) {
 function _renderCellValue(val, col, tabConfig) {
   if (val == null || val === '') return '<span class="text-muted">—</span>';
 
-  // 布林值
   if (typeof val === 'boolean') {
     return val ? '<span class="badge badge-success">是</span>' : '<span class="badge badge-muted">否</span>';
   }
 
-  // 列舉顯示轉換
   const field = tabConfig.fields.find((f) => f.id === col);
   if (field?.type === 'select' && field.options) {
     const opt = field.options.find((o) => String(o.value) === String(val));
     if (opt) return escapeHtml(opt.label);
   }
 
-  // 預設
   return escapeHtml(String(val));
 }
 
 /* ============================================
-   === 支出結構 Tab（類別 + 項目）===
+   支出結構 Tab
    ============================================ */
 async function _renderCategoriesTab(panel) {
   panel.innerHTML = `
@@ -542,7 +496,6 @@ async function _renderCategoriesTab(panel) {
   let _categories = [];
   let _items = [];
 
-  /* 類別表單 */
   const catFormApi = buildForm({
     containerId: 'pd-cat-form-root',
     fields: [
@@ -570,7 +523,6 @@ async function _renderCategoriesTab(panel) {
     },
   });
 
-  /* 項目表單 */
   const itemFormApi = buildForm({
     containerId: 'pd-item-form-root',
     fields: [
@@ -600,7 +552,6 @@ async function _renderCategoriesTab(panel) {
     },
   });
 
-  /* 載入 */
   async function load() {
     try {
       const [catRes, itemRes] = await Promise.all([
@@ -614,7 +565,6 @@ async function _renderCategoriesTab(panel) {
       _items = [];
     }
 
-    // 更新項目表單的類別選項
     itemFormApi.updateOptions('pd-item-cat',
       _categories.map((c) => ({ value: c.id, label: c.name })),
       { includeEmpty: true, emptyText: '— 請選擇 —' }
@@ -693,7 +643,6 @@ async function _renderCategoriesTab(panel) {
     if (window.lucide) window.lucide.createIcons();
   }
 
-  /* 事件 */
   panel.addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
@@ -782,7 +731,7 @@ async function _renderCategoriesTab(panel) {
 }
 
 /* ============================================
-   === 通用編輯 Modal ===
+   通用編輯 Modal
    ============================================ */
 async function _openSimpleEditModal({ title, resource, id, fields, initialData, onSave }) {
   let overlay = document.getElementById(EDIT_MODAL_ID);
@@ -836,7 +785,6 @@ async function _openSimpleEditModal({ title, resource, id, fields, initialData, 
     onCancel: () => closeModal(EDIT_MODAL_ID),
   });
 
-  // 填入現值
   const setData = {};
   fields.forEach((f) => { setData[`pd-${f.id}`] = initialData[f.id] ?? ''; });
   formApi.setData(setData);
@@ -849,7 +797,7 @@ async function _openSimpleEditModal({ title, resource, id, fields, initialData, 
 }
 
 /* ============================================
-   === 下拉選項 Tab ===
+   下拉選項 Tab
    ============================================ */
 async function _renderOptionsTab(panel) {
   const GROUPS = [
@@ -872,7 +820,6 @@ async function _renderOptionsTab(panel) {
   async function load() {
     try {
       const result = await api.platformDefaults.list('options');
-      // options 是單物件
       _options = result.data || {};
     } catch (err) {
       _options = {};
@@ -926,7 +873,6 @@ async function _renderOptionsTab(panel) {
     `;
   }
 
-  /* 事件 */
   panel.addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
@@ -966,7 +912,6 @@ async function _renderOptionsTab(panel) {
   return { refresh };
 }
 
-/* 選項編輯 Modal */
 async function _openOptionEditModal(group, item, index, allOptions, onSave) {
   const isAdd = index < 0;
 
@@ -1007,7 +952,6 @@ async function _openOptionEditModal(group, item, index, allOptions, onSave) {
         const label = String(data['pd-opt-label'] || '').trim();
         if (!value || !label) return { field: 'pd-opt-value', message: '請填寫完整' };
 
-        // 檢查重複
         if (list.some((x, i) => i !== index && x.value === value)) {
           return { field: 'pd-opt-value', message: '此值已存在' };
         }
@@ -1037,7 +981,6 @@ async function _openOptionEditModal(group, item, index, allOptions, onSave) {
     onCancel: () => closeModal(EDIT_MODAL_ID),
   });
 
-  // 填入現值
   if (!isAdd && item != null) {
     if (group.type === 'value-label') {
       formApi.setData({ 'pd-opt-value': item.value || '', 'pd-opt-label': item.label || '' });
@@ -1054,7 +997,7 @@ async function _openOptionEditModal(group, item, index, allOptions, onSave) {
 }
 
 /* ============================================
-   === 年份範圍 Tab ===
+   年份範圍 Tab
    ============================================ */
 async function _renderYearRangeTab(panel) {
   let _data = { startYear: null, futureYears: 5 };
@@ -1125,7 +1068,7 @@ async function _renderYearRangeTab(panel) {
 }
 
 /* ============================================
-   === UI 常數 Tab ===
+   UI 常數 Tab
    ============================================ */
 async function _renderUIConstantsTab(panel) {
   panel.innerHTML = `
