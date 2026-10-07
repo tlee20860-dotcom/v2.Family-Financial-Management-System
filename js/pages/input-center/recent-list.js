@@ -1,10 +1,10 @@
 // ============================================
-// recent-list.js — 輸入中心：最近 20 筆（v101.6.1）
+// recent-list.js — 輸入中心：最近 20 筆（v101.6.2）
 // 位置：js/pages/input-center/recent-list.js
 // ============================================
-// v101.6.1 修正：
-//   ✅ 表格加 mobile-cards 類（手機版卡片化）
-//   ✅ 每個 td 加 data-label / data-primary
+// v101.6.2 修正：
+//   ✅ 移除 mobile-cards（不再卡片化）
+//   ✅ 改為橫向滾動表格（min-width 600px）
 // ============================================
 
 import {
@@ -23,17 +23,11 @@ import { openModal, closeModal, openConfirm } from '../../shared/modal.js';
 import { buildForm } from '../../shared/form-builder.js';
 import { createListenerGroup } from '../../shared/listener-group.js';
 
-/* ============================================
-   Module 狀態
-   ============================================ */
 let _expenses = [];
 let _incomes = [];
 let _members = [];
 let _membersMap = {};
 
-/* ============================================
-   主函式
-   ============================================ */
 export function initRecentList(containerId, options = {}) {
   const root = document.getElementById(containerId);
   if (!root) {
@@ -69,9 +63,6 @@ export function initRecentList(containerId, options = {}) {
   };
 }
 
-/* ============================================
-   載入成員
-   ============================================ */
 async function _loadMembers() {
   try {
     const members = await getMembersOnce();
@@ -83,9 +74,6 @@ async function _loadMembers() {
   }
 }
 
-/* ============================================
-   渲染
-   ============================================ */
 function _render(root) {
   if (!root) return;
 
@@ -103,15 +91,17 @@ function _render(root) {
       <div class="text-muted" style="font-size:12px; margin-bottom:10px;">
         共 ${items.length} 筆，顯示最近 ${limited.length} 筆
       </div>
-      <div style="overflow-x:auto;">
-        <table class="data-table mobile-cards">
+      <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
+        <table class="data-table" style="min-width:640px;">
           <thead>
             <tr>
               <th style="width:70px;">類型</th>
-              <th class="hide-mobile" style="width:90px;">年月</th>
+              <th style="width:90px;">年月</th>
+              <th style="width:80px;">成員</th>
               <th>項目</th>
               <th class="num" style="width:110px;">金額</th>
-              <th style="width:150px;">操作</th>
+              <th style="width:90px;">日期</th>
+              <th style="width:140px;">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -125,9 +115,6 @@ function _render(root) {
   if (window.lucide) window.lucide.createIcons();
 }
 
-/* ============================================
-   合併支出 + 收入
-   ============================================ */
 function _mergeItems() {
   const items = [];
 
@@ -175,34 +162,28 @@ function _mergeItems() {
   return items;
 }
 
-/* ============================================
-   單列渲染
-   ============================================ */
 function _renderRow(it) {
   const memberName = it.memberId === RESERVED_IDS.EXTRA_INCOME
     ? '額外收入'
     : (_membersMap[it.memberId] || '（未知）');
 
-  const subtitle = it.type === 'expense'
-    ? `${escapeHtml(memberName)}${it.date ? ' · ' + escapeHtml(it.date) : ''}`
-    : '';
-
   return `
     <tr data-type="${it.type}" data-key="${escapeHtml(it.id)}">
-      <td data-label="類型">
+      <td>
         <span class="badge ${it.typeBadge}">${it.typeLabel}</span>
       </td>
-      <td class="hide-mobile mono" data-label="年月" style="font-size:12px;">
+      <td class="mono" style="font-size:12px;">
         ${escapeHtml(it.year)}-${escapeHtml(it.month)}
       </td>
-      <td data-primary="1">
-        ${escapeHtml(it.name)}
-        ${subtitle ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${subtitle}</div>` : ''}
-      </td>
-      <td class="num ${it.type === 'income' ? 'text-emerald' : 'text-red'}" data-label="金額">
+      <td style="font-size:12px;">${escapeHtml(memberName)}</td>
+      <td>${escapeHtml(it.name)}</td>
+      <td class="num ${it.type === 'income' ? 'text-emerald' : 'text-red'}">
         ${formatHKD(it.amount)}
       </td>
-      <td data-label="操作">
+      <td class="mono" style="font-size:11px; color:var(--text-muted);">
+        ${escapeHtml(it.date || '—')}
+      </td>
+      <td>
         <button class="btn btn-sm btn-ghost" data-action="edit" data-key="${escapeHtml(it.id)}">編輯</button>
         <button class="btn btn-sm btn-danger" data-action="delete" data-key="${escapeHtml(it.id)}">刪除</button>
       </td>
@@ -210,9 +191,6 @@ function _renderRow(it) {
   `;
 }
 
-/* ============================================
-   事件處理
-   ============================================ */
 function _handleClick(e, root) {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
@@ -233,9 +211,6 @@ function _handleClick(e, root) {
   }
 }
 
-/* ============================================
-   編輯支出
-   ============================================ */
 async function _openEditExpenseModal(key) {
   const parts = key.split('-');
   if (parts.length < 4) return;
@@ -297,9 +272,6 @@ async function _openEditExpenseModal(key) {
   if (window.lucide) window.lucide.createIcons();
 }
 
-/* ============================================
-   刪除支出
-   ============================================ */
 async function _handleDeleteExpense(key) {
   const parts = key.split('-');
   if (parts.length < 4) return;
@@ -325,9 +297,6 @@ async function _handleDeleteExpense(key) {
   }
 }
 
-/* ============================================
-   編輯收入
-   ============================================ */
 async function _openEditIncomeModal(key) {
   const parts = key.split('-');
   if (parts.length < 4) return;
@@ -377,9 +346,6 @@ async function _openEditIncomeModal(key) {
   if (window.lucide) window.lucide.createIcons();
 }
 
-/* ============================================
-   刪除收入
-   ============================================ */
 async function _handleDeleteIncome(key) {
   const parts = key.split('-');
   if (parts.length < 4) return;
@@ -404,9 +370,6 @@ async function _handleDeleteIncome(key) {
   }
 }
 
-/* ============================================
-   Modal 輔助
-   ============================================ */
 function _createModal(modalId, title) {
   _destroyModal(modalId);
 

@@ -1,18 +1,16 @@
 // ============================================
-// holdings-list.js — 輸入中心：保單 / 基金 / 銀行（v101.6.1）
+// holdings-list.js — 輸入中心：保單 / 基金 / 銀行（v101.6.2）
 // 位置：js/pages/input-center/holdings-list.js
 // ============================================
-// v101.6.1 修正：
-//   ✅ 表格加 mobile-cards 類（手機版卡片化）
-//   ✅ 每個 td 加 data-label / data-primary
+// v101.6.2 修正：
+//   ✅ 移除 mobile-cards（不再卡片化）
+//   ✅ 改為橫向滾動表格（min-width 600px）
 // ============================================
 
 import {
   listenInsurancePolicies, listenFunds, listenBanks,
 } from '../../core/db.js';
-import {
-  escapeHtml, formatHKD, setText,
-} from '../../core/utils.js';
+import { escapeHtml, formatHKD } from '../../core/utils.js';
 import { ENTITY_KEYS } from '../../config/constants.js';
 import { showToast } from '../../shared/toast.js';
 import { openConfirm } from '../../shared/modal.js';
@@ -20,16 +18,10 @@ import { openEntityModal } from '../../shared/entity-modal.js';
 import { deleteEntity } from '../../shared/entity-helpers.js';
 import { createListenerGroup } from '../../shared/listener-group.js';
 
-/* ============================================
-   Module 狀態
-   ============================================ */
 let _policies = [];
 let _funds = [];
 let _banks = [];
 
-/* ============================================
-   主函式
-   ============================================ */
 export function initHoldingsList(containerId, options = {}) {
   const root = document.getElementById(containerId);
   if (!root) {
@@ -68,9 +60,6 @@ export function initHoldingsList(containerId, options = {}) {
   };
 }
 
-/* ============================================
-   渲染
-   ============================================ */
 function _render(root) {
   if (!root) return;
 
@@ -82,8 +71,8 @@ function _render(root) {
     icon: 'shield',
     rows: _policies,
     columns: [
-      { key: 'name', label: '保單名稱', primary: true },
-      { key: 'company', label: '保險公司', hideMobile: true },
+      { key: 'name', label: '保單名稱' },
+      { key: 'company', label: '保險公司' },
     ],
     amountFn: (p) => {
       const cur = (p.periods || {})[String(p.currentPeriodIndex || 1)];
@@ -98,8 +87,8 @@ function _render(root) {
     icon: 'line-chart',
     rows: _funds,
     columns: [
-      { key: 'name', label: '基金名稱', primary: true },
-      { key: 'units', label: '單位數', hideMobile: true },
+      { key: 'name', label: '基金名稱' },
+      { key: 'units', label: '單位數' },
     ],
     amountFn: (f) => f.currentValue,
     amountLabel: '現值',
@@ -111,7 +100,7 @@ function _render(root) {
     icon: 'landmark',
     rows: _banks,
     columns: [
-      { key: 'name', label: '銀行名稱', primary: true },
+      { key: 'name', label: '銀行名稱' },
     ],
     amountFn: null,
     amountLabel: '',
@@ -122,9 +111,6 @@ function _render(root) {
   if (window.lucide) window.lucide.createIcons();
 }
 
-/* ============================================
-   單區塊渲染
-   ============================================ */
 function _renderSection(config) {
   const { key, title, icon, rows, columns, amountFn, amountLabel } = config;
 
@@ -153,13 +139,11 @@ function _renderSection(config) {
         <span class="text-muted" style="font-size:12px;">（${rows.length}）</span>
       </div>
       <div class="glass-card" style="padding:0; overflow:hidden;">
-        <div style="overflow-x:auto;">
-          <table class="data-table mobile-cards" style="font-size:13px;">
+        <div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
+          <table class="data-table" style="min-width:560px; font-size:13px;">
             <thead>
               <tr>
-                ${columns.map((c) => `
-                  <th class="${c.hideMobile ? 'hide-mobile' : ''}">${escapeHtml(c.label)}</th>
-                `).join('')}
+                ${columns.map((c) => `<th>${escapeHtml(c.label)}</th>`).join('')}
                 ${hasAmount ? `<th class="num" style="width:120px;">${escapeHtml(amountLabel)}</th>` : ''}
                 <th style="width:150px;">操作</th>
               </tr>
@@ -179,23 +163,12 @@ function _renderRow(entityKey, row, columns, amountFn, hasAmount) {
     <tr data-entity="${entityKey}" data-id="${escapeHtml(row.id)}">
       ${columns.map((c) => {
         const val = row[c.key];
-        const cls = c.hideMobile ? 'hide-mobile' : '';
-        const isPrimary = c.primary;
-
-        if (isPrimary) {
-          return `<td class="${cls}" data-primary="1">${escapeHtml(val || '（未命名）')}</td>`;
-        }
-
-        return `<td class="${cls}" data-label="${escapeHtml(c.label)}">
-          ${val != null && val !== '' ? escapeHtml(String(val)) : '<span class="text-muted">—</span>'}
-        </td>`;
+        return `<td>${val != null && val !== '' ? escapeHtml(String(val)) : '<span class="text-muted">—</span>'}</td>`;
       }).join('')}
       ${hasAmount ? `
-        <td class="num text-emerald" data-label="${escapeHtml(amountFn ? '金額' : '')}">
-          ${formatHKD(amountFn(row))}
-        </td>
+        <td class="num text-emerald">${formatHKD(amountFn(row))}</td>
       ` : ''}
-      <td data-label="操作">
+      <td>
         <button class="btn btn-sm btn-ghost" data-action="edit" data-id="${escapeHtml(row.id)}">編輯</button>
         <button class="btn btn-sm btn-danger" data-action="delete" data-id="${escapeHtml(row.id)}">刪除</button>
       </td>
@@ -203,9 +176,6 @@ function _renderRow(entityKey, row, columns, amountFn, hasAmount) {
   `;
 }
 
-/* ============================================
-   事件處理
-   ============================================ */
 function _handleClick(e, root) {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
@@ -234,9 +204,6 @@ function _mapEntityKey(type) {
   }
 }
 
-/* ============================================
-   編輯
-   ============================================ */
 function _handleEdit(entityKey, id) {
   const rows = _getRowsByEntityKey(entityKey);
   openEntityModal({
@@ -256,9 +223,6 @@ function _getRowsByEntityKey(entityKey) {
   }
 }
 
-/* ============================================
-   刪除
-   ============================================ */
 async function _handleDelete(entityKey, id) {
   const rows = _getRowsByEntityKey(entityKey);
   const row = rows.find((r) => r.id === id);
