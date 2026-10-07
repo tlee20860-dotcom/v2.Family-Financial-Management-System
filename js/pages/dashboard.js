@@ -1,31 +1,22 @@
 // ============================================
-// dashboard.js — 總覽儀表板（v101）
+// dashboard.js — 總覽儀表板（v101.3）
 // 位置：js/pages/dashboard.js
 // ============================================
-// v101 改動：
-//   ✅ 只讀化（移除輸入功能）
-//   ✅ 用 app-config 讀取狀態
-//   ✅ 底部加快速摘要卡（Top 類別 + 最近活動）
-//   ✅ 避免雙重觸發（統一由 AppState ym-change 載入）
+// v101.3 修正：
+//   ✅ 移除未使用的 buildTopCategoriesData / buildRecentActivityData import
 // ============================================
 
 import { api } from '../core/api.js';
 import { AppState } from '../core/state.js';
 import { formatHKD, escapeHtml } from '../core/utils.js';
 import { renderPageFilter } from '../shared/page-filter.js';
-import {
-  renderQuickSummary,
-  buildTopCategoriesData,
-  buildRecentActivityData,
-} from '../shared/quick-summary.js';
+import { renderQuickSummary } from '../shared/quick-summary.js';
 import { QUICK_SUMMARY_TYPES } from '../config/constants.js';
 
 /* ============================================
    Module 狀態
    ============================================ */
 let _unsubscribeYM = null;
-let _lastAnnualData = null;
-let _lastMonthlyData = null;
 
 /* ============================================
    主入口
@@ -34,8 +25,6 @@ export async function initDashboardPage() {
   const filterInstance = renderPageFilter({
     containerId: 'page-filter-root',
     fields: ['year', 'month'],
-    // 不在 onChange 呼叫 loadDashboard（避免雙重觸發）
-    // 由 AppState ym-change 統一處理
   });
 
   // 統一資料流：只監聽 AppState 變更
@@ -67,17 +56,17 @@ async function loadDashboard() {
     monthEl.textContent = isAnnual ? `${year} 年 全年總覽` : `${year} 年 ${month} 月`;
   }
 
-  document.getElementById('annual-view').style.display = isAnnual ? 'block' : 'none';
-  document.getElementById('monthly-view').style.display = isAnnual ? 'none' : 'block';
+  const annualView = document.getElementById('annual-view');
+  const monthlyView = document.getElementById('monthly-view');
+  if (annualView) annualView.style.display = isAnnual ? 'block' : 'none';
+  if (monthlyView) monthlyView.style.display = isAnnual ? 'none' : 'block';
 
   try {
     if (isAnnual) {
       const data = await api.fetchAnnualSummary(year);
-      _lastAnnualData = data;
       renderAnnual(data);
     } else {
       const data = await api.summary(year, month);
-      _lastMonthlyData = data;
       renderMonthly(data);
     }
   } catch (err) {
@@ -109,7 +98,6 @@ function renderAnnual(data) {
 
   if (window.lucide) window.lucide.createIcons();
 
-  // 底部快速摘要
   _renderAnnualQuickSummary(data);
 }
 
@@ -197,7 +185,6 @@ function renderMonthly(data) {
   // 保單
   setText('hint-insurance', `共 ${data.policyCount || 0} 張保單`);
 
-  // 底部快速摘要
   _renderMonthlyQuickSummary(data);
 }
 
@@ -235,8 +222,8 @@ function _renderAnnualQuickSummary(data) {
 }
 
 function _renderMonthlyQuickSummary(data) {
-  const root = document.getElementById('quick-summary-root');
-  if (!root) return;
+  const topEl = document.getElementById('quick-summary-top');
+  const recentEl = document.getElementById('quick-summary-recent');
 
   // Top 類別
   const categories = {};
@@ -268,9 +255,6 @@ function _renderMonthlyQuickSummary(data) {
     });
   });
   allItems.sort((a, b) => b._ts - a._ts);
-
-  const topEl = document.getElementById('quick-summary-top');
-  const recentEl = document.getElementById('quick-summary-recent');
 
   if (topEl) {
     renderQuickSummary({
