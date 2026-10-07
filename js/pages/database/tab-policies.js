@@ -1,10 +1,11 @@
 // ============================================
-// tab-policies.js — 基礎資料庫：保單 Tab（v101）
+// tab-policies.js — 基礎資料庫：保單 Tab（v101.4）
 // 位置：js/pages/database/tab-policies.js
 // ============================================
-// 功能：
-//   保單定義 CRUD（新增 / 編輯 / 刪除）+ 年度保費設定
-//   保單的「每月扣款」在綜合輸入中心 → 保險扣款 Tab
+// v101.4 修正：
+//   ✅ 新增「保單持有人」欄位（policyHolderId）
+//   ✅ 保留「受保人」欄位（memberId）
+//   ✅ 列表顯示「持有人 / 受保人」
 // ============================================
 
 import {
@@ -14,7 +15,7 @@ import {
   addInsuranceCompany,
 } from '../../core/db.js';
 import { getOptions } from '../../config/app-config.js';
-import { escapeHtml, formatHKD, sortMembers, todayISO } from '../../core/utils.js';
+import { escapeHtml, formatHKD, sortMembers } from '../../core/utils.js';
 import { showToast } from '../../shared/toast.js';
 import { openModal, closeModal, openConfirm } from '../../shared/modal.js';
 import { buildForm } from '../../shared/form-builder.js';
@@ -94,6 +95,8 @@ function _renderForm() {
         includeEmpty: false, options: policyTypes,
       },
       { type: 'select', id: 'db-pol-member', label: '受保人', required: true, includeEmpty: true, emptyText: '— 請選擇 —' },
+      // 🆕 v101.4：保單持有人
+      { type: 'select', id: 'db-pol-holder', label: '保單持有人', required: false, includeEmpty: true, emptyText: '— 同受保人 —' },
       { type: 'text',   id: 'db-pol-name',   label: '保單名稱', required: true, placeholder: '例如：危疾+住院', maxlength: 60 },
       {
         type: 'select', id: 'db-pol-company', label: '保險公司',
@@ -133,16 +136,12 @@ function _renderForm() {
   _formApi.setFieldValue('db-pol-start-month', '01');
   _formApi.setFieldValue('db-pol-total-years', 5);
   _formApi.setFieldValue('db-pol-current-period', 1);
-
-  // 類別變更時，受保人重新校驗
-  _formApi.onFieldChange('db-pol-type', () => {
-    // 未來可擴充：不同類型顯示不同欄位
-  });
 }
 
 async function _handleAdd(data) {
   const type = data['db-pol-type'] || 'normal';
   const memberId = data['db-pol-member'];
+  const policyHolderId = data['db-pol-holder'] || memberId;   // 🆕 若未選，預設 = 受保人
   const name = (data['db-pol-name'] || '').trim();
   const company = data['db-pol-company'] || '';
   const startYear = Number(data['db-pol-start-year']);
@@ -171,6 +170,7 @@ async function _handleAdd(data) {
   const payload = {
     type,
     memberId,
+    policyHolderId,   // 🆕 v101.4
     name,
     company,
     paymentType,
@@ -203,7 +203,6 @@ async function _handleAdd(data) {
 function _renderModal() {
   const policyTypes = getOptions('policyTypes');
   const paymentTypes = getOptions('insurancePaymentTypes');
-  const currentYear = new Date().getFullYear();
 
   const existing = document.getElementById(MODAL_ID);
   if (existing) existing.remove();
@@ -230,6 +229,8 @@ function _renderModal() {
       { type: 'hidden', id: 'db-pol-edit-id' },
       { type: 'select', id: 'db-pol-edit-type', label: '保單類型', includeEmpty: false, options: policyTypes },
       { type: 'select', id: 'db-pol-edit-member', label: '受保人', required: true, includeEmpty: true, emptyText: '— 請選擇 —' },
+      // 🆕 v101.4：保單持有人
+      { type: 'select', id: 'db-pol-edit-holder', label: '保單持有人', required: false, includeEmpty: true, emptyText: '— 同受保人 —' },
       { type: 'text',   id: 'db-pol-edit-name', label: '保單名稱', required: true, maxlength: 60 },
       { type: 'select', id: 'db-pol-edit-company', label: '保險公司', includeEmpty: true, emptyText: '— 請選擇 —' },
       { type: 'number', id: 'db-pol-edit-start-year', label: '保單開始年份', required: true, min: 2000, max: 2100 },
@@ -249,7 +250,6 @@ function _renderModal() {
 
   _modalFormApi.updateOptions('db-pol-edit-start-month', months, { includeEmpty: false });
 
-  // Backdrop 關閉
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) closeModal(MODAL_ID);
   });
@@ -261,6 +261,7 @@ async function _handleEdit(data) {
 
   const type = data['db-pol-edit-type'] || 'normal';
   const memberId = data['db-pol-edit-member'];
+  const policyHolderId = data['db-pol-edit-holder'] || memberId;   // 🆕
   const name = (data['db-pol-edit-name'] || '').trim();
   const company = data['db-pol-edit-company'] || '';
   const startYear = Number(data['db-pol-edit-start-year']);
@@ -275,7 +276,6 @@ async function _handleEdit(data) {
     return { field: 'db-pol-edit-name', message: '請填寫保單名稱並選擇受保人' };
   }
 
-  // 保留原有的 periods，但更新當前年度
   const original = _policies.find((p) => p.id === id);
   const periods = { ...(original?.periods || {}) };
 
@@ -291,6 +291,7 @@ async function _handleEdit(data) {
   const payload = {
     type,
     memberId,
+    policyHolderId,   // 🆕
     name,
     company,
     paymentType,
@@ -323,7 +324,11 @@ function _bindListeners() {
       _members = sortMembers(list);
       const options = _members.map((m) => ({ value: m.id, label: m.name }));
       _formApi?.updateOptions('db-pol-member', options, { includeEmpty: true, emptyText: '— 請選擇 —' });
+      _formApi?.updateOptions('db-pol-holder', options, { includeEmpty: true, emptyText: '— 同受保人 —' });
       _modalFormApi?.updateOptions('db-pol-edit-member', options, { includeEmpty: true, emptyText: '— 請選擇 —' });
+      _modalFormApi?.updateOptions('db-pol-edit-holder', options, { includeEmpty: true, emptyText: '— 同受保人 —' });
+      // 成員更新後重繪列表（顯示名稱）
+      _render();
     })
   );
 
@@ -365,6 +370,7 @@ function _render() {
         <thead>
           <tr>
             <th>保單名稱</th>
+            <th class="hide-mobile">保單持有人</th>
             <th class="hide-mobile">受保人</th>
             <th class="hide-mobile">公司</th>
             <th class="num">年期</th>
@@ -382,8 +388,10 @@ function _render() {
 }
 
 function _renderRow(p) {
-  const member = _members.find((m) => m.id === p.memberId);
-  const memberName = member ? member.name : '（未指定）';
+  const holder = _members.find((m) => m.id === (p.policyHolderId || p.memberId));
+  const holderName = holder ? holder.name : '（未指定）';
+  const insured = _members.find((m) => m.id === p.memberId);
+  const insuredName = insured ? insured.name : '（未指定）';
   const totalYears = Number(p.totalPolicyYears) || 0;
   const currentPeriod = Number(p.currentPeriodIndex) || 1;
 
@@ -393,7 +401,8 @@ function _renderRow(p) {
         ${escapeHtml(p.name || '（未命名）')}
         ${p.type === 'fund_insurance' ? '<span class="badge badge-info" style="margin-left:6px;">基金</span>' : ''}
       </td>
-      <td class="hide-mobile" data-label="受保人">${escapeHtml(memberName)}</td>
+      <td class="hide-mobile" data-label="保單持有人">${escapeHtml(holderName)}</td>
+      <td class="hide-mobile" data-label="受保人">${escapeHtml(insuredName)}</td>
       <td class="hide-mobile" data-label="公司" style="font-size:11px; color:var(--text-muted);">
         ${escapeHtml(p.company || '—')}
       </td>
@@ -448,7 +457,6 @@ function _openEditModal(policy) {
 
   if (!_modalFormApi) return;
 
-  // 從 periods 取當前年度的年繳保費
   const curPeriodData = (policy.periods || {})[String(policy.currentPeriodIndex || 1)];
   const annualPremium = curPeriodData ? curPeriodData.annualPremium : 0;
 
@@ -456,6 +464,7 @@ function _openEditModal(policy) {
     'db-pol-edit-id': policy.id,
     'db-pol-edit-type': policy.type || 'normal',
     'db-pol-edit-member': policy.memberId || '',
+    'db-pol-edit-holder': policy.policyHolderId || '',   // 🆕
     'db-pol-edit-name': policy.name || '',
     'db-pol-edit-company': policy.company || '',
     'db-pol-edit-start-year': policy.firstStartYear || new Date().getFullYear(),
@@ -487,7 +496,6 @@ async function _handleQuickAddCompany() {
     await addInsuranceCompany(trimmed);
     showToast(`✅ 已新增「${trimmed}」`, 'success');
 
-    // 自動選中
     setTimeout(() => {
       const current = _formApi?.getFieldValue('db-pol-company');
       if (!current) _formApi?.setFieldValue('db-pol-company', trimmed);
