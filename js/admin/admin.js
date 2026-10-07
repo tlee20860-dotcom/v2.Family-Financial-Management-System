@@ -1,12 +1,10 @@
 // ============================================
-// admin.js — 平台管理入口（v101）
+// admin.js — 平台管理入口（v101.3）
 // 位置：js/admin/admin.js
 // ============================================
-// 2 層結構：
-//   Tab 1：家庭管理（家庭清單 + 初始化）
-//   Tab 2：預設資料庫（呼叫 platform-defaults.js 的 9 個子 Tab）
-//
-// 權限：僅 superadmin 可存取
+// v101.3 修正：
+//   ✅ 移除未使用的 openModal / closeModal import
+//   ✅ 移除未使用的 FAMILY_MODAL_ID 變數
 // ============================================
 
 import { api } from '../core/api.js';
@@ -14,7 +12,7 @@ import { escapeHtml } from '../core/utils.js';
 import { logout } from '../core/auth.js';
 import { AppState } from '../core/state.js';
 import { showToast } from '../shared/toast.js';
-import { openConfirm, openModal, closeModal } from '../shared/modal.js';
+import { openConfirm } from '../shared/modal.js';
 import { buildForm } from '../shared/form-builder.js';
 import { initTabPanel } from '../shared/tab-panel.js';
 import { initPlatformDefaults } from './platform-defaults.js';
@@ -26,8 +24,6 @@ let _families = [];
 let _familyInputApi = null;
 let _tabPanel = null;
 let _defaultsInstance = null;
-
-const FAMILY_MODAL_ID = 'admin-family-init-modal';
 
 /* ============================================
    主入口
@@ -75,7 +71,6 @@ export function initAdminPage() {
    ============================================ */
 function _onTabChange(key) {
   if (key === 'defaults' && !_defaultsInstance) {
-    // 懶載入平台預設資料庫
     _defaultsInstance = initPlatformDefaults('admin-defaults-root');
   }
 }
