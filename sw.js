@@ -1,14 +1,15 @@
 // ============================================
-// sw.js — Service Worker（v101.6.6）
+// sw.js — Service Worker（v101.6.7）
 // ============================================
-// v101.6.6 更新：
-//   ✅ CACHE_NAME = family-fin-v107（v106 → v107）
-//   ✅ 對應 v101.6.6 修正：settlements / insurance / member-report
-//      / dashboard / tab-banks / view-toggle / data-table / data-card
-//      / utils / constants / sidebar / sidebar-order / db / admin / settings
+// v101.6.7 更新：
+//   ✅ CACHE_NAME = family-fin-v108（v107 → v108）
+//   ✅ 對應 v101.6.7 修正：
+//      - input-center/recent-list.js（rowKey 修正）
+//      - settlements/index.js（編輯/刪除按鈕）
+//      - settlements/render.js（編輯/刪除邏輯）
 // ============================================
 
-const CACHE_NAME = 'family-fin-v107';
+const CACHE_NAME = 'family-fin-v108';
 
 const STATIC_ASSETS = [
   // ================= CSS =================

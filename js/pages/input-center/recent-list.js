@@ -1,9 +1,13 @@
 // ============================================
-// recent-list.js — 輸入中心：最近 20 筆（v101.6.5）
+// recent-list.js — 輸入中心：最近 20 筆（v101.6.7）
 // 位置：js/pages/input-center/recent-list.js
 // ============================================
-// v101.6.5 修正：
-//   ✅ 移除外層 padding（表格貼邊，用盡寬度）
+// v101.6.7 修正：
+//   ✅ [問題1] 修復 rowKey 格式不一致導致的編輯/刪除無效
+//       - 支出 id 從 Firebase push key 改為複合 key（用 | 分隔）
+//       - 收入 id 同步改為 | 分隔，避免 Firebase push key 含 - 造成衝突
+//       - _openEditExpenseModal / _handleDeleteExpense / _openEditIncomeModal
+//         / _handleDeleteIncome 改用 split('|')
 // ============================================
 
 import {
@@ -85,7 +89,6 @@ function _render(root) {
     return;
   }
 
-  // 🆕 v101.6.5：移除 padding，表格貼邊
   root.innerHTML = `
     <div style="padding:0 0 20px;">
       <div class="text-muted" style="font-size:12px; margin-bottom:10px; padding:0 16px;">
@@ -125,7 +128,8 @@ function _mergeItems() {
       type: 'expense',
       typeLabel: '支出',
       typeBadge: 'badge-pending',
-      id: e.id,
+      // 🆕 v101.6.7：複合 key 用 | 分隔（Firebase push key 含 - 會衝突）
+      id: `${e.year}|${e.month}|${e.memberId}|${e.id}`,
       year: e.year,
       month: e.month,
       memberId: e.memberId,
@@ -148,7 +152,8 @@ function _mergeItems() {
       type: 'income',
       typeLabel: '收入',
       typeBadge: 'badge-success',
-      id: `income-${inc.year}-${inc.month}-${inc.memberId}`,
+      // 🆕 v101.6.7：複合 key 用 | 分隔
+      id: `${inc.year}|${inc.month}|${inc.memberId}`,
       year: inc.year,
       month: inc.month,
       memberId: inc.memberId,
@@ -213,8 +218,12 @@ function _handleClick(e, root) {
   }
 }
 
+/* ============================================
+   編輯：支出
+   ============================================ */
 async function _openEditExpenseModal(key) {
-  const parts = key.split('-');
+  // 🆕 v101.6.7：改用 | 分隔
+  const parts = key.split('|');
   if (parts.length < 4) return;
   const [year, month, memberId, id] = parts;
 
@@ -274,8 +283,12 @@ async function _openEditExpenseModal(key) {
   if (window.lucide) window.lucide.createIcons();
 }
 
+/* ============================================
+   刪除：支出
+   ============================================ */
 async function _handleDeleteExpense(key) {
-  const parts = key.split('-');
+  // 🆕 v101.6.7：改用 | 分隔
+  const parts = key.split('|');
   if (parts.length < 4) return;
   const [year, month, memberId, id] = parts;
 
@@ -299,10 +312,14 @@ async function _handleDeleteExpense(key) {
   }
 }
 
+/* ============================================
+   編輯：收入
+   ============================================ */
 async function _openEditIncomeModal(key) {
-  const parts = key.split('-');
-  if (parts.length < 4) return;
-  const [, year, month, memberId] = parts;
+  // 🆕 v101.6.7：改用 | 分隔
+  const parts = key.split('|');
+  if (parts.length < 3) return;
+  const [year, month, memberId] = parts;
 
   const memberName = memberId === RESERVED_IDS.EXTRA_INCOME
     ? '額外收入'
@@ -348,10 +365,14 @@ async function _openEditIncomeModal(key) {
   if (window.lucide) window.lucide.createIcons();
 }
 
+/* ============================================
+   刪除：收入
+   ============================================ */
 async function _handleDeleteIncome(key) {
-  const parts = key.split('-');
-  if (parts.length < 4) return;
-  const [, year, month, memberId] = parts;
+  // 🆕 v101.6.7：改用 | 分隔
+  const parts = key.split('|');
+  if (parts.length < 3) return;
+  const [year, month, memberId] = parts;
 
   const memberName = memberId === RESERVED_IDS.EXTRA_INCOME
     ? '額外收入'

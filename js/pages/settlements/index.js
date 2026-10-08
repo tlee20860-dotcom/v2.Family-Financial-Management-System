@@ -1,10 +1,12 @@
 // ============================================
-// index.js — 結算清單入口（v101.6.6）
+// index.js — 結算清單入口（v101.6.7）
 // 位置：js/pages/settlements/index.js
 // ============================================
-// v101.6.6 修正：
-//   ✅ [BUG-01] 修復監聽器洩漏：_loadMonthly 每次呼叫前先取消舊訂閱
-//   ✅ 保留所有 v101.6 功能
+// v101.6.7 修正：
+//   ✅ [問題2] 每列加入「編輯 / 刪除」按鈕
+//       - 個人支出：完整編輯 Modal（名稱/金額/日期/狀態）+ 刪除
+//       - 保險扣款：僅改狀態 + 取消扣款
+//   ✅ 保留 v101.6.6 監聽器洩漏修正
 // ============================================
 
 import { AppState } from '../../core/state.js';
@@ -33,6 +35,8 @@ import {
   getMemberName,
   updateRowStatus,
   setMembersCache,
+  openSettlementEditModal,
+  handleSettlementDelete,
 } from './render.js';
 
 /* ============================================
@@ -55,7 +59,7 @@ let _tableApi = null;
 let _sortHandler = null;
 let _statusChangeHandler = null;
 
-// 🆕 v101.6.6：單月監聽器的 unsubscribe（避免 BUG-01 洩漏）
+// 單月監聽器的 unsubscribe（避免 BUG-01 洩漏）
 let _monthlyUnsub = null;
 
 const listenerGroup = createListenerGroup();
@@ -112,14 +116,12 @@ export async function initSettlementsPage() {
     },
   });
 
-  // 排序
   _sortHandler = (e) => {
     _sortMode = e.target.value;
     _render();
   };
   document.getElementById('settlement-sort')?.addEventListener('change', _sortHandler);
 
-  // 訂閱成員 → 更新快取
   listenerGroup.add(
     listenMembers((list) => {
       setMembersCache(list);
@@ -127,13 +129,10 @@ export async function initSettlementsPage() {
     })
   );
 
-  // 訂閱年月變更
   listenerGroup.add(AppState.on('ym-change', () => _reload()));
 
-  // 綁定狀態變更
   _bindStatusChange();
 
-  // 初次載入
   await _reload();
 
   registerPageCleanup(_destroy);
@@ -193,7 +192,6 @@ async function _reload() {
    單月載入
    ============================================ */
 async function _loadMonthly(year, month) {
-  // 🆕 v101.6.6：先取消舊的 monthly 監聽器（BUG-01 修正）
   if (_monthlyUnsub) {
     try { _monthlyUnsub(); } catch (e) { /* noop */ }
     _monthlyUnsub = null;
@@ -219,7 +217,6 @@ async function _loadMonthly(year, month) {
    全年載入
    ============================================ */
 async function _loadAnnual(year) {
-  // 全年模式時，取消單月監聽器
   if (_monthlyUnsub) {
     try { _monthlyUnsub(); } catch (e) { /* noop */ }
     _monthlyUnsub = null;
@@ -412,6 +409,24 @@ function _renderTable() {
     _tableApi = null;
   }
 
+  // 🆕 v101.6.7：加入編輯 / 刪除按鈕
+  const actionFactory = (row) => [
+    {
+      label: '編輯',
+      icon: 'pencil',
+      className: 'btn-ghost',
+      action: 'edit-settlement',
+      onClick: (r) => openSettlementEditModal(r, _reload),
+    },
+    {
+      label: row.source === 'insurance' ? '取消扣款' : '刪除',
+      icon: 'trash-2',
+      className: 'btn-danger',
+      action: 'delete-settlement',
+      onClick: (r) => handleSettlementDelete(r, _reload),
+    },
+  ];
+
   _tableApi = renderDataTable({
     container: root,
     entityKey: '__settlement__',
@@ -435,7 +450,8 @@ function _renderTable() {
         }
         return null;
       },
-      customActions: () => [],
+      // 🆕 v101.6.7：每列加入編輯 / 刪除
+      customActions: actionFactory,
     },
   });
 
@@ -489,7 +505,6 @@ function _applySort(list) {
 function _destroy() {
   listenerGroup.destroy();
 
-  // 🆕 v101.6.6：明確取消 monthly 監聽器
   if (_monthlyUnsub) {
     try { _monthlyUnsub(); } catch (e) { /* noop */ }
     _monthlyUnsub = null;
