@@ -1,17 +1,13 @@
 // ============================================
-// sw.js — Service Worker（v101.7.0）
+// sw.js — Service Worker（v101.7.1）
 // ============================================
-// v101.7.0 更新：
-//   ✅ CACHE_NAME = family-fin-v115（v114 → v115）
-//   ✅ 對應 v101.7.0 修正：
-//      - shared/data-table.js（expandable / collapsible / renderDetail / headerActions）
-//      - css/components.css（可摺疊 + 每列展開 + 卡片網格）
-//      - settlements / member-report / finance-overview / dashboard
-//        / annual-report / recent-list / holdings-list（雙模式 + 可摺疊）
-//      - 對應 HTML（新增容器）
+// v101.7.1 更新：
+//   ✅ CACHE_NAME = family-fin-v116（v115 → v116）
+//   ✅ 對應 v101.7.1 修正：
+//      - pages/input-center/recent-list.js（成員顯示：家庭共用）
 // ============================================
 
-const CACHE_NAME = 'family-fin-v115';
+const CACHE_NAME = 'family-fin-v116';
 
 const STATIC_ASSETS = [
   './css/theme.css',

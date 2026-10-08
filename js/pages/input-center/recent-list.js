@@ -1,10 +1,12 @@
 // ============================================
-// recent-list.js — 輸入中心：最近 20 筆（v101.7.0）
+// recent-list.js — 輸入中心：最近 20 筆（v101.7.1）
 // 位置：js/pages/input-center/recent-list.js
 // ============================================
-// v101.7.0 新增：
-//   ✅ 雙模式切換（卡片 / 表格）
-//   ✅ 表格可摺疊 + 每列展開
+// v101.7.1 修正：
+//   ✅ [成員顯示] _memberName() 補上 RESERVED_IDS.SHARED_MEMBER 處理
+//       - memberId === 'shared' → 「家庭共用」
+//       - 與 settlements/render.js 的 getMemberName 邏輯對齊
+//   ✅ 保留 v101.7.0 全部功能（雙模式 + 可摺疊）
 // ============================================
 
 import {
@@ -27,7 +29,7 @@ let _expenses = [];
 let _incomes = [];
 let _members = [];
 let _membersMap = {};
-let _items = [];   // 用於顯示類別 / 項目名稱
+let _items = [];
 
 let _viewToggle = null;
 let _tableApi = null;
@@ -50,7 +52,6 @@ export function initRecentList(containerId, options = {}) {
     <div id="${containerId}-content"></div>
   `;
 
-  // 初始化 view-toggle
   _viewToggle = initViewToggle({
     containerId: `${containerId}-view-toggle`,
     storageKey: 'recent-list-view',
@@ -198,7 +199,6 @@ function _renderCards(contentEl, limited, totalCount) {
 
   if (window.lucide) window.lucide.createIcons();
 
-  // 綁定事件
   const cardsRoot = document.getElementById('recent-list-cards-root');
   if (cardsRoot) {
     cardsRoot.addEventListener('click', (e) => {
@@ -263,7 +263,7 @@ function _mergeItems() {
 
   _incomes.forEach((inc, idx) => {
     const ts = new Date(Number(inc.year), Number(inc.month) - 1, 1).getTime() + idx;
-    const memberName = inc.memberId === RESERVED_IDS.EXTRA_INCOME ? '額外收入' : (_membersMap[inc.memberId] || '（未知）');
+    const memberName = _memberName(inc.memberId);
     items.push({
       type: 'income', typeLabel: '收入', typeBadge: 'badge-success',
       id: `${inc.year}|${inc.month}|${inc.memberId}`,
@@ -277,8 +277,13 @@ function _mergeItems() {
   return items;
 }
 
+/* ============================================
+   🆕 v101.7.1：成員名稱（含家庭共用 / 額外收入）
+   ============================================ */
 function _memberName(memberId) {
   if (memberId === RESERVED_IDS.EXTRA_INCOME) return '額外收入';
+  // 🆕 v101.7.1：與 settlements/render.js 對齊
+  if (memberId === RESERVED_IDS.SHARED_MEMBER) return '家庭共用';
   return _membersMap[memberId] || '（未知）';
 }
 
@@ -306,7 +311,7 @@ async function _openEditExpenseModal(row) {
   const MODAL_ID = 'ic-edit-expense-modal';
   _destroyModal(MODAL_ID);
 
-  const memberName = _membersMap[memberId] || '（未知）';
+  const memberName = _memberName(memberId);
   const statusList = getStatusesByCategory('personal');
 
   _createModal(MODAL_ID, '編輯支出');
@@ -354,7 +359,7 @@ async function _openEditIncomeModal(row) {
   const parts = row.id.split('|');
   if (parts.length < 3) return;
   const [year, month, memberId] = parts;
-  const memberName = memberId === RESERVED_IDS.EXTRA_INCOME ? '額外收入' : (_membersMap[memberId] || '（未知）');
+  const memberName = _memberName(memberId);
 
   let currentAmount = 0;
   try {
@@ -390,7 +395,7 @@ async function _deleteIncome(row) {
   const parts = row.id.split('|');
   if (parts.length < 3) return;
   const [year, month, memberId] = parts;
-  const memberName = memberId === RESERVED_IDS.EXTRA_INCOME ? '額外收入' : (_membersMap[memberId] || '（未知）');
+  const memberName = _memberName(memberId);
 
   const ok = await openConfirm(`確定要刪除「${year}-${month} ${memberName}」的收入嗎？`, { title: '刪除收入', okText: '刪除', okClass: 'btn-danger' });
   if (!ok) return;
