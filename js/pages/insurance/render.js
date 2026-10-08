@@ -1,12 +1,12 @@
 // ============================================
-// render.js — 保險渲染模組（v101.8.0）
+// render.js — 保險渲染模組（v101.8.7）
 // 位置：js/pages/insurance/render.js
 // ============================================
-// v101.8.0 修正：
-//   ✅ 依 AppState.canInput 隱藏編輯 / 刪除 / 恢復供款按鈕
-//   ✅ 卡片 policy-actions 區塊依 canInput
-//   ✅ 表格操作欄依 canInput（唯讀時整欄隱藏）
-//   ✅ 保留 v101.6.10 已供滿展開 + v101.6.6 isDoneStatus 修正
+// v101.8.7 修正：
+//   ✅ 表格加入「開始年度」欄位（只顯示年份，方便分辨）
+//   ✅ 表格依「開始年度」排序（新 → 舊）
+//   ✅ colspan 動態計算（加入新欄位）
+//   ✅ 保留 v101.8.0 canInput + v101.6.10 已供滿展開
 // ============================================
 
 import { escapeHtml, formatHKD } from '../../core/utils.js';
@@ -23,7 +23,6 @@ import { isDoneStatus } from '../../shared/entity-helpers.js';
    ============================================ */
 const _expandedKeys = new Set();
 
-// v101.6.10：已供滿保單區塊展開狀態
 let _completedOpen = false;
 
 export function toggleExpand(key) {
@@ -67,14 +66,12 @@ function _applyCompletedOpenState() {
 }
 
 /* ============================================
-   1. 統計卡（保留相容）
+   統計卡（保留相容）
    ============================================ */
-export function renderStats() {
-  // v101.6：已由 index.js 的 _renderStats 使用 stats-cards.js
-}
+export function renderStats() {}
 
 /* ============================================
-   2. 已供滿區塊
+   已供滿區塊
    ============================================ */
 export function renderCompletedSection(completed, members) {
   const section = document.getElementById('completed-section');
@@ -146,9 +143,6 @@ function _holderName(members, p) {
   return _memberName(members, getPolicyHolderId(p));
 }
 
-/**
- * 🆕 v101.8.0：取得操作按鈕 HTML（依 canInput）
- */
 function _getActionsHtml(p, isCompleted) {
   if (!AppState.getCanInput()) return '';
 
@@ -181,7 +175,6 @@ function _renderFundInsuranceCard(p, members) {
   const insuredName = _memberName(members, p.memberId);
   const holderName = _holderName(members, p);
 
-  // 🆕 v101.8.0：依 canInput 顯示操作按鈕
   const actionsHtml = AppState.getCanInput() ? `
     <div class="policy-actions">
       <button type="button" class="btn btn-sm btn-ghost" data-action="edit-policy" data-id="${p.id}">
@@ -211,6 +204,10 @@ function _renderFundInsuranceCard(p, members) {
       </div>
     </div>
     <div class="policy-info-grid" style="margin-top:10px; padding-top:10px; border-top:1px dashed rgba(255,255,255,0.08);">
+      <div class="policy-info-item">
+        <span class="policy-info-label">開始年度</span>
+        <span class="policy-info-value">${p.firstStartYear || '—'} 年</span>
+      </div>
       <div class="policy-info-item">
         <span class="policy-info-label">每月供款</span>
         <span class="policy-info-value text-cyan">${formatHKD(p.monthlyPremium)}</span>
@@ -311,7 +308,7 @@ function _renderNormalPolicyCard(p, members, isCompleted) {
 }
 
 /* ============================================
-   4. 表格模式
+   4. 表格模式（🆕 v101.8.7：加入開始年度）
    ============================================ */
 export function renderPolicyTable(container, list, { members }) {
   if (!container) return;
@@ -321,13 +318,16 @@ export function renderPolicyTable(container, list, { members }) {
     return;
   }
 
+  // 🆕 v101.8.7：依開始年度（新→舊）排序
   const sorted = [...list].sort((a, b) => {
-    const da = new Date(Number(a.firstStartYear), Number(a.firstStartMonth) - 1, 1);
-    const db = new Date(Number(b.firstStartYear), Number(b.firstStartMonth) - 1, 1);
-    return da - db;
+    const ya = Number(a.firstStartYear) || 0;
+    const yb = Number(b.firstStartYear) || 0;
+    if (ya !== yb) return yb - ya;   // 新年度優先
+    const ma = Number(a.firstStartMonth) || 1;
+    const mb = Number(b.firstStartMonth) || 1;
+    return mb - ma;
   });
 
-  // 🆕 v101.8.0：依 canInput 決定是否顯示操作欄
   const userCanInput = AppState.getCanInput();
   const actionsHeader = userCanInput ? `<th>操作</th>` : '';
 
@@ -339,6 +339,7 @@ export function renderPolicyTable(container, list, { members }) {
             <tr>
               <th style="width:36px;"></th>
               <th class="hide-mobile">開始日期</th>
+              <th class="hide-mobile">開始年度</th>
               <th class="hide-mobile">持有人</th>
               <th class="hide-mobile">受保人</th>
               <th>保單名稱</th>
@@ -380,9 +381,9 @@ function _renderTableRow(p, members) {
   const tableKey = `table-${p.id}`;
   const isOpen = isExpanded(tableKey);
 
-  // 🆕 v101.8.0：依 canInput 決定操作欄
   const userCanInput = AppState.getCanInput();
-  const colspan = userCanInput ? 12 : 11;
+  // 🆕 v101.8.7：加入「開始年度」欄位 → colspan +1
+  const colspan = userCanInput ? 13 : 12;
 
   const actionsCell = userCanInput ? `
     <td>
@@ -403,6 +404,9 @@ function _renderTableRow(p, members) {
         </button>
       </td>
       <td class="mono hide-mobile" style="font-size:12px;">${startDateText}</td>
+      <td class="hide-mobile" style="font-size:12px;">
+        <span class="badge badge-info" style="font-size:11px;">${p.firstStartYear || '—'}</span>
+      </td>
       <td class="hide-mobile">${escapeHtml(holderName)}</td>
       <td class="hide-mobile">${escapeHtml(insuredName)}</td>
       <td class="policy-name-cell">${escapeHtml(p.name || '')}</td>
@@ -454,7 +458,6 @@ function _renderPolicyDetail(policy, payments) {
       );
       const amount = payment.amount ? Math.round(payment.amount) : defaultAmount;
 
-      // v101.6.6：改用 isDoneStatus（支援家庭自訂狀態名稱）
       const isPaid = isDoneStatus(payment.status, 'insurance');
       const statusText = payment.status || (isPaid ? '已扣款' : '未扣款');
 

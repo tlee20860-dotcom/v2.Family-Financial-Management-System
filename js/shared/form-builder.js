@@ -1,15 +1,12 @@
 // ============================================
-// form-builder.js — 通用動態表單建構器（v101.5）
+// form-builder.js — 通用動態表單建構器（v101.8.7）
 // 位置：js/shared/form-builder.js
 // ============================================
-// v101.5 修正：
-//   ✅ 新增 optionsSource 支援（動態選項由 entity-helpers 提供）
-//   ✅ 新增 dependsOn 支援（欄位連動）
-//   ✅ 新增 setLoading / clearField 便利方法
-//   ✅ 強化必填驗證：0 視為有效值
-//   ✅ 強化 beforeSubmit：支援 async
-//   ✅ 新增 onFieldChange 回傳 unsubscribe
-//   ✅ 欄位 ID 前綴統一由 idPrefix 管理
+// v101.8.7 修正：
+//   ✅ [BUG] 新增 number-plain 型別支援（數字輸入框，無 HK$ 前綴）
+//       - 原本未處理 → inputHtml 為空 → 只顯示 label
+//       - 影響：保單表單的 firstStartYear / totalPolicyYears / currentPeriodIndex
+//   ✅ 保留 v101.5 全部功能
 // ============================================
 
 import { escapeHtml } from '../core/utils.js';
@@ -20,25 +17,6 @@ import { getDynamicOptions } from './entity-helpers.js';
    主函式
    ============================================ */
 
-/**
- * 建立動態表單
- * @param {Object} options
- * @param {string} options.containerId - 容器 ID
- * @param {Array} options.fields - 欄位定義
- * @param {string} [options.idPrefix] - 欄位 ID 前綴（自動加在 f.id 前）
- * @param {string} [options.submitText='儲存']
- * @param {string} [options.cancelText='取消']
- * @param {boolean} [options.showCancel=true]
- * @param {boolean} [options.showReset=false]
- * @param {string} [options.resetText='重置']
- * @param {Function} [options.onSubmit] - (data, api) => Promise
- * @param {Function} [options.onCancel] - () => {}
- * @param {Function} [options.onReset] - () => {}
- * @param {Function} [options.beforeSubmit] - (data) => true | string | {field, message} | Promise
- * @param {boolean} [options.autoValidate=true] - 是否自動檢查必填
- * @param {Object} [options.initialData] - 初始資料
- * @returns {Object|null}
- */
 export function buildForm(options) {
   const {
     containerId,
@@ -104,7 +82,7 @@ export function buildForm(options) {
      內部狀態
      ============================================ */
   let _submitting = false;
-  const _dynamicCleanups = [];   // 動態選項的 unsubscribe
+  const _dynamicCleanups = [];
 
   /* ============================================
      事件：Submit
@@ -114,12 +92,10 @@ export function buildForm(options) {
 
     if (_submitting) return;
 
-    // 清除舊錯誤
     _clearErrors();
 
     const data = _collectData(fields, fieldIdMap);
 
-    // 自動必填檢查
     if (autoValidate) {
       const error = _validateRequired(fields, data, fieldIdMap);
       if (error) {
@@ -131,7 +107,6 @@ export function buildForm(options) {
       }
     }
 
-    // 自訂驗證（支援 async）
     if (typeof beforeSubmit === 'function') {
       let result;
       try {
@@ -156,7 +131,6 @@ export function buildForm(options) {
 
     if (typeof onSubmit !== 'function') return;
 
-    // 送出
     _setSubmitting(true);
     try {
       await onSubmit(data, api);
@@ -228,7 +202,6 @@ export function buildForm(options) {
     for (const f of fields) {
       const resolvedId = fieldIdMap[f.id] || f.id;
 
-      // 動態選項（optionsSource）
       if (f.type === 'select' && f.optionsSource) {
         try {
           const opts = await getDynamicOptions(f.optionsSource);
@@ -241,7 +214,6 @@ export function buildForm(options) {
         }
       }
 
-      // 初始資料
       if (initialData && initialData[f.id] !== undefined) {
         api.setFieldValue(f.id, initialData[f.id]);
       } else if (f.defaultValue != null) {
@@ -249,7 +221,6 @@ export function buildForm(options) {
         api.setFieldValue(f.id, def);
       }
 
-      // 連動欄位
       if (f.dependsOn) {
         const sourceId = fieldIdMap[f.dependsOn] || f.dependsOn;
         const sourceEl = document.getElementById(sourceId);
@@ -370,7 +341,6 @@ export function buildForm(options) {
     },
   };
 
-  // 非同步初始化（動態選項 + 初始資料）
   _initDynamicFields().then(() => {
     if (window.lucide) window.lucide.createIcons();
   });
@@ -439,13 +409,16 @@ function _renderField(f, fieldIdMap) {
       `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`
     ).join('');
     inputHtml = `<select class="select" id="${finalId}" ${required ? 'required' : ''} ${disabled ? 'disabled' : ''}>${opts}</select>`;
-  } else if (type === 'number') {
+  } else if (type === 'number' || type === 'number-plain') {
+    // 🆕 v101.8.7：number-plain 與 number 使用相同渲染（差異在格式化）
     const attrs = [
       min != null ? `min="${min}"` : '',
       max != null ? `max="${max}"` : '',
       step != null ? `step="${step}"` : 'step="1"',
     ].filter(Boolean).join(' ');
-    inputHtml = `<input class="input mono" id="${finalId}" type="number" ${attrs} ${required ? 'required' : ''} ${disabled ? 'disabled' : ''} placeholder="${escapeHtml(placeholder)}">`;
+    // number 用 mono 字體，number-plain 用一般字體
+    const inputClass = type === 'number' ? 'input mono' : 'input';
+    inputHtml = `<input class="${inputClass}" id="${finalId}" type="number" ${attrs} ${required ? 'required' : ''} ${disabled ? 'disabled' : ''} placeholder="${escapeHtml(placeholder)}">`;
   } else if (type === 'text') {
     inputHtml = `<input class="input" id="${finalId}" type="text" ${required ? 'required' : ''} ${disabled ? 'disabled' : ''} placeholder="${escapeHtml(placeholder)}" maxlength="${f.maxlength || 60}">`;
   } else if (type === 'textarea') {
@@ -499,7 +472,7 @@ function _collectData(fields, fieldIdMap) {
 
     if (f.type === 'checkbox') {
       data[f.id] = el.checked;
-    } else if (f.type === 'number') {
+    } else if (f.type === 'number' || f.type === 'number-plain') {
       data[f.id] = el.value === '' ? 0 : (isNaN(Number(el.value)) ? 0 : Number(el.value));
     } else {
       data[f.id] = el.value;
