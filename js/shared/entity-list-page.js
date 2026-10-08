@@ -1,22 +1,9 @@
 // ============================================
-// entity-list-page.js — 實體列表頁骨架（v101.6 🆕）
+// entity-list-page.js — 實體列表頁骨架（v101.6.6）
 // 位置：js/shared/entity-list-page.js
 // ============================================
-// 職責：
-//   1. 從 entity-definitions.js 讀取配置
-//   2. 自動監聽 Firebase 資料
-//   3. 自動渲染「新增 / 編輯 / 刪除」按鈕
-//   4. 整合 data-table / data-card / column-settings
-//   5. 整合 view-toggle（可選）
-//   6. 整合 page-filter（可選）
-//   7. 支援 hooks
-//
-// 使用方式：
-//   initEntityListPage({
-//     entity: 'bank',
-//     containerId: 'db-banks-panel',
-//     hooks: { ... },
-//   });
+// v101.6.6 修正：
+//   ✅ [BUG-02] policy 刪除使用 policyHolderId（非 memberId）
 //
 // API 凍結：v101.6 發布後只加不改
 // ============================================
@@ -37,16 +24,6 @@ import { initViewToggle } from './view-toggle.js';
    主函式
    ============================================ */
 
-/**
- * 初始化實體列表頁
- * @param {Object} options
- * @param {string} options.entity - 必填：entityKey
- * @param {string} options.containerId - 必填：容器 ID
- * @param {Object} [options.hooks] - Hook
- * @param {Object} [options.filters] - 篩選配置
- * @param {Object} [options.options] - 選項
- * @returns {Object} { refresh, getRows, setView, destroy }
- */
 export function initEntityListPage(options) {
   const {
     entity,
@@ -77,10 +54,10 @@ export function initEntityListPage(options) {
   } = ui;
 
   const {
-    defaultView = 'table',         // 'table' | 'card'
-    showViewToggle = false,        // 是否顯示卡片/表格切換
-    showHeader = true,             // 是否顯示 header（新增按鈕）
-    storageKey = null,             // view-toggle 的 storageKey
+    defaultView = 'table',
+    showViewToggle = false,
+    showHeader = true,
+    storageKey = null,
   } = extraOptions;
 
   /* ============================================
@@ -94,19 +71,9 @@ export function initEntityListPage(options) {
 
   const listenerGroup = createListenerGroup();
 
-  /* ============================================
-     渲染骨架
-     ============================================ */
   _renderSkeleton();
-
-  /* ============================================
-     啟動監聽
-     ============================================ */
   _startListening();
 
-  /* ============================================
-     回傳 API
-     ============================================ */
   return {
     refresh: _refresh,
     getRows: () => _rows,
@@ -139,7 +106,6 @@ export function initEntityListPage(options) {
       <div id="${containerId}-content"></div>
     `;
 
-    // 初始化 view-toggle
     if (showViewToggle) {
       _viewToggle = initViewToggle({
         containerId: `${containerId}-view-toggle`,
@@ -156,7 +122,6 @@ export function initEntityListPage(options) {
       _currentView = _viewToggle.getView();
     }
 
-    // 綁定「新增」按鈕
     if (canCreate) {
       const addBtn = document.getElementById(`${containerId}-add-btn`);
       if (addBtn) {
@@ -185,11 +150,9 @@ export function initEntityListPage(options) {
     const contentEl = document.getElementById(`${containerId}-content`);
     if (!contentEl) return;
 
-    // 銷毀舊的
     if (_tableApi) { try { _tableApi.destroy(); } catch (e) {} _tableApi = null; }
     if (_cardApi) { try { _cardApi.destroy(); } catch (e) {} _cardApi = null; }
 
-    // 依視圖渲染
     if (_currentView === 'card') {
       _cardApi = renderDataCard({
         container: contentEl,
@@ -226,7 +189,6 @@ export function initEntityListPage(options) {
       const result = hooks.onBeforeAdd();
       if (result === false) return;
       if (result && typeof result === 'object') {
-        // hook 可回傳 initialData
         openEntityModal({
           entity,
           mode: 'add',
@@ -267,7 +229,6 @@ export function initEntityListPage(options) {
   async function _handleDelete(row) {
     if (!canDelete) return;
 
-    // 確認訊息
     let confirmText;
     if (typeof hooks.deleteConfirmText === 'function') {
       confirmText = hooks.deleteConfirmText(row);
@@ -284,17 +245,16 @@ export function initEntityListPage(options) {
     });
     if (!ok) return;
 
-    // 特殊處理：policy 需要傳 memberId
+    // 🆕 v101.6.6：policy 需傳 policyHolderId（與 insurance-sync 寫入路徑一致）
     let extraArgs = [];
     if (entity === 'policy') {
-      extraArgs = [row.memberId];
+      extraArgs = [row.policyHolderId || row.memberId];
     } else if (entity === 'member') {
       extraArgs = [];
     } else if (entity === 'bank') {
       extraArgs = [];
     }
 
-    // hook 可自訂 delete args
     if (typeof hooks.getDeleteArgs === 'function') {
       extraArgs = hooks.getDeleteArgs(row) || [];
     }
@@ -344,11 +304,6 @@ export function initEntityListPage(options) {
    便利函式
    ============================================ */
 
-/**
- * 批次初始化多個實體列表頁
- * @param {Array} configs - [{ entity, containerId, hooks, ... }]
- * @returns {Array}
- */
 export function initEntityListPages(configs = []) {
   return configs.map((cfg) => initEntityListPage(cfg));
 }
