@@ -1,15 +1,14 @@
 // ============================================
-// sw.js — Service Worker（v101.6.11）
+// sw.js — Service Worker（v101.6.13）
 // ============================================
-// v101.6.11 更新：
-//   ✅ CACHE_NAME = family-fin-v112（v111 → v112）
-//   ✅ 對應 v101.6.11 修正：
-//      - core/db.js（新增 getCategoriesOnce / getItemsOnce）
-//      - settlements/merge.js（補 itemId / paymentMethodId）
-//      - settlements/render.js（編輯 Modal 支援全部欄位）
+// v101.6.13 更新：
+//   ✅ CACHE_NAME = family-fin-v114（v113 → v114）
+//   ✅ 對應 v101.6.13 修正：
+//      - settlements/index.js（明確 mobileCardMode: false）
+//      - member-report.js（成員清單改為表格）
 // ============================================
 
-const CACHE_NAME = 'family-fin-v112';
+const CACHE_NAME = 'family-fin-v114';
 
 const STATIC_ASSETS = [
   // ================= CSS =================

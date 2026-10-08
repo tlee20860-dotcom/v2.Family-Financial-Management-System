@@ -1,13 +1,9 @@
 // ============================================
-// portfolio.js — 基金投資表（v101.6）
+// portfolio.js — 基金投資表（v101.6.12）
 // 位置：js/pages/portfolio.js
 // ============================================
-// v101.6 重寫：
-//   ✅ 改名「基金投資表」
-//   ✅ 新增「+ 新增基金」按鈕
-//   ✅ 卡片 / 表格加「編輯 / 刪除」按鈕
-//   ✅ 使用 stats-cards.js 統一統計卡
-//   ✅ 使用 listener-group 統一訂閱
+// v101.6.12 修正：
+//   ✅ [統一] 表格模式移除 .mobile-cards（改為橫排，跟隨保險清單）
 // ============================================
 
 import { listenFunds } from '../core/db.js';
@@ -49,7 +45,6 @@ export async function initPortfolioPage() {
     onChange: () => _render(),
   });
 
-  // 「新增基金」按鈕
   _addFundHandler = () => {
     openEntityModal({
       entity: ENTITY_KEYS.FUND,
@@ -59,7 +54,6 @@ export async function initPortfolioPage() {
   };
   document.getElementById('add-fund-btn')?.addEventListener('click', _addFundHandler);
 
-  // 空狀態「新增第一筆基金」
   _addFirstFundHandler = () => {
     openEntityModal({
       entity: ENTITY_KEYS.FUND,
@@ -69,7 +63,6 @@ export async function initPortfolioPage() {
   };
   document.getElementById('add-first-fund-btn')?.addEventListener('click', _addFirstFundHandler);
 
-  // 訂閱基金
   listenerGroup.add(
     listenFunds((list) => {
       _funds = list || [];
@@ -77,7 +70,6 @@ export async function initPortfolioPage() {
     })
   );
 
-  // 綁定卡片 / 表格的編輯 / 刪除
   _bindListActions();
 
   registerPageCleanup(_destroy);
@@ -124,7 +116,7 @@ function _render() {
 }
 
 /* ============================================
-   統計卡（使用 stats-cards.js）
+   統計卡
    ============================================ */
 function _renderStats() {
   const totalCost = _funds.reduce((s, f) => s + (Number(f.cost) || 0), 0);
@@ -222,10 +214,10 @@ function _renderCard(f) {
       ${f.note ? `<div class="glass-card-hint">📝 ${escapeHtml(f.note)}</div>` : ''}
 
       <div class="policy-actions">
-        <button class="btn btn-sm btn-ghost" data-action="edit-fund" data-id="${f.id}">
+        <button type="button" class="btn btn-sm btn-ghost" data-action="edit-fund" data-id="${f.id}">
           <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
         </button>
-        <button class="btn btn-sm btn-danger" data-action="delete-fund" data-id="${f.id}">
+        <button type="button" class="btn btn-sm btn-danger" data-action="delete-fund" data-id="${f.id}">
           <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
         </button>
       </div>
@@ -234,21 +226,21 @@ function _renderCard(f) {
 }
 
 /* ============================================
-   表格模式
+   表格模式（🆕 v101.6.12：移除 mobile-cards）
    ============================================ */
 function _renderTable(container) {
   container.innerHTML = `
     <div class="glass-card collapsible-card collapsible-card-flat" style="padding:0;">
-      <div style="overflow-x:auto;">
-        <table class="data-table mobile-cards">
+      <div class="data-table-scroll-wrapper">
+        <table class="data-table">
           <thead>
             <tr>
               <th>基金名稱</th>
               <th class="num">投入成本</th>
               <th class="num">現時價值</th>
-              <th class="num hide-mobile">盈虧</th>
-              <th class="num hide-mobile">報酬率</th>
-              <th class="num hide-mobile">單位數</th>
+              <th class="num">盈虧</th>
+              <th class="num">報酬率</th>
+              <th class="num">單位數</th>
               <th style="width:150px;">操作</th>
             </tr>
           </thead>
@@ -271,20 +263,20 @@ function _renderTableRow(f) {
 
   return `
     <tr data-id="${f.id}">
-      <td data-primary="1">
+      <td>
         ${escapeHtml(f.name || '（未命名）')}
         ${f.note ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${escapeHtml(f.note)}</div>` : ''}
       </td>
-      <td class="num" data-label="投入成本">${formatHKD(cost)}</td>
-      <td class="num text-emerald" data-label="現時價值">${formatHKD(value)}</td>
-      <td class="num hide-mobile ${pnlCls}" data-label="盈虧">${sign}${formatHKD(pnl)}</td>
-      <td class="num hide-mobile ${pnlCls}" data-label="報酬率">${pnlPct}%</td>
-      <td class="num hide-mobile" data-label="單位數">${f.units || '—'}</td>
-      <td data-label="操作">
-        <button class="btn btn-sm btn-ghost" data-action="edit-fund" data-id="${f.id}">
+      <td class="num">${formatHKD(cost)}</td>
+      <td class="num text-emerald">${formatHKD(value)}</td>
+      <td class="num ${pnlCls}">${sign}${formatHKD(pnl)}</td>
+      <td class="num ${pnlCls}">${pnlPct}%</td>
+      <td class="num">${f.units || '—'}</td>
+      <td>
+        <button type="button" class="btn btn-sm btn-ghost" data-action="edit-fund" data-id="${f.id}">
           <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
         </button>
-        <button class="btn btn-sm btn-danger" data-action="delete-fund" data-id="${f.id}">
+        <button type="button" class="btn btn-sm btn-danger" data-action="delete-fund" data-id="${f.id}">
           <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
         </button>
       </td>

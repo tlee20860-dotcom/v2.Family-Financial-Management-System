@@ -1,13 +1,13 @@
 // ============================================
-// data-table.js — 通用表格渲染（v101.6.9）
+// data-table.js — 通用表格渲染（v101.6.12）
 // 位置：js/shared/data-table.js
 // ============================================
-// v101.6.9 修正：
-//   ✅ [按鈕無反應] 所有 <button> 加上 type="button"
-//       - HTML5 默認 type="submit" 會被行動瀏覽器攔截
-//   ✅ [監聽器累積] _listener 改為保存到 root 元素屬性上
-//       - 每次 render 都能正確移除舊監聽器
-//   ✅ 保留 v101.6.8 的 hasActions 判斷
+// v101.6.12 修正：
+//   ✅ [統一] 新增 mobileCardMode 參數（預設 false）
+//       - false → 橫排表格（跟隨保險清單）
+//       - true  → 手機自動卡片化（向後相容）
+//   ✅ 新增 tableClass 自訂 class
+//   ✅ 保留 v101.6.9 的 type="button" 與監聽器儲存機制
 //
 // API 凍結：v101.6 發布後只加不改
 // ============================================
@@ -56,7 +56,20 @@ export function renderDataTable(options) {
     : { canEdit: false, canDelete: false };
 
   const _tableId = tableId || entityKey;
-  const { resolvers = {} } = extraOptions;
+  const {
+    resolvers = {},
+    // 🆕 v101.6.12：預設 false（橫排表格，跟隨保險清單）
+    mobileCardMode = false,
+    // 🆕 v101.6.12：額外自訂 class
+    tableClass = '',
+  } = extraOptions;
+
+  // 🆕 v101.6.12：組合最終 table class
+  const finalTableClass = [
+    'data-table',
+    mobileCardMode ? 'mobile-cards' : '',
+    tableClass,
+  ].filter(Boolean).join(' ');
 
   /* ============================================
      準備欄位定義
@@ -135,8 +148,8 @@ export function renderDataTable(options) {
         </div>
       </div>
       <div class="glass-card collapsible-card collapsible-card-flat" style="padding:0;">
-        <div style="overflow-x:auto;">
-          <table class="data-table mobile-cards">
+        <div class="data-table-scroll-wrapper">
+          <table class="${finalTableClass}">
             <thead>
               <tr>
                 ${visibleCols.map((col) => _renderTh(col, colSettings)).join('')}
@@ -200,7 +213,6 @@ export function renderDataTable(options) {
   function _renderActions(col, row) {
     let actionsHtml = '';
 
-    // 🆕 v101.6.9：加入 type="button"
     if (typeof hooks.customActions === 'function') {
       const customActions = hooks.customActions(row) || [];
       actionsHtml += customActions.map((a) => `
@@ -228,10 +240,9 @@ export function renderDataTable(options) {
   }
 
   /* ============================================
-     事件綁定（🆕 v101.6.9：改用 root 屬性儲存監聽器）
+     事件綁定
      ============================================ */
   function _bindEvents() {
-    // 🆕 v101.6.9：從 root 取出舊監聽器並移除
     const oldListener = root[LISTENER_KEY];
     if (oldListener) {
       root.removeEventListener('click', oldListener);
@@ -257,7 +268,6 @@ export function renderDataTable(options) {
         const row = _beforeRows[index];
         if (!row) return;
 
-        // 自訂 action 優先
         if (typeof hooks.customActions === 'function') {
           const customActions = hooks.customActions(row) || [];
           const matched = customActions.find((a) => (a.action || 'custom') === action);
@@ -290,7 +300,6 @@ export function renderDataTable(options) {
     };
 
     root.addEventListener('click', listener);
-    // 🆕 v101.6.9：保存到 root 屬性，供下次移除
     root[LISTENER_KEY] = listener;
   }
 
@@ -304,7 +313,6 @@ export function renderDataTable(options) {
     refresh: () => _render(),
 
     destroy: () => {
-      // 🆕 v101.6.9：從 root 屬性取出並移除
       const oldListener = root[LISTENER_KEY];
       if (oldListener) {
         root.removeEventListener('click', oldListener);

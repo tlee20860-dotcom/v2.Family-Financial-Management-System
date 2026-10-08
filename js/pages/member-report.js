@@ -1,11 +1,14 @@
 // ============================================
-// member-report.js — 成員與家庭收入與支出明細（v101.6.6）
+// member-report.js — 成員與家庭收入與支出明細（v101.6.13）
 // 位置：js/pages/member-report.js
 // ============================================
-// v101.6.6 修正：
-//   ✅ [BUG-03] 移除無效條件式（!member.id === ...）
-//   ✅ [BUG-05] 統計卡 hint 措辭更正（含家庭共用）
-//   ✅ 保留所有 v101.6 功能
+// v101.6.13 修正：
+//   ✅ [統一] 成員清單從卡片改為表格（跟隨保險清單兩種模式）
+//       - 使用 renderDataTable 統一渲染
+//       - 欄位：成員 / 收入 / 支出 / 保險 / 淨額
+//       - 「家庭共用」固定最後一列
+//       - 手機橫排表格 + 橫向滾動
+//   ✅ 保留 v101.6.6 全部功能（統計卡 / 明細展開）
 // ============================================
 
 import { AppState } from '../core/state.js';
@@ -19,7 +22,7 @@ import {
 } from '../core/utils.js';
 import { renderPageFilter } from '../shared/page-filter.js';
 import { renderStatsCards } from '../shared/stats-cards.js';
-import { renderStatusBadge } from '../shared/entity-helpers.js';
+import { renderDataTable } from '../shared/data-table.js';
 import { createListenerGroup } from '../shared/listener-group.js';
 import { RESERVED_IDS } from '../config/constants.js';
 import { registerPageCleanup } from '../core/app.js';
@@ -35,7 +38,9 @@ let _currentYear = '';
 
 let _filterInstance = null;
 let _statsApi = null;
-let _memberListHandler = null;
+let _memberTableApi = null;
+let _memberRows = [];   // 保存最近一次渲染的 row 資料（供選中樣式用）
+
 let _detailToggleHandler = null;
 
 const listenerGroup = createListenerGroup();
@@ -76,7 +81,7 @@ export async function initMemberReportPage() {
     })
   );
 
-  _bindEvents();
+  _bindDetailToggle();
 
   registerPageCleanup(_destroy);
 
@@ -84,21 +89,9 @@ export async function initMemberReportPage() {
 }
 
 /* ============================================
-   事件綁定
+   事件綁定（明細展開）
    ============================================ */
-function _bindEvents() {
-  _memberListHandler = (e) => {
-    const card = e.target.closest('[data-member-id]');
-    if (!card) return;
-    const id = card.dataset.memberId;
-    if (!id) return;
-
-    _selectedMemberId = id;
-    _render();
-  };
-
-  document.getElementById('member-list-root')?.addEventListener('click', _memberListHandler);
-
+function _bindDetailToggle() {
   _detailToggleHandler = (e) => {
     const header = e.target.closest('[data-toggle-month]');
     if (!header) return;
@@ -170,7 +163,6 @@ function _renderStats() {
       title: `${year} 年度總支出`,
       value: formatHKD(totalExpense),
       valueClass: 'red',
-      // 🆕 v101.6.6：修正 hint 措辭（含家庭共用支出）
       hint: '含家庭共用支出',
       icon: 'trending-down',
     },
@@ -203,96 +195,133 @@ function _renderStats() {
 }
 
 /* ============================================
-   成員清單
+   成員清單（🆕 v101.6.13：改為表格）
    ============================================ */
 function _renderMemberList() {
   const root = document.getElementById('member-list-root');
   if (!root) return;
 
   const year = _currentYear;
-  const list = [];
 
+  // 準備清單：真實成員 + 家庭共用（最後）
+  const list = [];
   _members.forEach((m) => {
-    list.push({
+    list.push({ id: m.id, name: m.name, isShared: false });
+  });
+  list.push({ id: RESERVED_IDS.SHARED_MEMBER, name: '家庭共用', isShared: true });
+
+  // 計算每個成員的統計
+  _memberRows = list.map((m) => {
+    const income = _allIncome
+      .filter((i) => i.year === year && i.memberId === m.id)
+      .reduce((s, i) => s + (Number(i.amount) || 0), 0);
+
+    const expenseRecords = _allExpenses
+      .filter((e) => e.year === year && e.memberId === m.id);
+    const expense = expenseRecords
+      .filter((e) => !e.isAutoLinked)
+      .reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    const insurance = expenseRecords
+      .filter((e) => e.isAutoLinked)
+      .reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+    const net = income - expense - insurance;
+
+    return {
       id: m.id,
       name: m.name,
-      isShared: false,
-    });
+      isShared: m.isShared,
+      income,
+      expense,
+      insurance,
+      net,
+    };
   });
 
-  list.push({
-    id: RESERVED_IDS.SHARED_MEMBER,
-    name: '家庭共用',
-    isShared: true,
-  });
-
-  if (list.length === 0) {
-    root.innerHTML = '<div class="empty-state" style="padding:20px;">尚無成員</div>';
-    return;
+  // 銷毀舊表格
+  if (_memberTableApi) {
+    try { _memberTableApi.destroy(); } catch (e) { /* noop */ }
+    _memberTableApi = null;
   }
 
-  root.innerHTML = `
-    <div class="grid grid-3" style="gap:10px; padding:16px 20px 20px;">
-      ${list.map((m) => _renderMemberCard(m, year)).join('')}
-    </div>
-  `;
+  _memberTableApi = renderDataTable({
+    container: root,
+    entityKey: '__member_report__',
+    rows: _memberRows,
+    tableId: 'member-report-table',
+    options: {
+      columns: [
+        { id: 'name',      label: '成員', defaultVisible: true, defaultWidth: 120 },
+        { id: 'income',    label: '收入', defaultVisible: true, defaultWidth: 130 },
+        { id: 'expense',   label: '支出', defaultVisible: true, defaultWidth: 130 },
+        { id: 'insurance', label: '保險', defaultVisible: true, defaultWidth: 130 },
+        { id: 'net',       label: '淨額', defaultVisible: true, defaultWidth: 130 },
+      ],
+      resolvers: {
+        name: (_, row) => {
+          const sharedTag = row.isShared
+            ? ' <span class="badge badge-muted" style="font-size:10px; margin-left:4px;">🏠</span>'
+            : '';
+          return escapeHtml(row.name) + sharedTag;
+        },
+        income: (_, row) => {
+          if (row.isShared) return '<span class="text-muted">—</span>';
+          return `<span class="text-emerald">${formatHKD(row.income)}</span>`;
+        },
+        expense: (_, row) => {
+          return `<span class="text-red">${formatHKD(row.expense)}</span>`;
+        },
+        insurance: (_, row) => {
+          if (row.insurance === 0) return '<span class="text-muted">—</span>';
+          return `<span class="text-magenta">${formatHKD(row.insurance)}</span>`;
+        },
+        net: (_, row) => {
+          if (row.isShared) return '<span class="text-muted">—</span>';
+          const cls = row.net >= 0 ? 'text-emerald' : 'text-red';
+          return `<span class="${cls}">${formatHKD(row.net)}</span>`;
+        },
+      },
+      // 🆕 v101.6.13：明確橫排（跟隨保險清單）
+      mobileCardMode: false,
+    },
+    hooks: {
+      customActions: () => [],   // 無操作按鈕
+      onRowClick: (row) => {
+        _selectedMemberId = row.id;
+        _updateMemberRowSelection();
+        _renderDetail();
+      },
+    },
+  });
+
+  // 初始選中樣式
+  _updateMemberRowSelection();
 
   if (window.lucide) window.lucide.createIcons();
 }
 
-function _renderMemberCard(m, year) {
-  const income = _allIncome
-    .filter((i) => i.year === year && i.memberId === m.id)
-    .reduce((s, i) => s + (Number(i.amount) || 0), 0);
+/* ============================================
+   更新成員列選中樣式（不重繪表格）
+   ============================================ */
+function _updateMemberRowSelection() {
+  const root = document.getElementById('member-list-root');
+  if (!root) return;
 
-  const expense = _allExpenses
-    .filter((e) => e.year === year && e.memberId === m.id && !e.isAutoLinked)
-    .reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  root.querySelectorAll('tr[data-row-index]').forEach((tr) => {
+    const idx = Number(tr.dataset.rowIndex);
+    const row = _memberRows[idx];
+    if (!row) return;
 
-  const insurance = _allExpenses
-    .filter((e) => e.year === year && e.memberId === m.id && e.isAutoLinked)
-    .reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    tr.style.cursor = 'pointer';
 
-  const net = income - expense - insurance;
-  const isSelected = m.id === _selectedMemberId;
-
-  const roleLabel = m.isShared ? '🏠 家庭支出' : '';
-  const netColor = net >= 0 ? 'text-emerald' : 'text-red';
-
-  return `
-    <div class="glass-card"
-         data-member-id="${escapeHtml(m.id)}"
-         style="padding:14px; cursor:pointer; transition:all 0.2s; ${isSelected ? 'border-color:var(--neon-cyan); box-shadow:0 0 15px rgba(0,240,255,0.15);' : ''}">
-      <div style="font-weight:600; font-size:14px; margin-bottom:2px; word-break:break-word;">
-        ${escapeHtml(m.name)}
-      </div>
-      ${roleLabel ? `<div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">${roleLabel}</div>` : '<div style="margin-bottom:8px;"></div>'}
-      <div style="display:flex; flex-direction:column; gap:4px; font-size:12px;">
-        ${!m.isShared ? `
-          <div style="display:flex; justify-content:space-between;">
-            <span class="text-muted">收入</span>
-            <span class="mono text-emerald">${formatHKD(income)}</span>
-          </div>
-        ` : ''}
-        <div style="display:flex; justify-content:space-between;">
-          <span class="text-muted">支出</span>
-          <span class="mono text-red">${formatHKD(expense)}</span>
-        </div>
-        ${insurance > 0 ? `
-          <div style="display:flex; justify-content:space-between;">
-            <span class="text-muted">保險</span>
-            <span class="mono text-magenta">${formatHKD(insurance)}</span>
-          </div>
-        ` : ''}
-        ${!m.isShared ? `
-          <div style="display:flex; justify-content:space-between; margin-top:6px; padding-top:6px; border-top:1px dashed rgba(255,255,255,0.08);">
-            <span class="text-muted">淨額</span>
-            <span class="mono ${netColor}">${formatHKD(net)}</span>
-          </div>
-        ` : ''}
-      </div>
-    </div>
-  `;
+    if (row.id === _selectedMemberId) {
+      tr.style.background = 'rgba(0,240,255,0.08)';
+      tr.style.boxShadow = 'inset 3px 0 0 var(--neon-cyan)';
+    } else {
+      tr.style.background = '';
+      tr.style.boxShadow = '';
+    }
+  });
 }
 
 /* ============================================
@@ -366,8 +395,7 @@ function _renderDetail() {
   const totalExpense = months.reduce((s, m) => s + m.expense, 0);
   const totalInsurance = months.reduce((s, m) => s + m.insurance, 0);
 
-  // 🆕 v101.6.6：修正無效條件式（BUG-03）
-  const isShared = member.id === RESERVED_IDS.SHARED_MEMBER || member.isShared;
+  const isShared = member.id === RESERVED_IDS.SHARED_MEMBER;
 
   root.innerHTML = `
     <div style="padding:0 20px 20px;">
@@ -506,9 +534,9 @@ function _destroy() {
     try { _statsApi.destroy(); } catch (e) { /* noop */ }
     _statsApi = null;
   }
-  if (_memberListHandler) {
-    document.getElementById('member-list-root')?.removeEventListener('click', _memberListHandler);
-    _memberListHandler = null;
+  if (_memberTableApi) {
+    try { _memberTableApi.destroy(); } catch (e) { /* noop */ }
+    _memberTableApi = null;
   }
   if (_detailToggleHandler) {
     document.getElementById('member-detail-root')?.removeEventListener('click', _detailToggleHandler);
@@ -519,4 +547,5 @@ function _destroy() {
   _allIncome = [];
   _allExpenses = [];
   _selectedMemberId = null;
+  _memberRows = [];
 }

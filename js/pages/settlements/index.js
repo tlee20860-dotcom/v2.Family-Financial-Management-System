@@ -1,12 +1,10 @@
 // ============================================
-// index.js — 結算清單入口（v101.6.7）
+// index.js — 結算清單入口（v101.6.13）
 // 位置：js/pages/settlements/index.js
 // ============================================
-// v101.6.7 修正：
-//   ✅ [問題2] 每列加入「編輯 / 刪除」按鈕
-//       - 個人支出：完整編輯 Modal（名稱/金額/日期/狀態）+ 刪除
-//       - 保險扣款：僅改狀態 + 取消扣款
-//   ✅ 保留 v101.6.6 監聽器洩漏修正
+// v101.6.13 修正：
+//   ✅ [統一] renderDataTable 明確 mobileCardMode: false（跟隨保險清單）
+//   ✅ 保留 v101.6.11 全部功能（編輯 / 刪除 / 監聽器管理）
 // ============================================
 
 import { AppState } from '../../core/state.js';
@@ -116,12 +114,14 @@ export async function initSettlementsPage() {
     },
   });
 
+  // 排序
   _sortHandler = (e) => {
     _sortMode = e.target.value;
     _render();
   };
   document.getElementById('settlement-sort')?.addEventListener('change', _sortHandler);
 
+  // 訂閱成員 → 更新快取
   listenerGroup.add(
     listenMembers((list) => {
       setMembersCache(list);
@@ -129,10 +129,13 @@ export async function initSettlementsPage() {
     })
   );
 
+  // 訂閱年月變更
   listenerGroup.add(AppState.on('ym-change', () => _reload()));
 
+  // 綁定狀態變更
   _bindStatusChange();
 
+  // 初次載入
   await _reload();
 
   registerPageCleanup(_destroy);
@@ -398,7 +401,7 @@ function _renderStats() {
 }
 
 /* ============================================
-   表格（使用 data-table.js）
+   表格
    ============================================ */
 function _renderTable() {
   const root = document.getElementById('settlement-table-root');
@@ -409,7 +412,6 @@ function _renderTable() {
     _tableApi = null;
   }
 
-  // 🆕 v101.6.7：加入編輯 / 刪除按鈕
   const actionFactory = (row) => [
     {
       label: '編輯',
@@ -442,6 +444,8 @@ function _renderTable() {
         amount: (val) => formatHKD(val),
         date: (val) => escapeHtml(val || '—'),
       },
+      // 🆕 v101.6.13：明確橫排（跟隨保險清單）
+      mobileCardMode: false,
     },
     hooks: {
       customCellRender: (col, row) => {
@@ -450,7 +454,6 @@ function _renderTable() {
         }
         return null;
       },
-      // 🆕 v101.6.7：每列加入編輯 / 刪除
       customActions: actionFactory,
     },
   });

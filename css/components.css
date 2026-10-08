@@ -1221,3 +1221,43 @@
   justify-content: flex-end;
   flex-wrap: wrap;
 }
+/* ============================================
+   🆕 v101.6.12：data-table 橫排表格（無 mobile-cards）
+   -------------------------------------------------
+   跟隨保險清單的設計：
+   - 表格模式永遠橫排
+   - 手機橫向滾動
+   - 欄位不足時自動撐開
+   ============================================ */
+
+/* 滾動容器（若外層沒有 wrapper，data-table 自帶） */
+.data-table-scroll-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+}
+
+/* 無 mobile-cards 的表格：橫排 + 橫向滾動 */
+.data-table:not(.mobile-cards) {
+  min-width: 100%;
+  table-layout: auto;
+}
+
+.data-table:not(.mobile-cards) th,
+.data-table:not(.mobile-cards) td {
+  white-space: nowrap;
+}
+
+/* 手機版：保留橫排表格，僅縮小 padding */
+@media (max-width: 640px) {
+  .data-table:not(.mobile-cards) th,
+  .data-table:not(.mobile-cards) td {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .data-table:not(.mobile-cards) .btn-sm {
+    padding: 3px 6px;
+    font-size: 10px;
+  }
+}
