@@ -1,18 +1,13 @@
 // ============================================
-// holdings-list.js — 輸入中心：保單 / 基金 / 銀行（v101.6.4）
+// holdings-list.js — 輸入中心：保單 / 基金 / 銀行（v101.7.0）
 // 位置：js/pages/input-center/holdings-list.js
 // ============================================
-// v101.6.4 修正：
-//   ✅ 支援 types 參數：只渲染指定類型的表格
-//     types = ['policy'] → 只顯示保單
-//     types = ['fund']   → 只顯示基金
-//     types = ['bank']   → 只顯示銀行
-//     types = undefined  → 顯示全部（向後相容）
+// v101.7.0 新增：
+//   ✅ 每個 section 加雙模式切換（卡片 / 表格）
+//   ✅ 表格可摺疊 + 每列展開
 // ============================================
 
-import {
-  listenInsurancePolicies, listenFunds, listenBanks,
-} from '../../core/db.js';
+import { listenInsurancePolicies, listenFunds, listenBanks } from '../../core/db.js';
 import { escapeHtml, formatHKD } from '../../core/utils.js';
 import { ENTITY_KEYS } from '../../config/constants.js';
 import { showToast } from '../../shared/toast.js';
@@ -20,6 +15,8 @@ import { openConfirm } from '../../shared/modal.js';
 import { openEntityModal } from '../../shared/entity-modal.js';
 import { deleteEntity } from '../../shared/entity-helpers.js';
 import { createListenerGroup } from '../../shared/listener-group.js';
+import { renderDataTable } from '../../shared/data-table.js';
+import { initViewToggle } from '../../shared/view-toggle.js';
 
 let _policies = [];
 let _funds = [];
@@ -34,251 +31,308 @@ export function initHoldingsList(containerId, options = {}) {
 
   const types = options.types || ['policy', 'fund', 'bank'];
   const listenerGroup = createListenerGroup();
+  const instances = {};
 
   root.innerHTML = '<div class="empty-state">載入中…</div>';
 
   if (types.includes('policy')) {
     listenerGroup.add(listenInsurancePolicies((list) => {
       _policies = list || [];
-      _render(root, types);
+      _render(root, containerId, types, instances);
     }));
   }
-
   if (types.includes('fund')) {
     listenerGroup.add(listenFunds((list) => {
       _funds = list || [];
-      _render(root, types);
+      _render(root, containerId, types, instances);
     }));
   }
-
   if (types.includes('bank')) {
     listenerGroup.add(listenBanks((list) => {
       _banks = list || [];
-      _render(root, types);
+      _render(root, containerId, types, instances);
     }));
   }
 
-  const clickHandler = (e) => _handleClick(e, root);
-  root.addEventListener('click', clickHandler);
-
   return {
-    refresh: () => _render(root, types),
+    refresh: () => _render(root, containerId, types, instances),
     destroy: () => {
       listenerGroup.destroy();
-      root.removeEventListener('click', clickHandler);
+      Object.values(instances).forEach((inst) => {
+        if (inst?.viewToggle) { try { inst.viewToggle.destroy(); } catch (e) {} }
+        if (inst?.tableApi) { try { inst.tableApi.destroy(); } catch (e) {} }
+      });
       root.innerHTML = '';
     },
   };
 }
 
-function _render(root, types) {
+function _render(root, containerId, types, instances) {
   if (!root) return;
 
   const sections = [];
+  if (types.includes('policy')) sections.push('policy');
+  if (types.includes('fund')) sections.push('fund');
+  if (types.includes('bank')) sections.push('bank');
 
-  if (types.includes('policy')) {
-    sections.push(_renderSection({
-      key: 'policy',
-      title: '保單',
-      icon: 'shield',
-      rows: _policies,
+  const html = sections.map((key) => _renderSectionHtml(key, containerId)).join('');
+  root.innerHTML = `<div style="padding:0 0 20px;">${html}</div>`;
+
+  if (window.lucide) window.lucide.createIcons();
+
+  // 初始化每個 section 的 view-toggle + 表格
+  sections.forEach((key) => {
+    _initSection(key, containerId, instances);
+  });
+}
+
+function _renderSectionHtml(key, containerId) {
+  const config = _getSectionConfig(key);
+  return `
+    <div style="margin-bottom:16px;">
+      <div class="flex items-center justify-between gap-8" style="margin-bottom:8px; flex-wrap:wrap;">
+        <div class="flex items-center gap-8">
+          <i data-lucide="${config.icon}" style="width:16px;height:16px; color:var(--neon-cyan);"></i>
+          <span style="font-weight:600; font-size:14px;">${escapeHtml(config.title)}</span>
+          <span class="text-muted" style="font-size:12px;" id="${containerId}-${key}-count"></span>
+        </div>
+        <div id="${containerId}-${key}-view-toggle"></div>
+      </div>
+      <div id="${containerId}-${key}-content"></div>
+    </div>
+  `;
+}
+
+function _getSectionConfig(key) {
+  switch (key) {
+    case 'policy': return {
+      title: '保單', icon: 'shield',
+      getRows: () => _policies,
       columns: [
-        { key: 'name', label: '保單名稱' },
-        { key: 'company', label: '保險公司' },
+        { id: 'name', label: '保單名稱', defaultVisible: true, defaultWidth: 200 },
+        { id: 'company', label: '保險公司', defaultVisible: true, defaultWidth: 120 },
+        { id: 'amount', label: '本期年繳', defaultVisible: true, defaultWidth: 120 },
       ],
-      amountFn: (p) => {
-        const cur = (p.periods || {})[String(p.currentPeriodIndex || 1)];
-        return cur ? cur.annualPremium : 0;
+      resolvers: {
+        name: (_, row) => escapeHtml(row.name || '—'),
+        company: (_, row) => escapeHtml(row.company || '—'),
+        amount: (_, row) => {
+          const cur = (row.periods || {})[String(row.currentPeriodIndex || 1)];
+          return `<span class="text-emerald">${formatHKD(cur ? cur.annualPremium : 0)}</span>`;
+        },
       },
-      amountLabel: '本期年繳',
-    }));
-  }
-
-  if (types.includes('fund')) {
-    sections.push(_renderSection({
-      key: 'fund',
-      title: '基金',
-      icon: 'line-chart',
-      rows: _funds,
-      columns: [
-        { key: 'name', label: '基金名稱' },
-        { key: 'units', label: '單位數' },
+      renderDetail: (row) => {
+        const cur = (row.periods || {})[String(row.currentPeriodIndex || 1)];
+        return `<div style="font-size:13px; display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:8px 20px;">
+          <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">保單名稱</div><div>${escapeHtml(row.name || '—')}</div></div>
+          <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">保險公司</div><div>${escapeHtml(row.company || '—')}</div></div>
+          <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">本期年繳</div><div class="mono text-emerald">${formatHKD(cur ? cur.annualPremium : 0)}</div></div>
+          <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">保單開始</div><div>${row.firstStartYear}-${row.firstStartMonth}</div></div>
+        </div>`;
+      },
+      entityKey: ENTITY_KEYS.POLICY,
+      cardAmount: (row) => {
+        const cur = (row.periods || {})[String(row.currentPeriodIndex || 1)];
+        return formatHKD(cur ? cur.annualPremium : 0);
+      },
+      cardSubtitle: (row) => row.company || '—',
+      cardFields: (row) => [
+        { label: '開始', value: `${row.firstStartYear}-${row.firstStartMonth}` },
       ],
-      amountFn: (f) => f.currentValue,
-      amountLabel: '現值',
-    }));
-  }
-
-  if (types.includes('bank')) {
-    sections.push(_renderSection({
-      key: 'bank',
-      title: '銀行',
-      icon: 'landmark',
-      rows: _banks,
+    };
+    case 'fund': return {
+      title: '基金', icon: 'line-chart',
+      getRows: () => _funds,
       columns: [
-        { key: 'name', label: '銀行名稱' },
+        { id: 'name', label: '基金名稱', defaultVisible: true, defaultWidth: 200 },
+        { id: 'units', label: '單位數', defaultVisible: true, defaultWidth: 100 },
+        { id: 'currentValue', label: '現值', defaultVisible: true, defaultWidth: 140 },
       ],
-      amountFn: null,
-      amountLabel: '',
-    }));
+      resolvers: {
+        name: (_, row) => escapeHtml(row.name || '—'),
+        units: (_, row) => escapeHtml(String(row.units || '—')),
+        currentValue: (val) => `<span class="text-emerald">${formatHKD(val)}</span>`,
+      },
+      renderDetail: (row) => `<div style="font-size:13px; display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:8px 20px;">
+        <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">基金名稱</div><div>${escapeHtml(row.name || '—')}</div></div>
+        <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">單位數</div><div class="mono">${escapeHtml(String(row.units || '—'))}</div></div>
+        <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">現值</div><div class="mono text-emerald">${formatHKD(row.currentValue)}</div></div>
+      </div>`,
+      entityKey: ENTITY_KEYS.FUND,
+      cardAmount: (row) => formatHKD(row.currentValue),
+      cardSubtitle: (row) => row.units ? `單位數 ${row.units}` : '',
+      cardFields: () => [],
+    };
+    case 'bank': return {
+      title: '銀行', icon: 'landmark',
+      getRows: () => _banks,
+      columns: [
+        { id: 'name', label: '銀行名稱', defaultVisible: true, defaultWidth: 200 },
+      ],
+      resolvers: {
+        name: (_, row) => escapeHtml(row.name || '—'),
+      },
+      renderDetail: (row) => `<div style="font-size:13px;"><div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">銀行名稱</div><div>${escapeHtml(row.name || '—')}</div></div></div>`,
+      entityKey: ENTITY_KEYS.BANK,
+      cardAmount: () => '',
+      cardSubtitle: () => '',
+      cardFields: () => [],
+    };
+  }
+}
+
+function _initSection(key, containerId, instances) {
+  const config = _getSectionConfig(key);
+  const contentEl = document.getElementById(`${containerId}-${key}-content`);
+  const toggleEl = document.getElementById(`${containerId}-${key}-view-toggle`);
+  const countEl = document.getElementById(`${containerId}-${key}-count`);
+  if (!contentEl || !toggleEl) return;
+
+  const rows = config.getRows();
+  if (countEl) countEl.textContent = `（${rows.length}）`;
+
+  if (!rows.length) {
+    contentEl.innerHTML = `<div class="glass-card"><div class="empty-state">尚無${escapeHtml(config.title)}</div></div>`;
+    return;
   }
 
-  root.innerHTML = `<div style="padding:0 0 20px;">${sections.join('')}</div>`;
+  // 銷毀舊實例
+  if (instances[key]) {
+    if (instances[key].viewToggle) { try { instances[key].viewToggle.destroy(); } catch (e) {} }
+    if (instances[key].tableApi) { try { instances[key].tableApi.destroy(); } catch (e) {} }
+  }
+
+  const viewToggle = initViewToggle({
+    containerId: `${containerId}-${key}-view-toggle`,
+    storageKey: `holdings-${key}-view`,
+    defaultView: 'table',
+    cardText: '卡片',
+    tableText: '表格',
+    autoApply: false,
+    onChange: () => _renderSectionContent(key, containerId, config, instances),
+  });
+
+  instances[key] = { viewToggle, tableApi: null };
+  _renderSectionContent(key, containerId, config, instances);
+}
+
+function _renderSectionContent(key, containerId, config, instances) {
+  const contentEl = document.getElementById(`${containerId}-${key}-content`);
+  if (!contentEl) return;
+
+  const rows = config.getRows();
+  const view = instances[key]?.viewToggle?.getView() || 'table';
+
+  if (instances[key]?.tableApi) { try { instances[key].tableApi.destroy(); } catch (e) {} instances[key].tableApi = null; }
+
+  if (view === 'card') {
+    _renderSectionCards(contentEl, rows, config);
+  } else {
+    _renderSectionTable(contentEl, rows, config, key, instances);
+  }
+}
+
+function _renderSectionTable(contentEl, rows, config, key, instances) {
+  contentEl.innerHTML = `<div id="holdings-${key}-table-root"></div>`;
+
+  instances[key].tableApi = renderDataTable({
+    container: `holdings-${key}-table-root`,
+    entityKey: `__holdings_${key}__`,
+    rows,
+    tableId: `holdings-${key}-table`,
+    options: {
+      columns: config.columns,
+      resolvers: config.resolvers,
+      mobileCardMode: false,
+      collapsible: true,
+      defaultCollapsed: false,
+      expandable: true,
+      storageKey: `holdings-${key}-table`,
+      renderDetail: config.renderDetail,
+    },
+    hooks: {
+      customActions: (row) => [
+        { label: '編輯', icon: 'pencil', className: 'btn-ghost', action: 'edit-item', onClick: (r) => _handleEdit(key, config.entityKey, r) },
+        { label: '刪除', icon: 'trash-2', className: 'btn-danger', action: 'delete-item', onClick: (r) => _handleDelete(key, config.entityKey, r) },
+      ],
+    },
+  });
 
   if (window.lucide) window.lucide.createIcons();
 }
 
-function _renderSection(config) {
-  const { key, title, icon, rows, columns, amountFn, amountLabel } = config;
+function _renderSectionCards(contentEl, rows, config) {
+  contentEl.innerHTML = `
+    <div class="data-cards-grid" data-section-key="${config.entityKey}">
+      ${rows.map((row) => _renderSectionCard(row, config)).join('')}
+    </div>
+  `;
+  if (window.lucide) window.lucide.createIcons();
 
-  if (!rows || rows.length === 0) {
-    return `
-      <div style="margin-bottom:16px;">
-        <div class="flex items-center gap-8" style="margin-bottom:8px;">
-          <i data-lucide="${icon}" style="width:16px;height:16px; color:var(--neon-cyan);"></i>
-          <span style="font-weight:600; font-size:14px;">${escapeHtml(title)}</span>
-          <span class="text-muted" style="font-size:12px;">（0）</span>
-        </div>
-        <div class="glass-card" style="padding:16px;">
-          <div class="empty-state" style="padding:12px;">尚無${escapeHtml(title)}</div>
-        </div>
-      </div>
-    `;
-  }
+  // 綁定事件
+  contentEl.querySelector('.data-cards-grid')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const id = btn.dataset.id;
+    const row = rows.find((r) => r.id === id);
+    if (!row) return;
+    const action = btn.dataset.action;
+    if (action === 'edit-item') _handleEdit(null, config.entityKey, row);
+    else if (action === 'delete-item') _handleDelete(null, config.entityKey, row);
+  });
+}
 
-  const hasAmount = typeof amountFn === 'function';
+function _renderSectionCard(row, config) {
+  const amount = config.cardAmount(row);
+  const subtitle = config.cardSubtitle(row);
+  const fields = config.cardFields(row);
 
   return `
-    <div style="margin-bottom:16px;">
-      <div class="flex items-center gap-8" style="margin-bottom:8px;">
-        <i data-lucide="${icon}" style="width:16px;height:16px; color:var(--neon-cyan);"></i>
-        <span style="font-weight:600; font-size:14px;">${escapeHtml(title)}</span>
-        <span class="text-muted" style="font-size:12px;">（${rows.length}）</span>
-      </div>
-      <div class="glass-card" style="padding:0; overflow:hidden;">
-        <div class="input-center-table-wrapper">
-          <table class="input-center-table">
-            <thead>
-              <tr>
-                ${columns.map((c) => `<th>${escapeHtml(c.label)}</th>`).join('')}
-                ${hasAmount ? `<th class="num" style="width:110px;">${escapeHtml(amountLabel)}</th>` : ''}
-                <th style="width:130px;">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows.map((row) => _renderRow(key, row, columns, amountFn, hasAmount)).join('')}
-            </tbody>
-          </table>
+    <div class="glass-card" style="padding:14px;">
+      <div style="font-size:14px; font-weight:600; word-break:break-word; margin-bottom:4px;">${escapeHtml(row.name || '（未命名）')}</div>
+      ${subtitle ? `<div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">${escapeHtml(subtitle)}</div>` : ''}
+      ${amount ? `<div class="mono text-emerald" style="font-size:16px; font-weight:700; margin-bottom:8px;">${amount}</div>` : ''}
+      ${fields.length ? `
+        <div style="display:flex; flex-direction:column; gap:4px; font-size:12px;">
+          ${fields.map((f) => `<div style="display:flex; justify-content:space-between;"><span class="text-muted">${escapeHtml(f.label)}</span><span>${escapeHtml(String(f.value))}</span></div>`).join('')}
         </div>
+      ` : ''}
+      <div style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.08); display:flex; gap:8px; justify-content:flex-end;">
+        <button type="button" class="btn btn-sm btn-ghost" data-action="edit-item" data-id="${escapeHtml(row.id)}">
+          <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+        </button>
+        <button type="button" class="btn btn-sm btn-danger" data-action="delete-item" data-id="${escapeHtml(row.id)}">
+          <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
+        </button>
       </div>
     </div>
   `;
 }
 
-function _renderRow(entityKey, row, columns, amountFn, hasAmount) {
-  return `
-    <tr data-entity="${entityKey}" data-id="${escapeHtml(row.id)}">
-      ${columns.map((c) => {
-        const val = row[c.key];
-        return `<td>${val != null && val !== '' ? escapeHtml(String(val)) : '<span class="text-muted">—</span>'}</td>`;
-      }).join('')}
-      ${hasAmount ? `
-        <td class="num text-emerald">${formatHKD(amountFn(row))}</td>
-      ` : ''}
-      <td>
-        <button class="btn btn-sm btn-ghost" data-action="edit" data-id="${escapeHtml(row.id)}">編輯</button>
-        <button class="btn btn-sm btn-danger" data-action="delete" data-id="${escapeHtml(row.id)}">刪除</button>
-      </td>
-    </tr>
-  `;
-}
-
-function _handleClick(e, root) {
-  const btn = e.target.closest('button[data-action]');
-  if (!btn) return;
-
-  const action = btn.dataset.action;
-  const id = btn.dataset.id;
-  const tr = btn.closest('tr');
-  if (!tr) return;
-
-  const entityType = tr.dataset.entity;
-  const entityKey = _mapEntityKey(entityType);
-
-  if (action === 'edit') {
-    _handleEdit(entityKey, id);
-  } else if (action === 'delete') {
-    _handleDelete(entityKey, id);
-  }
-}
-
-function _mapEntityKey(type) {
-  switch (type) {
-    case 'policy': return ENTITY_KEYS.POLICY;
-    case 'fund':   return ENTITY_KEYS.FUND;
-    case 'bank':   return ENTITY_KEYS.BANK;
-    default:       return type;
-  }
-}
-
-function _handleEdit(entityKey, id) {
-  const rows = _getRowsByEntityKey(entityKey);
-  openEntityModal({
-    entity: entityKey,
-    mode: 'edit',
-    id,
-    allRows: rows,
-  });
+function _handleEdit(sectionKey, entityKey, row) {
+  openEntityModal({ entity: entityKey, mode: 'edit', id: row.id, allRows: _getRowsByEntityKey(entityKey) });
 }
 
 function _getRowsByEntityKey(entityKey) {
-  switch (entityKey) {
-    case ENTITY_KEYS.POLICY: return _policies;
-    case ENTITY_KEYS.FUND:   return _funds;
-    case ENTITY_KEYS.BANK:   return _banks;
-    default:                 return [];
-  }
+  if (entityKey === ENTITY_KEYS.POLICY) return _policies;
+  if (entityKey === ENTITY_KEYS.FUND) return _funds;
+  if (entityKey === ENTITY_KEYS.BANK) return _banks;
+  return [];
 }
 
-async function _handleDelete(entityKey, id) {
-  const rows = _getRowsByEntityKey(entityKey);
-  const row = rows.find((r) => r.id === id);
-  if (!row) return;
+async function _handleDelete(sectionKey, entityKey, row) {
+  let confirmText = `確定要刪除「${row.name || row.id}」嗎？`;
+  if (entityKey === ENTITY_KEYS.POLICY) confirmText = `⚠️ 確定要刪除保單「${row.name}」嗎？\n\n這將會一併刪除所有相關的扣款紀錄與成員支出，此操作無法復原。`;
+  else if (entityKey === ENTITY_KEYS.BANK) confirmText = `⚠️ 確定要刪除「${row.name}」嗎？\n\n這將會一併刪除該銀行在所有月份的結餘紀錄，此操作無法復原。`;
 
-  const label = _getEntityLabel(entityKey);
-  let confirmText = `確定要刪除「${row.name || id}」嗎？`;
-
-  if (entityKey === ENTITY_KEYS.POLICY) {
-    confirmText = `⚠️ 確定要刪除保單「${row.name}」嗎？\n\n這將會一併刪除所有相關的扣款紀錄與成員支出，此操作無法復原。`;
-  } else if (entityKey === ENTITY_KEYS.BANK) {
-    confirmText = `⚠️ 確定要刪除「${row.name}」嗎？\n\n這將會一併刪除該銀行在所有月份的結餘紀錄，此操作無法復原。`;
-  }
-
-  const ok = await openConfirm(confirmText, {
-    title: `刪除${label}`,
-    okText: '刪除',
-    okClass: 'btn-danger',
-  });
+  const ok = await openConfirm(confirmText, { title: '刪除', okText: '刪除', okClass: 'btn-danger' });
   if (!ok) return;
 
   try {
-    let args = [];
-    if (entityKey === ENTITY_KEYS.POLICY) {
-      args = [row.memberId];
-    }
-    await deleteEntity(entityKey, id, ...args);
-    showToast(`✅ 已刪除${label}`, 'success');
+    const args = entityKey === ENTITY_KEYS.POLICY ? [row.memberId] : [];
+    await deleteEntity(entityKey, row.id, ...args);
+    showToast('✅ 已刪除', 'success');
   } catch (err) {
-    console.error('[holdings-list] 刪除失敗：', err);
     showToast('刪除失敗：' + err.message, 'error');
-  }
-}
-
-function _getEntityLabel(entityKey) {
-  switch (entityKey) {
-    case ENTITY_KEYS.POLICY: return '保單';
-    case ENTITY_KEYS.FUND:   return '基金';
-    case ENTITY_KEYS.BANK:   return '銀行';
-    default:                 return '項目';
   }
 }

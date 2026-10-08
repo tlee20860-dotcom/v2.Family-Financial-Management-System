@@ -1,13 +1,10 @@
 // ============================================
-// recent-list.js — 輸入中心：最近 20 筆（v101.6.7）
+// recent-list.js — 輸入中心：最近 20 筆（v101.7.0）
 // 位置：js/pages/input-center/recent-list.js
 // ============================================
-// v101.6.7 修正：
-//   ✅ [問題1] 修復 rowKey 格式不一致導致的編輯/刪除無效
-//       - 支出 id 從 Firebase push key 改為複合 key（用 | 分隔）
-//       - 收入 id 同步改為 | 分隔，避免 Firebase push key 含 - 造成衝突
-//       - _openEditExpenseModal / _handleDeleteExpense / _openEditIncomeModal
-//         / _handleDeleteIncome 改用 split('|')
+// v101.7.0 新增：
+//   ✅ 雙模式切換（卡片 / 表格）
+//   ✅ 表格可摺疊 + 每列展開
 // ============================================
 
 import {
@@ -16,20 +13,25 @@ import {
   updateIncomeEntry, getIncomeOnce,
   getMembersOnce,
 } from '../../core/db.js';
-import {
-  escapeHtml, formatHKD, todayISO, setText,
-} from '../../core/utils.js';
+import { escapeHtml, formatHKD, setText } from '../../core/utils.js';
 import { getStatusesByCategory } from '../../config/app-config.js';
 import { RESERVED_IDS, LIMITS } from '../../config/constants.js';
 import { showToast } from '../../shared/toast.js';
 import { openModal, closeModal, openConfirm } from '../../shared/modal.js';
 import { buildForm } from '../../shared/form-builder.js';
 import { createListenerGroup } from '../../shared/listener-group.js';
+import { renderDataTable } from '../../shared/data-table.js';
+import { initViewToggle } from '../../shared/view-toggle.js';
 
 let _expenses = [];
 let _incomes = [];
 let _members = [];
 let _membersMap = {};
+let _items = [];   // 用於顯示類別 / 項目名稱
+
+let _viewToggle = null;
+let _tableApi = null;
+let _tableRoot = null;
 
 export function initRecentList(containerId, options = {}) {
   const root = document.getElementById(containerId);
@@ -39,29 +41,46 @@ export function initRecentList(containerId, options = {}) {
   }
 
   const listenerGroup = createListenerGroup();
-  root.innerHTML = '<div class="empty-state">載入中…</div>';
+  _tableRoot = root;
 
-  _loadMembers().then(() => _render(root));
+  root.innerHTML = `
+    <div class="flex flex-between items-center flex-wrap gap-12 mb-12">
+      <div id="${containerId}-view-toggle"></div>
+    </div>
+    <div id="${containerId}-content"></div>
+  `;
+
+  // 初始化 view-toggle
+  _viewToggle = initViewToggle({
+    containerId: `${containerId}-view-toggle`,
+    storageKey: 'recent-list-view',
+    defaultView: 'table',
+    cardText: '卡片',
+    tableText: '表格',
+    autoApply: false,
+    onChange: () => _renderContent(containerId),
+  });
+
+  _loadMembers().then(() => _renderContent(containerId));
 
   listenerGroup.add(listenAllExpenses((list) => {
     _expenses = list || [];
-    _render(root);
+    _renderContent(containerId);
   }));
 
   listenerGroup.add(listenAllIncome((list) => {
     _incomes = list || [];
-    _render(root);
+    _renderContent(containerId);
   }));
 
-  const clickHandler = (e) => _handleClick(e, root);
-  root.addEventListener('click', clickHandler);
-
   return {
-    refresh: () => _render(root),
+    refresh: () => _renderContent(containerId),
     destroy: () => {
       listenerGroup.destroy();
-      root.removeEventListener('click', clickHandler);
+      if (_viewToggle) { try { _viewToggle.destroy(); } catch (e) {} _viewToggle = null; }
+      if (_tableApi) { try { _tableApi.destroy(); } catch (e) {} _tableApi = null; }
       root.innerHTML = '';
+      _tableRoot = null;
     },
   };
 }
@@ -77,163 +96,212 @@ async function _loadMembers() {
   }
 }
 
-function _render(root) {
-  if (!root) return;
+/* ============================================
+   渲染內容
+   ============================================ */
+function _renderContent(containerId) {
+  const contentEl = document.getElementById(`${containerId}-content`);
+  if (!contentEl) return;
+
+  if (_tableApi) { try { _tableApi.destroy(); } catch (e) {} _tableApi = null; }
 
   const items = _mergeItems();
   items.sort((a, b) => b._ts - a._ts);
   const limited = items.slice(0, LIMITS.RECENT_LIST_LIMIT);
 
   if (limited.length === 0) {
-    root.innerHTML = '<div class="empty-state">尚無新增資料</div>';
+    contentEl.innerHTML = '<div class="glass-card"><div class="empty-state">尚無新增資料</div></div>';
     return;
   }
 
-  root.innerHTML = `
-    <div style="padding:0 0 20px;">
-      <div class="text-muted" style="font-size:12px; margin-bottom:10px; padding:0 16px;">
-        共 ${items.length} 筆，顯示最近 ${limited.length} 筆
-      </div>
-      <div class="glass-card" style="padding:0; overflow:hidden; border-radius:0;">
-        <div class="input-center-table-wrapper">
-          <table class="input-center-table wide">
-            <thead>
-              <tr>
-                <th style="width:70px; padding-left:16px;">類型</th>
-                <th style="width:95px;">年月</th>
-                <th style="width:90px;">成員</th>
-                <th style="width:200px;">項目</th>
-                <th style="width:110px;" class="num">金額</th>
-                <th style="width:100px;">日期</th>
-                <th style="width:150px; padding-right:16px;">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${limited.map((it) => _renderRow(it)).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
+  const view = _viewToggle?.getView() || 'table';
+
+  if (view === 'card') {
+    _renderCards(contentEl, limited, items.length);
+  } else {
+    _renderTable(contentEl, limited, items.length);
+  }
+}
+
+/* ============================================
+   表格模式
+   ============================================ */
+function _renderTable(contentEl, limited, totalCount) {
+  contentEl.innerHTML = `
+    <div class="text-muted" style="font-size:12px; margin-bottom:10px;">
+      共 ${totalCount} 筆，顯示最近 ${limited.length} 筆
     </div>
+    <div id="recent-list-table-root"></div>
   `;
+
+  _tableApi = renderDataTable({
+    container: 'recent-list-table-root',
+    entityKey: '__recent__',
+    rows: limited,
+    tableId: 'recent-list-table',
+    options: {
+      columns: [
+        { id: 'typeLabel', label: '類型', defaultVisible: true, defaultWidth: 90 },
+        { id: 'ym',        label: '年月', defaultVisible: true, defaultWidth: 100 },
+        { id: 'member',    label: '成員', defaultVisible: true, defaultWidth: 100 },
+        { id: 'name',      label: '項目', defaultVisible: true, defaultWidth: 200 },
+        { id: 'amount',    label: '金額', defaultVisible: true, defaultWidth: 120 },
+        { id: 'date',      label: '日期', defaultVisible: true, defaultWidth: 110 },
+      ],
+      resolvers: {
+        typeLabel: (_, row) => `<span class="badge ${row.typeBadge}">${row.typeLabel}</span>`,
+        ym: (_, row) => `<span class="mono" style="font-size:12px;">${escapeHtml(row.year)}-${escapeHtml(row.month)}</span>`,
+        member: (_, row) => `<span style="font-size:12px;">${escapeHtml(_memberName(row.memberId))}</span>`,
+        name: (_, row) => escapeHtml(row.name),
+        amount: (val, row) => `<span class="text-${row.type === 'income' ? 'emerald' : 'red'}">${formatHKD(val)}</span>`,
+        date: (val) => `<span class="mono" style="font-size:11px; color:var(--text-muted);">${escapeHtml(val || '—')}</span>`,
+      },
+      mobileCardMode: false,
+      collapsible: true,
+      defaultCollapsed: false,
+      expandable: true,
+      storageKey: 'recent-list-table',
+      renderDetail: (row) => `
+        <div style="font-size:13px; display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:8px 20px;">
+          <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">類型</div><div>${escapeHtml(row.typeLabel)}</div></div>
+          <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">年月</div><div class="mono">${escapeHtml(row.year)}-${escapeHtml(row.month)}</div></div>
+          <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">成員</div><div>${escapeHtml(_memberName(row.memberId))}</div></div>
+          <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">項目</div><div>${escapeHtml(row.name)}</div></div>
+          <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">金額</div><div class="mono text-${row.type === 'income' ? 'emerald' : 'red'}">${formatHKD(row.amount)}</div></div>
+          <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">日期</div><div>${escapeHtml(row.date || '—')}</div></div>
+        </div>
+      `,
+    },
+    hooks: {
+      customActions: (row) => [
+        { label: '編輯', icon: 'pencil', className: 'btn-ghost', action: 'edit-row', onClick: (r) => _handleEdit(r) },
+        { label: '刪除', icon: 'trash-2', className: 'btn-danger', action: 'delete-row', onClick: (r) => _handleDelete(r) },
+      ],
+    },
+  });
 
   if (window.lucide) window.lucide.createIcons();
 }
 
+/* ============================================
+   卡片模式
+   ============================================ */
+function _renderCards(contentEl, limited, totalCount) {
+  contentEl.innerHTML = `
+    <div class="text-muted" style="font-size:12px; margin-bottom:10px;">
+      共 ${totalCount} 筆，顯示最近 ${limited.length} 筆
+    </div>
+    <div class="data-cards-grid" id="recent-list-cards-root">
+      ${limited.map((it) => _renderCard(it)).join('')}
+    </div>
+  `;
+
+  if (window.lucide) window.lucide.createIcons();
+
+  // 綁定事件
+  const cardsRoot = document.getElementById('recent-list-cards-root');
+  if (cardsRoot) {
+    cardsRoot.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const key = btn.dataset.key;
+      const row = limited.find((r) => r.id === key);
+      if (!row) return;
+      const action = btn.dataset.action;
+      if (action === 'edit-row') _handleEdit(row);
+      else if (action === 'delete-row') _handleDelete(row);
+    });
+  }
+}
+
+function _renderCard(it) {
+  const memberName = _memberName(it.memberId);
+  const amountCls = it.type === 'income' ? 'text-emerald' : 'text-red';
+
+  return `
+    <div class="glass-card" style="padding:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:10px;">
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:14px; font-weight:600; word-break:break-word;">${escapeHtml(it.name)}</div>
+          <div style="margin-top:4px;"><span class="badge ${it.typeBadge}">${it.typeLabel}</span></div>
+        </div>
+        <div class="mono ${amountCls}" style="font-size:16px; font-weight:700; white-space:nowrap;">${formatHKD(it.amount)}</div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:4px; font-size:12px;">
+        <div style="display:flex; justify-content:space-between;"><span class="text-muted">年月</span><span class="mono">${escapeHtml(it.year)}-${escapeHtml(it.month)}</span></div>
+        <div style="display:flex; justify-content:space-between;"><span class="text-muted">成員</span><span>${escapeHtml(memberName)}</span></div>
+        ${it.date ? `<div style="display:flex; justify-content:space-between;"><span class="text-muted">日期</span><span class="mono">${escapeHtml(it.date)}</span></div>` : ''}
+      </div>
+      <div style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.08); display:flex; gap:8px; justify-content:flex-end;">
+        <button type="button" class="btn btn-sm btn-ghost" data-action="edit-row" data-key="${escapeHtml(it.id)}">
+          <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+        </button>
+        <button type="button" class="btn btn-sm btn-danger" data-action="delete-row" data-key="${escapeHtml(it.id)}">
+          <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+/* ============================================
+   資料合併
+   ============================================ */
 function _mergeItems() {
   const items = [];
 
   _expenses.forEach((e) => {
     items.push({
-      type: 'expense',
-      typeLabel: '支出',
-      typeBadge: 'badge-pending',
-      // 🆕 v101.6.7：複合 key 用 | 分隔（Firebase push key 含 - 會衝突）
+      type: 'expense', typeLabel: '支出', typeBadge: 'badge-pending',
       id: `${e.year}|${e.month}|${e.memberId}|${e.id}`,
-      year: e.year,
-      month: e.month,
-      memberId: e.memberId,
-      name: e.name || '（未命名支出）',
-      amount: Number(e.amount) || 0,
-      date: e.date || '',
-      status: e.status || '',
-      _ts: e.createdAt || 0,
-      _raw: e,
+      year: e.year, month: e.month, memberId: e.memberId,
+      name: e.name || '（未命名支出）', amount: Number(e.amount) || 0,
+      date: e.date || '', status: e.status || '',
+      _ts: e.createdAt || 0, _raw: e,
     });
   });
 
   _incomes.forEach((inc, idx) => {
     const ts = new Date(Number(inc.year), Number(inc.month) - 1, 1).getTime() + idx;
-    const memberName = inc.memberId === RESERVED_IDS.EXTRA_INCOME
-      ? '額外收入'
-      : (_membersMap[inc.memberId] || '（未知）');
-
+    const memberName = inc.memberId === RESERVED_IDS.EXTRA_INCOME ? '額外收入' : (_membersMap[inc.memberId] || '（未知）');
     items.push({
-      type: 'income',
-      typeLabel: '收入',
-      typeBadge: 'badge-success',
-      // 🆕 v101.6.7：複合 key 用 | 分隔
+      type: 'income', typeLabel: '收入', typeBadge: 'badge-success',
       id: `${inc.year}|${inc.month}|${inc.memberId}`,
-      year: inc.year,
-      month: inc.month,
-      memberId: inc.memberId,
-      name: `${memberName} 收入`,
-      amount: Number(inc.amount) || 0,
-      date: '',
-      status: '',
-      _ts: ts,
-      _raw: inc,
+      year: inc.year, month: inc.month, memberId: inc.memberId,
+      name: `${memberName} 收入`, amount: Number(inc.amount) || 0,
+      date: '', status: '',
+      _ts: ts, _raw: inc,
     });
   });
 
   return items;
 }
 
-function _renderRow(it) {
-  const memberName = it.memberId === RESERVED_IDS.EXTRA_INCOME
-    ? '額外收入'
-    : (_membersMap[it.memberId] || '（未知）');
-
-  return `
-    <tr data-type="${it.type}" data-key="${escapeHtml(it.id)}">
-      <td style="padding-left:16px;">
-        <span class="badge ${it.typeBadge}">${it.typeLabel}</span>
-      </td>
-      <td class="mono" style="font-size:12px;">
-        ${escapeHtml(it.year)}-${escapeHtml(it.month)}
-      </td>
-      <td style="font-size:12px;">${escapeHtml(memberName)}</td>
-      <td>${escapeHtml(it.name)}</td>
-      <td class="num ${it.type === 'income' ? 'text-emerald' : 'text-red'}">
-        ${formatHKD(it.amount)}
-      </td>
-      <td class="mono" style="font-size:11px; color:var(--text-muted);">
-        ${escapeHtml(it.date || '—')}
-      </td>
-      <td style="padding-right:16px;">
-        <button class="btn btn-sm btn-ghost" data-action="edit" data-key="${escapeHtml(it.id)}">編輯</button>
-        <button class="btn btn-sm btn-danger" data-action="delete" data-key="${escapeHtml(it.id)}">刪除</button>
-      </td>
-    </tr>
-  `;
-}
-
-function _handleClick(e, root) {
-  const btn = e.target.closest('button[data-action]');
-  if (!btn) return;
-
-  const action = btn.dataset.action;
-  const key = btn.dataset.key;
-  const tr = btn.closest('tr');
-  if (!tr) return;
-
-  const type = tr.dataset.type;
-
-  if (action === 'edit') {
-    if (type === 'expense') _openEditExpenseModal(key);
-    else if (type === 'income') _openEditIncomeModal(key);
-  } else if (action === 'delete') {
-    if (type === 'expense') _handleDeleteExpense(key);
-    else if (type === 'income') _handleDeleteIncome(key);
-  }
+function _memberName(memberId) {
+  if (memberId === RESERVED_IDS.EXTRA_INCOME) return '額外收入';
+  return _membersMap[memberId] || '（未知）';
 }
 
 /* ============================================
-   編輯：支出
+   編輯 / 刪除處理
    ============================================ */
-async function _openEditExpenseModal(key) {
-  // 🆕 v101.6.7：改用 | 分隔
-  const parts = key.split('|');
+async function _handleEdit(row) {
+  if (row.type === 'expense') _openEditExpenseModal(row);
+  else if (row.type === 'income') _openEditIncomeModal(row);
+}
+
+async function _handleDelete(row) {
+  if (row.type === 'expense') _deleteExpense(row);
+  else if (row.type === 'income') _deleteIncome(row);
+}
+
+async function _openEditExpenseModal(row) {
+  const parts = row.id.split('|');
   if (parts.length < 4) return;
   const [year, month, memberId, id] = parts;
 
-  const expense = _expenses.find((e) =>
-    e.id === id && e.year === year && e.month === month && e.memberId === memberId
-  );
-  if (!expense) {
-    showToast('找不到此支出', 'error');
-    return;
-  }
+  const expense = _expenses.find((e) => e.id === id && e.year === year && e.month === month && e.memberId === memberId);
+  if (!expense) { showToast('找不到此支出', 'error'); return; }
 
   const MODAL_ID = 'ic-edit-expense-modal';
   _destroyModal(MODAL_ID);
@@ -241,37 +309,23 @@ async function _openEditExpenseModal(key) {
   const memberName = _membersMap[memberId] || '（未知）';
   const statusList = getStatusesByCategory('personal');
 
-  const overlay = _createModal(MODAL_ID, '編輯支出');
-  const formApi = buildForm({
+  _createModal(MODAL_ID, '編輯支出');
+  buildForm({
     containerId: `${MODAL_ID}-form-root`,
     fields: [
-      { type: 'custom', id: 'info', html: `
-        <div class="glass-card-hint" style="margin-bottom:12px;">
-          成員：<b>${escapeHtml(memberName)}</b>　
-          年月：<b>${escapeHtml(year)}-${escapeHtml(month)}</b>
-        </div>
-      `},
+      { type: 'custom', id: 'info', html: `<div class="glass-card-hint" style="margin-bottom:12px;">成員：<b>${escapeHtml(memberName)}</b>　年月：<b>${escapeHtml(year)}-${escapeHtml(month)}</b></div>` },
       { type: 'text', id: 'name', label: '項目名稱', required: true, maxlength: 60 },
       { type: 'number', id: 'amount', label: '費用（HK$）', required: true, min: 0, step: 1 },
       { type: 'text', id: 'date', label: '支出日期', placeholder: 'YYYY-MM-DD', maxlength: 10 },
-      { type: 'select', id: 'status', label: '狀態', includeEmpty: false,
-        options: statusList.map((s) => ({ value: s.name, label: s.name })) },
+      { type: 'select', id: 'status', label: '狀態', includeEmpty: false, options: statusList.map((s) => ({ value: s.name, label: s.name })) },
     ],
     submitText: '儲存',
     showCancel: true,
     cancelText: '取消',
-    initialData: {
-      name: expense.name || '',
-      amount: expense.amount || 0,
-      date: expense.date || '',
-      status: expense.status || '未處理',
-    },
+    initialData: { name: expense.name || '', amount: expense.amount || 0, date: expense.date || '', status: expense.status || '未處理' },
     onSubmit: async (data) => {
       await updateExpense(year, month, memberId, id, {
-        name: data.name,
-        amount: Number(data.amount) || 0,
-        date: data.date || '',
-        status: data.status,
+        name: data.name, amount: Number(data.amount) || 0, date: data.date || '', status: data.status,
       });
       showToast('✅ 已更新支出', 'success');
       closeModal(MODAL_ID);
@@ -283,69 +337,38 @@ async function _openEditExpenseModal(key) {
   if (window.lucide) window.lucide.createIcons();
 }
 
-/* ============================================
-   刪除：支出
-   ============================================ */
-async function _handleDeleteExpense(key) {
-  // 🆕 v101.6.7：改用 | 分隔
-  const parts = key.split('|');
+async function _deleteExpense(row) {
+  const parts = row.id.split('|');
   if (parts.length < 4) return;
   const [year, month, memberId, id] = parts;
-
-  const expense = _expenses.find((e) =>
-    e.id === id && e.year === year && e.month === month && e.memberId === memberId
-  );
+  const expense = _expenses.find((e) => e.id === id && e.year === year && e.month === month && e.memberId === memberId);
   if (!expense) return;
 
-  const ok = await openConfirm(`確定要刪除「${expense.name}」嗎？`, {
-    title: '刪除支出',
-    okText: '刪除',
-    okClass: 'btn-danger',
-  });
+  const ok = await openConfirm(`確定要刪除「${expense.name}」嗎？`, { title: '刪除支出', okText: '刪除', okClass: 'btn-danger' });
   if (!ok) return;
-
-  try {
-    await removeExpense(year, month, memberId, id);
-    showToast('✅ 已刪除', 'success');
-  } catch (err) {
-    showToast('刪除失敗：' + err.message, 'error');
-  }
+  try { await removeExpense(year, month, memberId, id); showToast('✅ 已刪除', 'success'); }
+  catch (err) { showToast('刪除失敗：' + err.message, 'error'); }
 }
 
-/* ============================================
-   編輯：收入
-   ============================================ */
-async function _openEditIncomeModal(key) {
-  // 🆕 v101.6.7：改用 | 分隔
-  const parts = key.split('|');
+async function _openEditIncomeModal(row) {
+  const parts = row.id.split('|');
   if (parts.length < 3) return;
   const [year, month, memberId] = parts;
-
-  const memberName = memberId === RESERVED_IDS.EXTRA_INCOME
-    ? '額外收入'
-    : (_membersMap[memberId] || '（未知）');
+  const memberName = memberId === RESERVED_IDS.EXTRA_INCOME ? '額外收入' : (_membersMap[memberId] || '（未知）');
 
   let currentAmount = 0;
   try {
     const allIncome = await getIncomeOnce(year, month) || {};
     currentAmount = Number(allIncome[memberId]) || 0;
-  } catch (e) {
-    console.warn('[recent-list] 讀取收入失敗：', e);
-  }
+  } catch (e) {}
 
   const MODAL_ID = 'ic-edit-income-modal';
   _destroyModal(MODAL_ID);
-
-  const overlay = _createModal(MODAL_ID, '編輯收入');
-  const formApi = buildForm({
+  _createModal(MODAL_ID, '編輯收入');
+  buildForm({
     containerId: `${MODAL_ID}-form-root`,
     fields: [
-      { type: 'custom', id: 'info', html: `
-        <div class="glass-card-hint" style="margin-bottom:12px;">
-          成員：<b>${escapeHtml(memberName)}</b>　
-          年月：<b>${escapeHtml(year)}-${escapeHtml(month)}</b>
-        </div>
-      `},
+      { type: 'custom', id: 'info', html: `<div class="glass-card-hint" style="margin-bottom:12px;">成員：<b>${escapeHtml(memberName)}</b>　年月：<b>${escapeHtml(year)}-${escapeHtml(month)}</b></div>` },
       { type: 'number', id: 'amount', label: '金額（HK$）', required: true, min: 0, step: 1 },
     ],
     submitText: '儲存',
@@ -353,64 +376,36 @@ async function _openEditIncomeModal(key) {
     cancelText: '取消',
     initialData: { amount: currentAmount },
     onSubmit: async (data) => {
-      const amount = Number(data.amount) || 0;
-      await updateIncomeEntry(year, month, memberId, amount);
+      await updateIncomeEntry(year, month, memberId, Number(data.amount) || 0);
       showToast('✅ 已更新收入', 'success');
       closeModal(MODAL_ID);
     },
     onCancel: () => closeModal(MODAL_ID),
   });
-
   openModal(MODAL_ID);
   if (window.lucide) window.lucide.createIcons();
 }
 
-/* ============================================
-   刪除：收入
-   ============================================ */
-async function _handleDeleteIncome(key) {
-  // 🆕 v101.6.7：改用 | 分隔
-  const parts = key.split('|');
+async function _deleteIncome(row) {
+  const parts = row.id.split('|');
   if (parts.length < 3) return;
   const [year, month, memberId] = parts;
+  const memberName = memberId === RESERVED_IDS.EXTRA_INCOME ? '額外收入' : (_membersMap[memberId] || '（未知）');
 
-  const memberName = memberId === RESERVED_IDS.EXTRA_INCOME
-    ? '額外收入'
-    : (_membersMap[memberId] || '（未知）');
-
-  const ok = await openConfirm(`確定要刪除「${year}-${month} ${memberName}」的收入嗎？`, {
-    title: '刪除收入',
-    okText: '刪除',
-    okClass: 'btn-danger',
-  });
+  const ok = await openConfirm(`確定要刪除「${year}-${month} ${memberName}」的收入嗎？`, { title: '刪除收入', okText: '刪除', okClass: 'btn-danger' });
   if (!ok) return;
-
-  try {
-    await updateIncomeEntry(year, month, memberId, 0);
-    showToast('✅ 已刪除', 'success');
-  } catch (err) {
-    showToast('刪除失敗：' + err.message, 'error');
-  }
+  try { await updateIncomeEntry(year, month, memberId, 0); showToast('✅ 已刪除', 'success'); }
+  catch (err) { showToast('刪除失敗：' + err.message, 'error'); }
 }
 
 function _createModal(modalId, title) {
   _destroyModal(modalId);
-
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.id = modalId;
-  overlay.innerHTML = `
-    <div class="modal" style="max-width:480px; max-height:90vh; overflow-y:auto;">
-      <h2 class="modal-title">${escapeHtml(title)}</h2>
-      <div id="${modalId}-form-root"></div>
-    </div>
-  `;
+  overlay.innerHTML = `<div class="modal" style="max-width:480px; max-height:90vh; overflow-y:auto;"><h2 class="modal-title">${escapeHtml(title)}</h2><div id="${modalId}-form-root"></div></div>`;
   document.body.appendChild(overlay);
-
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) closeModal(modalId);
-  });
-
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(modalId); });
   return overlay;
 }
 

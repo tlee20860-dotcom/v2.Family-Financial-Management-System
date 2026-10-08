@@ -27,7 +27,6 @@
           </button>
         </div>
 
-        <!-- 統計卡 -->
         <div class="grid grid-3 mb-20">
           <div class="glass-card">
             <div class="glass-card-title">年度總收入</div>
@@ -43,16 +42,17 @@
           </div>
         </div>
 
-        <!-- 控制列 -->
         <div class="report-controls">
           <div class="view-toggle-group">
-            <button class="btn btn-sm btn-primary" id="view-summary-btn">全年總合</button>
-            <button class="btn btn-sm btn-ghost" id="view-monthly-btn">按月明細</button>
+            <button type="button" class="btn btn-sm btn-primary" id="view-summary-btn">全年總合</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="view-monthly-btn">按月明細</button>
           </div>
-          <div class="year-switcher" id="year-switcher"></div>
+          <div class="flex items-center gap-12 flex-wrap">
+            <div id="report-view-toggle-root"></div>
+            <div class="year-switcher" id="year-switcher"></div>
+          </div>
         </div>
 
-        <!-- 月份切換（僅按月明細顯示） -->
         <div class="month-switcher" id="month-switcher" style="display:none;"></div>
 
         <!-- 全年總合檢視 -->
@@ -66,14 +66,8 @@
               <i data-lucide="chevron-down" class="collapsible-arrow"></i>
             </div>
             <div class="collapsible-body" id="summary-table-body" style="display:block;">
-              <div class="summary-table-wrapper" style="border:none; border-radius:0;">
-                <table class="annual-table">
-                  <thead id="summary-thead"></thead>
-                  <tbody id="summary-tbody">
-                    <tr><td colspan="9" class="empty-state">載入中…</td></tr>
-                  </tbody>
-                </table>
-              </div>
+              <div id="summary-table-root"></div>
+              <div id="summary-card-root" style="display:none;"></div>
             </div>
           </div>
 

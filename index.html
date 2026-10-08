@@ -21,9 +21,12 @@
             <h1 class="page-title">總覽儀表板</h1>
             <p class="page-subtitle" id="dashboard-subtitle">載入中…</p>
           </div>
-          <a class="btn btn-primary" href="annual-report.html">
-            <i data-lucide="bar-chart-3"></i> 查看年度報表
-          </a>
+          <div class="flex items-center gap-12 flex-wrap">
+            <div id="dashboard-view-toggle-root"></div>
+            <a class="btn btn-primary" href="annual-report.html">
+              <i data-lucide="bar-chart-3"></i> 查看年度報表
+            </a>
+          </div>
         </div>
 
         <div id="dashboard-error" class="banner banner-magenta" style="display:none;"></div>
@@ -39,6 +42,7 @@
           </div>
           <div class="collapsible-body" style="display:block;">
             <div id="annual-table-root"></div>
+            <div id="annual-card-root" style="display:none; padding:16px 20px 20px;"></div>
           </div>
         </div>
       </main>

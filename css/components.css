@@ -1261,3 +1261,118 @@
     font-size: 10px;
   }
 }
+/* ============================================
+   🆕 v101.7.0：data-table 可摺疊 + 每列展開
+   ============================================ */
+
+/* 表格 header */
+.data-table-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.data-table-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.data-table-header-left .btn {
+  font-weight: 500;
+}
+
+.data-table-header-right {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* 表格外層滾動容器 */
+.data-table-scroll-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+}
+
+/* 橫排表格（無 mobile-cards） */
+.data-table:not(.mobile-cards) {
+  min-width: 100%;
+  table-layout: auto;
+}
+
+.data-table:not(.mobile-cards) th,
+.data-table:not(.mobile-cards) td {
+  white-space: nowrap;
+}
+
+/* 每列展開欄位 */
+.data-table .expand-col {
+  width: 36px;
+  padding: 4px !important;
+  text-align: center;
+}
+
+.data-table .expand-col .btn {
+  padding: 2px 6px;
+  min-width: auto;
+}
+
+/* 每列展開的明細列 */
+.data-table .detail-row > .detail-cell {
+  padding: 0 !important;
+  background: rgba(0, 240, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.data-table .detail-cell > * {
+  padding: 12px 16px;
+}
+
+/* 手機版：橫排表格 + 橫向滾動 */
+@media (max-width: 640px) {
+  .data-table:not(.mobile-cards) th,
+  .data-table:not(.mobile-cards) td {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .data-table:not(.mobile-cards) .btn-sm {
+    padding: 3px 6px;
+    font-size: 10px;
+  }
+
+  .data-table-header {
+    gap: 8px;
+  }
+
+  .data-table-header-right .btn-sm span:not(.hide-mobile) {
+    display: none;
+  }
+}
+
+/* ============================================
+   🆕 v101.7.0：統一卡片網格
+   ============================================ */
+.data-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 1024px) {
+  .data-cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .data-cards-grid {
+    grid-template-columns: 1fr;
+  }
+}

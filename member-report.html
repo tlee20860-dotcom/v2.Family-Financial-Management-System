@@ -16,18 +16,18 @@
       <header id="navbar-root"></header>
 
       <main class="content content-min-height">
-        <div class="page-header">
-          <h1 class="page-title">成員與家庭收入與支出明細</h1>
-          <p class="page-subtitle" id="member-report-subtitle">載入中…</p>
+        <div class="page-header flex flex-between items-end flex-wrap gap-12">
+          <div>
+            <h1 class="page-title">成員與家庭收入與支出明細</h1>
+            <p class="page-subtitle" id="member-report-subtitle">載入中…</p>
+          </div>
+          <div id="member-view-toggle-root"></div>
         </div>
 
-        <!-- 年份選擇器 -->
         <div id="page-filter-root" class="mb-16"></div>
 
-        <!-- 統計卡 -->
         <div id="member-report-stats-root"></div>
 
-        <!-- 成員清單區塊 -->
         <div class="glass-card collapsible-card collapsible-card-flat" style="padding:0; margin-bottom:20px;">
           <div class="collapsible-header">
             <div class="collapsible-header-title">
@@ -36,11 +36,13 @@
             </div>
           </div>
           <div class="collapsible-body" style="display:block;">
+            <!-- 表格模式 -->
             <div id="member-list-root"></div>
+            <!-- 卡片模式 -->
+            <div id="member-card-root" style="display:none; padding:16px 20px 20px;"></div>
           </div>
         </div>
 
-        <!-- 明細區塊 -->
         <div class="glass-card collapsible-card collapsible-card-flat" style="padding:0;" id="member-detail-card">
           <div class="collapsible-header">
             <div class="collapsible-header-title">

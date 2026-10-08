@@ -1,13 +1,14 @@
 // ============================================
-// data-table.js — 通用表格渲染（v101.6.12）
+// data-table.js — 通用表格渲染（v101.7.0）
 // 位置：js/shared/data-table.js
 // ============================================
-// v101.6.12 修正：
-//   ✅ [統一] 新增 mobileCardMode 參數（預設 false）
-//       - false → 橫排表格（跟隨保險清單）
-//       - true  → 手機自動卡片化（向後相容）
-//   ✅ 新增 tableClass 自訂 class
-//   ✅ 保留 v101.6.9 的 type="button" 與監聽器儲存機制
+// v101.7.0 新增：
+//   ✅ options.expandable — 每列可展開（需 renderDetail）
+//   ✅ options.renderDetail — (row) => string
+//   ✅ options.collapsible — 整表可摺疊
+//   ✅ options.defaultCollapsed — 預設摺疊狀態
+//   ✅ options.headerActions — 右上角自訂按鈕
+//   ✅ options.storageKey — 摺疊狀態持久化 key
 //
 // API 凍結：v101.6 發布後只加不改
 // ============================================
@@ -16,14 +17,8 @@ import { getEntityDef, getEntityUi } from '../config/entity-definitions.js';
 import { escapeHtml, formatCellValue } from '../core/utils.js';
 import { initColumnSettings } from './column-settings.js';
 
-/* ============================================
-   監聽器儲存 key（避免累積）
-   ============================================ */
 const LISTENER_KEY = '__dtClickListener';
-
-/* ============================================
-   主函式
-   ============================================ */
+const COLLAPSE_STORAGE_PREFIX = 'fin_ui_collapse_';
 
 export function renderDataTable(options) {
   const {
@@ -58,22 +53,22 @@ export function renderDataTable(options) {
   const _tableId = tableId || entityKey;
   const {
     resolvers = {},
-    // 🆕 v101.6.12：預設 false（橫排表格，跟隨保險清單）
     mobileCardMode = false,
-    // 🆕 v101.6.12：額外自訂 class
     tableClass = '',
+    expandable = false,
+    renderDetail = null,
+    collapsible = false,
+    defaultCollapsed = false,
+    headerActions = [],
+    storageKey = _tableId,
   } = extraOptions;
 
-  // 🆕 v101.6.12：組合最終 table class
   const finalTableClass = [
     'data-table',
     mobileCardMode ? 'mobile-cards' : '',
     tableClass,
   ].filter(Boolean).join(' ');
 
-  /* ============================================
-     準備欄位定義
-     ============================================ */
   const fieldMap = {};
   (effectiveDef.fields || []).forEach((f) => { fieldMap[f.id] = f; });
 
@@ -93,9 +88,6 @@ export function renderDataTable(options) {
     });
   }
 
-  /* ============================================
-     判斷是否需要操作欄位
-     ============================================ */
   const hasBuiltinActions = (effectiveUi.canEdit !== false) || (effectiveUi.canDelete !== false);
   const hasCustomActions = typeof hooks.customActions === 'function';
   const shouldRenderActions = hasBuiltinActions || hasCustomActions;
@@ -110,17 +102,25 @@ export function renderDataTable(options) {
     });
   }
 
-  /* ============================================
-     初始化欄位設定
-     ============================================ */
+  // 摺疊狀態
+  const collapseKey = `${COLLAPSE_STORAGE_PREFIX}${storageKey}`;
+  let _collapsed = false;
+  if (collapsible) {
+    try {
+      const saved = localStorage.getItem(collapseKey);
+      _collapsed = saved === null ? defaultCollapsed : saved === 'true';
+    } catch (e) {
+      _collapsed = defaultCollapsed;
+    }
+  }
+
+  const _expandedRows = new Set();
+
   const colSettings = initColumnSettings({
     tableId: _tableId,
     columns: allColumns,
   });
 
-  /* ============================================
-     渲染
-     ============================================ */
   const _beforeRows = typeof hooks.beforeRender === 'function'
     ? (hooks.beforeRender(rows) || rows)
     : rows;
@@ -135,30 +135,51 @@ export function renderDataTable(options) {
       return;
     }
 
+    const totalCols = visibleCols.length + (expandable ? 1 : 0);
+
+    const leftHtml = collapsible
+      ? `<button type="button" class="btn btn-sm btn-ghost" data-action="toggle-collapse">
+          <i data-lucide="${_collapsed ? 'chevron-right' : 'chevron-down'}" style="width:14px;height:14px;"></i>
+          <span>共 ${_beforeRows.length} 筆</span>
+        </button>`
+      : `<span class="text-muted" style="font-size:12px;">共 ${_beforeRows.length} 筆</span>`;
+
+    const headerActionsHtml = headerActions.map((a) => `
+      <button type="button" class="btn btn-sm ${escapeHtml(a.className || 'btn-ghost')}"
+              data-action="${escapeHtml(a.action)}">
+        ${a.icon ? `<i data-lucide="${escapeHtml(a.icon)}" style="width:14px;height:14px;"></i>` : ''}
+        <span>${escapeHtml(a.label)}</span>
+      </button>
+    `).join('');
+
     root.innerHTML = `
       <div class="data-table-header">
         <div class="data-table-header-left">
-          <span class="text-muted" style="font-size:12px;">共 ${_beforeRows.length} 筆</span>
+          ${leftHtml}
         </div>
         <div class="data-table-header-right">
           <button type="button" class="btn btn-sm btn-ghost" data-action="column-settings" title="欄位設定">
             <i data-lucide="columns" style="width:14px;height:14px;"></i>
             <span class="hide-mobile">欄位</span>
           </button>
+          ${headerActionsHtml}
         </div>
       </div>
-      <div class="glass-card collapsible-card collapsible-card-flat" style="padding:0;">
-        <div class="data-table-scroll-wrapper">
-          <table class="${finalTableClass}">
-            <thead>
-              <tr>
-                ${visibleCols.map((col) => _renderTh(col, colSettings)).join('')}
-              </tr>
-            </thead>
-            <tbody>
-              ${_beforeRows.map((row, i) => _renderRow(row, i, visibleCols)).join('')}
-            </tbody>
-          </table>
+      <div class="data-table-body" style="display:${_collapsed ? 'none' : 'block'};">
+        <div class="glass-card collapsible-card collapsible-card-flat" style="padding:0;">
+          <div class="data-table-scroll-wrapper">
+            <table class="${finalTableClass}">
+              <thead>
+                <tr>
+                  ${expandable ? '<th class="expand-col" style="width:36px;"></th>' : ''}
+                  ${visibleCols.map((col) => _renderTh(col, colSettings)).join('')}
+                </tr>
+              </thead>
+              <tbody>
+                ${_beforeRows.map((row, i) => _renderRowWithDetail(row, i, visibleCols, totalCols)).join('')}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     `;
@@ -168,9 +189,6 @@ export function renderDataTable(options) {
     if (typeof hooks.afterRender === 'function') hooks.afterRender(root);
   }
 
-  /* ============================================
-     thead / tbody 渲染
-     ============================================ */
   function _renderTh(col, settings) {
     const width = settings.getWidth(col.id);
     const style = width ? `style="width:${width}px;"` : '';
@@ -178,12 +196,34 @@ export function renderDataTable(options) {
     return `<th class="${cls}" ${style}>${escapeHtml(col.label)}</th>`;
   }
 
-  function _renderRow(row, index, visibleCols) {
-    return `
+  function _renderRowWithDetail(row, index, visibleCols, totalCols) {
+    const mainRow = `
       <tr data-row-index="${index}">
+        ${expandable ? `
+          <td class="expand-col">
+            <button type="button" class="btn btn-sm btn-ghost" data-action="toggle-expand" data-index="${index}" style="padding:2px 6px;">
+              <i data-lucide="${_expandedRows.has(index) ? 'chevron-down' : 'chevron-right'}" style="width:14px;height:14px;"></i>
+            </button>
+          </td>
+        ` : ''}
         ${visibleCols.map((col, colIdx) => _renderTd(col, row, colIdx === 0)).join('')}
       </tr>
     `;
+
+    if (!expandable || typeof renderDetail !== 'function') {
+      return mainRow;
+    }
+
+    const isExpanded = _expandedRows.has(index);
+    const detailRow = `
+      <tr class="detail-row" data-detail-index="${index}" style="display:${isExpanded ? 'table-row' : 'none'};">
+        <td colspan="${totalCols}" class="detail-cell">
+          ${renderDetail(row)}
+        </td>
+      </tr>
+    `;
+
+    return mainRow + detailRow;
   }
 
   function _renderTd(col, row, isFirst) {
@@ -200,9 +240,7 @@ export function renderDataTable(options) {
 
     const val = row[col.id];
     const resolver = resolvers[col.id];
-    const content = resolver
-      ? resolver(val, row)
-      : formatCellValue(val, col.type);
+    const content = resolver ? resolver(val, row) : formatCellValue(val, col.type);
 
     const cls = col.type === 'number' ? 'num' : '';
     const dataLabel = isFirst ? 'data-primary="1"' : `data-label="${escapeHtml(col.label)}"`;
@@ -239,9 +277,6 @@ export function renderDataTable(options) {
     return actionsHtml;
   }
 
-  /* ============================================
-     事件綁定
-     ============================================ */
   function _bindEvents() {
     const oldListener = root[LISTENER_KEY];
     if (oldListener) {
@@ -250,18 +285,47 @@ export function renderDataTable(options) {
     }
 
     const listener = (e) => {
-      const settingsBtn = e.target.closest('button[data-action="column-settings"]');
-      if (settingsBtn) {
-        colSettings.openPanel({
-          onChange: () => _render(),
-        });
+      // 整表摺疊
+      const collapseBtn = e.target.closest('button[data-action="toggle-collapse"]');
+      if (collapseBtn) {
+        _collapsed = !_collapsed;
+        try { localStorage.setItem(collapseKey, String(_collapsed)); } catch (err) {}
+        _render();
         return;
       }
 
-      const actionBtn = e.target.closest('button[data-action]');
+      // 每列展開
+      const expandBtn = e.target.closest('button[data-action="toggle-expand"]');
+      if (expandBtn) {
+        const idx = Number(expandBtn.dataset.index);
+        if (_expandedRows.has(idx)) _expandedRows.delete(idx);
+        else _expandedRows.add(idx);
+        _render();
+        return;
+      }
+
+      // headerActions
+      const headerActionBtn = e.target.closest('.data-table-header-right button[data-action]');
+      if (headerActionBtn) {
+        const action = headerActionBtn.dataset.action;
+        if (action === 'column-settings') {
+          colSettings.openPanel({ onChange: () => _render() });
+          return;
+        }
+        const matched = headerActions.find((a) => a.action === action);
+        if (matched && typeof matched.onClick === 'function') {
+          e.stopPropagation();
+          matched.onClick();
+          return;
+        }
+        return;
+      }
+
+      // 操作按鈕（tbody 內）
+      const actionBtn = e.target.closest('tbody button[data-action]');
       if (actionBtn) {
         const action = actionBtn.dataset.action;
-        const tr = actionBtn.closest('tr');
+        const tr = actionBtn.closest('tr[data-row-index]');
         if (!tr) return;
 
         const index = Number(tr.dataset.rowIndex);
@@ -291,6 +355,7 @@ export function renderDataTable(options) {
         return;
       }
 
+      // 點擊 row
       const tr = e.target.closest('tr[data-row-index]');
       if (tr && typeof hooks.onRowClick === 'function') {
         const index = Number(tr.dataset.rowIndex);
@@ -303,15 +368,10 @@ export function renderDataTable(options) {
     root[LISTENER_KEY] = listener;
   }
 
-  /* ============================================
-     對外 API
-     ============================================ */
   return {
     container: root,
     table: root.querySelector('table'),
-
     refresh: () => _render(),
-
     destroy: () => {
       const oldListener = root[LISTENER_KEY];
       if (oldListener) {
@@ -322,10 +382,6 @@ export function renderDataTable(options) {
     },
   };
 }
-
-/* ============================================
-   內部工具
-   ============================================ */
 
 function _resolveElement(target) {
   if (typeof target === 'string') return document.getElementById(target);

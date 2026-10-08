@@ -1,11 +1,10 @@
 // ============================================
-// annual-report.js — 年度報表（v101.5）
+// annual-report.js — 年度報表（v101.7.0）
 // 位置：js/pages/annual-report.js
 // ============================================
-// v101.5 修正：
-//   ✅ 使用 api.fetchAnnualSummary 統一（移除手動 12 次呼叫）
-//   ✅ 使用 registerPageCleanup 註冊清理
-//   ✅ 匯出 Excel 的 XLSX 改用動態 import（節省初次載入）
+// v101.7.0 新增：
+//   ✅ 全年總合：雙模式切換（卡片 / 表格）
+//   ✅ 表格：可摺疊 + 每列展開
 // ============================================
 
 import { api } from '../core/api.js';
@@ -13,16 +12,17 @@ import { AppState } from '../core/state.js';
 import { formatHKD, formatNumber, escapeHtml } from '../core/utils.js';
 import { getOptions } from '../config/app-config.js';
 import { initCollapsibleCard } from '../shared/collapsible-card.js';
+import { renderDataTable } from '../shared/data-table.js';
+import { initViewToggle } from '../shared/view-toggle.js';
 import { registerPageCleanup } from '../core/app.js';
 
-/* ============================================
-   Module 狀態
-   ============================================ */
 let _currentYear = '';
 let _currentView = 'summary';
 let _currentDisplayMonth = '01';
 let _annualData = null;
 let _cards = [];
+let _viewToggle = null;
+let _summaryTableApi = null;
 let _yearSwitcherHandler = null;
 let _monthSwitcherHandler = null;
 
@@ -34,6 +34,18 @@ export function initAnnualReportPage() {
   _cards.push(initCollapsibleCard('payment-stats-card', 'ar-payment-stats-open', true));
   _cards.push(initCollapsibleCard('monthly-table-card', 'ar-monthly-open', true));
 
+  _viewToggle = initViewToggle({
+    containerId: 'report-view-toggle-root',
+    storageKey: 'annual-report-view',
+    defaultView: 'table',
+    cardText: '卡片',
+    tableText: '表格',
+    autoApply: false,
+    onChange: () => {
+      if (_currentView === 'summary' && _annualData) _renderSummary();
+    },
+  });
+
   const { year } = AppState.getYearMonth();
   _currentYear = year;
   _currentDisplayMonth = AppState.month === 'all' ? '01' : AppState.month;
@@ -41,22 +53,14 @@ export function initAnnualReportPage() {
   _renderYearSwitcher();
   _renderMonthSwitcher();
 
-  document.getElementById('view-summary-btn')?.addEventListener('click', () => {
-    _switchView('summary');
-  });
-  document.getElementById('view-monthly-btn')?.addEventListener('click', () => {
-    _switchView('monthly');
-  });
-
+  document.getElementById('view-summary-btn')?.addEventListener('click', () => _switchView('summary'));
+  document.getElementById('view-monthly-btn')?.addEventListener('click', () => _switchView('monthly'));
   document.getElementById('export-excel-btn')?.addEventListener('click', _exportToExcel);
 
   _loadAnnual();
 
   registerPageCleanup(_destroy);
-
-  return {
-    destroy: _destroy,
-  };
+  return { destroy: _destroy };
 }
 
 /* ============================================
@@ -70,11 +74,13 @@ function _switchView(view) {
   const monthSwitcher = document.getElementById('month-switcher');
   const summaryBtn = document.getElementById('view-summary-btn');
   const monthlyBtn = document.getElementById('view-monthly-btn');
+  const viewToggleRoot = document.getElementById('report-view-toggle-root');
 
   if (view === 'summary') {
     if (summaryView) summaryView.style.display = 'block';
     if (monthlyView) monthlyView.style.display = 'none';
     if (monthSwitcher) monthSwitcher.style.display = 'none';
+    if (viewToggleRoot) viewToggleRoot.style.display = '';
     summaryBtn?.classList.add('btn-primary');
     summaryBtn?.classList.remove('btn-ghost');
     monthlyBtn?.classList.add('btn-ghost');
@@ -84,6 +90,7 @@ function _switchView(view) {
     if (summaryView) summaryView.style.display = 'none';
     if (monthlyView) monthlyView.style.display = 'block';
     if (monthSwitcher) monthSwitcher.style.display = 'flex';
+    if (viewToggleRoot) viewToggleRoot.style.display = 'none';
     summaryBtn?.classList.add('btn-ghost');
     summaryBtn?.classList.remove('btn-primary');
     monthlyBtn?.classList.add('btn-primary');
@@ -93,7 +100,7 @@ function _switchView(view) {
 }
 
 /* ============================================
-   年份切換
+   年份 / 月份切換
    ============================================ */
 function _renderYearSwitcher() {
   const el = document.getElementById('year-switcher');
@@ -101,14 +108,12 @@ function _renderYearSwitcher() {
 
   const y = Number(_currentYear);
   el.innerHTML = `
-    <button class="year-btn year-arrow" data-year="${y - 1}">◀ ${y - 1}</button>
-    <button class="year-btn active">${y}</button>
-    <button class="year-btn year-arrow" data-year="${y + 1}">${y + 1} ▶</button>
+    <button type="button" class="year-btn year-arrow" data-year="${y - 1}">◀ ${y - 1}</button>
+    <button type="button" class="year-btn active">${y}</button>
+    <button type="button" class="year-btn year-arrow" data-year="${y + 1}">${y + 1} ▶</button>
   `;
 
-  if (_yearSwitcherHandler) {
-    el.removeEventListener('click', _yearSwitcherHandler);
-  }
+  if (_yearSwitcherHandler) el.removeEventListener('click', _yearSwitcherHandler);
   _yearSwitcherHandler = (e) => {
     const btn = e.target.closest('button[data-year]');
     if (!btn) return;
@@ -119,9 +124,6 @@ function _renderYearSwitcher() {
   el.addEventListener('click', _yearSwitcherHandler);
 }
 
-/* ============================================
-   月份切換
-   ============================================ */
 function _renderMonthSwitcher() {
   const el = document.getElementById('month-switcher');
   if (!el) return;
@@ -129,13 +131,11 @@ function _renderMonthSwitcher() {
   let html = '';
   for (let m = 1; m <= 12; m++) {
     const mm = String(m).padStart(2, '0');
-    html += `<button class="month-btn ${mm === _currentDisplayMonth ? 'active' : ''}" data-month="${mm}">${m}月</button>`;
+    html += `<button type="button" class="month-btn ${mm === _currentDisplayMonth ? 'active' : ''}" data-month="${mm}">${m}月</button>`;
   }
   el.innerHTML = html;
 
-  if (_monthSwitcherHandler) {
-    el.removeEventListener('click', _monthSwitcherHandler);
-  }
+  if (_monthSwitcherHandler) el.removeEventListener('click', _monthSwitcherHandler);
   _monthSwitcherHandler = (e) => {
     const btn = e.target.closest('button[data-month]');
     if (!btn) return;
@@ -147,34 +147,28 @@ function _renderMonthSwitcher() {
 }
 
 /* ============================================
-   載入全年資料（使用 api.fetchAnnualSummary）
+   載入年度資料
    ============================================ */
 async function _loadAnnual() {
   const titleEl = document.getElementById('report-year-title');
   if (titleEl) titleEl.textContent = `${_currentYear} 年`;
 
-  const tbody = document.getElementById('summary-tbody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty-state">載入中…</td></tr>';
+  const summaryRoot = document.getElementById('summary-table-root');
+  if (summaryRoot) summaryRoot.innerHTML = '<div class="empty-state">載入中…</div>';
+
   const mtbody = document.getElementById('monthly-tbody');
   if (mtbody) mtbody.innerHTML = '<tr><td colspan="3" class="empty-state">載入中…</td></tr>';
 
   try {
-    // 🆕 v101.5：使用 api.fetchAnnualSummary（內部已平行化）
     const result = await api.fetchAnnualSummary(_currentYear);
-
     _annualData = _buildAnnualData(_currentYear, result.monthly);
-
     _renderStats();
     if (_currentView === 'summary') _renderSummary();
     else _renderMonthly();
   } catch (err) {
     console.error('年度報表載入失敗：', err);
-    if (tbody) {
-      tbody.innerHTML = '<tr><td colspan="9" class="empty-state text-red">載入失敗，請稍後再試。</td></tr>';
-    }
-    if (mtbody) {
-      mtbody.innerHTML = '<tr><td colspan="3" class="empty-state text-red">載入失敗，請稍後再試。</td></tr>';
-    }
+    if (summaryRoot) summaryRoot.innerHTML = '<div class="empty-state text-red">載入失敗，請稍後再試。</div>';
+    if (mtbody) mtbody.innerHTML = '<tr><td colspan="3" class="empty-state text-red">載入失敗，請稍後再試。</td></tr>';
   }
 }
 
@@ -192,19 +186,9 @@ function _buildAnnualData(year, monthlyResults) {
     Object.entries(incomeBreakdown).forEach(([memberId, amount]) => {
       const num = Math.round(Number(amount) || 0);
       if (num === 0) return;
-
-      const displayName = memberId === 'extra'
-        ? '額外收入'
-        : (monthData.perMember?.[memberId]?.memberName || memberId);
-
+      const displayName = memberId === 'extra' ? '額外收入' : (monthData.perMember?.[memberId]?.memberName || memberId);
       if (!memberMap[memberId]) {
-        memberMap[memberId] = {
-          id: memberId,
-          name: displayName,
-          order: memberId === 'extra' ? Number.MAX_SAFE_INTEGER : 0,
-          income: Array(12).fill(0),
-          expenses: {},
-        };
+        memberMap[memberId] = { id: memberId, name: displayName, order: memberId === 'extra' ? Number.MAX_SAFE_INTEGER : 0, income: Array(12).fill(0), expenses: {} };
       }
       memberMap[memberId].income[idx] = num;
     });
@@ -212,26 +196,13 @@ function _buildAnnualData(year, monthlyResults) {
     const perMember = monthData.perMember || {};
     Object.entries(perMember).forEach(([memberId, mData]) => {
       if (!memberMap[memberId]) {
-        memberMap[memberId] = {
-          id: memberId,
-          name: mData.memberName || memberId,
-          order: mData.order != null ? mData.order : Number.MAX_SAFE_INTEGER,
-          income: Array(12).fill(0),
-          expenses: {},
-        };
+        memberMap[memberId] = { id: memberId, name: mData.memberName || memberId, order: mData.order != null ? mData.order : Number.MAX_SAFE_INTEGER, income: Array(12).fill(0), expenses: {} };
       }
       memberMap[memberId].order = mData.order != null ? mData.order : memberMap[memberId].order;
-
       (mData.items || []).forEach((item) => {
         const catId = item.categoryId || '__none__';
         const catName = item.categoryName || '（未分類）';
-
-        if (!memberMap[memberId].expenses[catId]) {
-          memberMap[memberId].expenses[catId] = {
-            name: catName,
-            amounts: Array(12).fill(0),
-          };
-        }
+        if (!memberMap[memberId].expenses[catId]) memberMap[memberId].expenses[catId] = { name: catName, amounts: Array(12).fill(0) };
         memberMap[memberId].expenses[catId].amounts[idx] += Math.round(Number(item.amount) || 0);
       });
     });
@@ -240,13 +211,8 @@ function _buildAnnualData(year, monthlyResults) {
       const catId = f.categoryId || '__none__';
       const catName = f.categoryName || '其他';
       const itemName = f.name || '（未命名）';
-
-      if (!fixedMap[catId]) {
-        fixedMap[catId] = { catId, catName, items: {} };
-      }
-      if (!fixedMap[catId].items[itemName]) {
-        fixedMap[catId].items[itemName] = Array(12).fill(0);
-      }
+      if (!fixedMap[catId]) fixedMap[catId] = { catId, catName, items: {} };
+      if (!fixedMap[catId].items[itemName]) fixedMap[catId].items[itemName] = Array(12).fill(0);
       fixedMap[catId].items[itemName][idx] += Math.round(Number(f.amount) || 0);
     });
 
@@ -269,24 +235,14 @@ function _buildAnnualData(year, monthlyResults) {
     return 0;
   });
 
-  return {
-    year,
-    members: membersArr,
-    fixedExpenses: fixedMap,
-    paymentBreakdown: paymentMap,
-    monthly: monthlyTotals,
-  };
+  return { year, members: membersArr, fixedExpenses: fixedMap, paymentBreakdown: paymentMap, monthly: monthlyTotals };
 }
 
-/* ============================================
-   取得分類順序
-   ============================================ */
 function _getCategoryOrder() {
   try {
     const order = getOptions('categoryOrder');
     if (Array.isArray(order) && order.length > 0) return order;
-  } catch (e) { /* noop */ }
-
+  } catch (e) {}
   return ['銀行類', '醫療類', '學校類', '保險類', '固定費用類', '交通類', '其他'];
 }
 
@@ -312,33 +268,51 @@ function _renderStats() {
 }
 
 /* ============================================
-   全年總合（依類別欄位）
+   全年總合（依 view 切換）
    ============================================ */
 function _renderSummary() {
-  const thead = document.getElementById('summary-thead');
-  const tbody = document.getElementById('summary-tbody');
-  if (!thead || !tbody) return;
+  const view = _viewToggle?.getView() || 'table';
+  const tableRoot = document.getElementById('summary-table-root');
+  const cardRoot = document.getElementById('summary-card-root');
+
+  if (view === 'card') {
+    if (tableRoot) tableRoot.style.display = 'none';
+    if (cardRoot) { cardRoot.style.display = 'block'; _renderSummaryCards(cardRoot); }
+  } else {
+    if (tableRoot) tableRoot.style.display = 'block';
+    if (cardRoot) cardRoot.style.display = 'none';
+    _renderSummaryTable();
+  }
+
+  _renderPaymentStatsCard();
+}
+
+/* ============================================
+   全年總合 — 表格（用 renderDataTable）
+   ============================================ */
+function _renderSummaryTable() {
+  const root = document.getElementById('summary-table-root');
+  if (!root) return;
+
+  if (_summaryTableApi) { try { _summaryTableApi.destroy(); } catch (e) {} _summaryTableApi = null; }
 
   const catOrder = _getCategoryOrder();
 
-  thead.innerHTML = `<tr>
-    <th style="min-width:100px;">成員</th>
-    <th class="num">總收入</th>
-    <th class="num">總支出</th>
-    ${catOrder.map((c) => `<th class="num">${escapeHtml(c)}</th>`).join('')}
-    <th class="num">年度淨結餘</th>
-  </tr>`;
+  // 建立欄位
+  const columns = [
+    { id: '__expand__', label: '', defaultVisible: true, defaultWidth: 36 },
+    { id: 'name', label: '成員', defaultVisible: true, defaultWidth: 100 },
+    { id: 'income', label: '總收入', defaultVisible: true, defaultWidth: 120 },
+    { id: 'expense', label: '總支出', defaultVisible: true, defaultWidth: 120 },
+    ...catOrder.map((c) => ({ id: `cat_${c}`, label: c, defaultVisible: true, defaultWidth: 110, type: 'number' })),
+    { id: 'net', label: '淨結餘', defaultVisible: true, defaultWidth: 130 },
+  ];
 
+  // 建立資料
   const rows = [];
-  let grandTotalIncome = 0;
-  let grandTotalExpense = 0;
-  const grandCategoryTotals = Object.fromEntries(catOrder.map((c) => [c, 0]));
-
   _annualData.members.forEach((m) => {
     if (m.id === 'extra') return;
-
     const totalIncome = m.income.reduce((s, x) => s + x, 0);
-
     const catTotals = Object.fromEntries(catOrder.map((c) => [c, 0]));
     let totalExpense = 0;
     let unmatchedTotal = 0;
@@ -346,90 +320,206 @@ function _renderSummary() {
     Object.entries(m.expenses).forEach(([catId, catData]) => {
       const sum = catData.amounts.reduce((s, x) => s + x, 0);
       totalExpense += sum;
-
       const catName = catData.name || '（未分類）';
-      if (catTotals[catName] != null) {
-        catTotals[catName] += sum;
-      } else {
-        unmatchedTotal += sum;
-      }
+      if (catTotals[catName] != null) catTotals[catName] += sum;
+      else unmatchedTotal += sum;
     });
+    if (unmatchedTotal > 0 && catTotals['其他'] != null) catTotals['其他'] += unmatchedTotal;
 
-    if (unmatchedTotal > 0 && catTotals['其他'] != null) {
-      catTotals['其他'] += unmatchedTotal;
-    }
-
-    grandTotalIncome += totalIncome;
-    grandTotalExpense += totalExpense;
-    catOrder.forEach((c) => { grandCategoryTotals[c] += catTotals[c]; });
-
-    rows.push(`
-      <tr>
-        <td>${escapeHtml(m.name)}</td>
-        <td class="num text-emerald">${formatHKD(totalIncome)}</td>
-        <td class="num text-red">${formatHKD(totalExpense)}</td>
-        ${catOrder.map((c) => `<td class="num">${catTotals[c] > 0 ? formatHKD(catTotals[c]) : '—'}</td>`).join('')}
-        <td class="num" style="color:${(totalIncome - totalExpense) >= 0 ? 'var(--neon-emerald)' : 'var(--neon-red)'};">
-          ${formatHKD(totalIncome - totalExpense)}
-        </td>
-      </tr>
-    `);
+    const row = {
+      __key: m.id,
+      name: m.name,
+      income: totalIncome,
+      expense: totalExpense,
+      net: totalIncome - totalExpense,
+    };
+    catOrder.forEach((c) => { row[`cat_${c}`] = catTotals[c]; });
+    rows.push(row);
   });
 
+  // 家庭共用支出
   const sharedCatTotals = Object.fromEntries(catOrder.map((c) => [c, 0]));
   let sharedTotal = 0;
-
   Object.values(_annualData.fixedExpenses).forEach((catData) => {
     const catName = catData.catName || '其他';
     let catSum = 0;
-    Object.values(catData.items).forEach((arr) => {
-      catSum += arr.reduce((a, b) => a + b, 0);
-    });
+    Object.values(catData.items).forEach((arr) => { catSum += arr.reduce((a, b) => a + b, 0); });
     sharedTotal += catSum;
-
-    if (sharedCatTotals[catName] != null) {
-      sharedCatTotals[catName] += catSum;
-    } else if (sharedCatTotals['其他'] != null) {
-      sharedCatTotals['其他'] += catSum;
-    }
+    if (sharedCatTotals[catName] != null) sharedCatTotals[catName] += catSum;
+    else if (sharedCatTotals['其他'] != null) sharedCatTotals['其他'] += catSum;
   });
 
-  grandTotalExpense += sharedTotal;
-  catOrder.forEach((c) => { grandCategoryTotals[c] += sharedCatTotals[c]; });
-
   if (sharedTotal > 0) {
-    rows.push(`
-      <tr class="shared-row">
-        <td>家庭共用支出</td>
-        <td class="num">—</td>
-        <td class="num">${formatHKD(sharedTotal)}</td>
-        ${catOrder.map((c) => `<td class="num">${sharedCatTotals[c] > 0 ? formatHKD(sharedCatTotals[c]) : '—'}</td>`).join('')}
-        <td class="num" style="color:var(--neon-magenta);">-${formatHKD(sharedTotal)}</td>
-      </tr>
-    `);
+    const sharedRow = {
+      __key: 'shared',
+      name: '家庭共用',
+      income: 0,
+      expense: sharedTotal,
+      net: -sharedTotal,
+      __isShared: true,
+    };
+    catOrder.forEach((c) => { sharedRow[`cat_${c}`] = sharedCatTotals[c]; });
+    rows.push(sharedRow);
   }
 
+  // 額外收入
   const extraMember = _annualData.members.find((m) => m.id === 'extra');
   const extraIncome = extraMember ? extraMember.income.reduce((s, x) => s + x, 0) : 0;
-  grandTotalIncome += extraIncome;
 
-  rows.push(`
-    <tr class="group-header">
-      <td>【總計】</td>
-      <td class="num">${formatHKD(grandTotalIncome)}</td>
-      <td class="num">${formatHKD(grandTotalExpense)}</td>
-      ${catOrder.map((c) => `<td class="num">${formatHKD(grandCategoryTotals[c])}</td>`).join('')}
-      <td class="num" style="color:${(grandTotalIncome - grandTotalExpense) >= 0 ? 'var(--neon-emerald)' : 'var(--neon-red)'};">
-        ${formatHKD(grandTotalIncome - grandTotalExpense)}
-      </td>
-    </tr>
-  `);
+  // 總計列
+  const grandTotalIncome = rows.reduce((s, r) => s + r.income, 0);
+  const grandTotalExpense = rows.reduce((s, r) => s + r.expense, 0);
+  const grandCatTotals = Object.fromEntries(catOrder.map((c) => [c, 0]));
+  rows.forEach((r) => catOrder.forEach((c) => { grandCatTotals[c] += r[`cat_${c}`] || 0; }));
 
-  tbody.innerHTML = rows.join('');
+  const totalRow = {
+    __key: '__total__',
+    name: '【總計】',
+    income: grandTotalIncome + extraIncome,
+    expense: grandTotalExpense,
+    net: grandTotalIncome + extraIncome - grandTotalExpense,
+    __isTotal: true,
+  };
+  catOrder.forEach((c) => { totalRow[`cat_${c}`] = grandCatTotals[c]; });
+
+  _summaryTableApi = renderDataTable({
+    container: root,
+    entityKey: '__annual_summary__',
+    rows: [...rows, totalRow],
+    tableId: 'annual-summary-table',
+    options: {
+      columns: columns.filter((c) => c.id !== '__expand__'),
+      resolvers: {
+        name: (_, row) => {
+          if (row.__isTotal) return `<b style="color:var(--neon-cyan);">${escapeHtml(row.name)}</b>`;
+          if (row.__isShared) return `<span class="text-magenta">${escapeHtml(row.name)}</span>`;
+          return escapeHtml(row.name);
+        },
+        income: (val) => val > 0 ? `<span class="text-emerald">${formatHKD(val)}</span>` : '<span class="text-muted">—</span>',
+        expense: (val) => val > 0 ? `<span class="text-red">${formatHKD(val)}</span>` : '<span class="text-muted">—</span>',
+        net: (val) => `<span class="${val >= 0 ? 'text-emerald' : 'text-red'}" style="${val < 0 ? '' : ''}">${formatHKD(val)}</span>`,
+      },
+      mobileCardMode: false,
+      collapsible: true,
+      defaultCollapsed: false,
+      expandable: true,
+      storageKey: 'annual-summary-table',
+      renderDetail: (row) => _renderMemberDetail(row, catOrder),
+    },
+    hooks: {
+      customActions: () => [],
+    },
+  });
 
   if (window.lucide) window.lucide.createIcons();
+}
 
-  _renderPaymentStatsCard();
+function _renderMemberDetail(row, catOrder) {
+  if (row.__isTotal) {
+    return `<div style="font-size:13px; color:var(--text-muted); padding:8px 0;">總計為所有成員加總，無展開內容。</div>`;
+  }
+
+  if (row.__isShared) {
+    return `
+      <div style="font-size:13px;">
+        <div style="color:var(--text-muted); font-size:11px; margin-bottom:6px;">家庭共用支出（依類別）</div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:8px 16px;">
+          ${catOrder.filter((c) => row[`cat_${c}`] > 0).map((c) => `
+            <div style="display:flex; justify-content:space-between;">
+              <span class="text-muted">${escapeHtml(c)}</span>
+              <span class="mono text-magenta">${formatHKD(row[`cat_${c}`])}</span>
+            </div>
+          `).join('') || '<div class="text-muted">無資料</div>'}
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div style="font-size:13px;">
+      <div style="color:var(--text-muted); font-size:11px; margin-bottom:6px;">${escapeHtml(row.name)} 年度類別明細</div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:8px 16px;">
+        ${catOrder.filter((c) => row[`cat_${c}`] > 0).map((c) => `
+          <div style="display:flex; justify-content:space-between;">
+            <span class="text-muted">${escapeHtml(c)}</span>
+            <span class="mono">${formatHKD(row[`cat_${c}`])}</span>
+          </div>
+        `).join('') || '<div class="text-muted">無類別支出</div>'}
+      </div>
+    </div>
+  `;
+}
+
+/* ============================================
+   全年總合 — 卡片
+   ============================================ */
+function _renderSummaryCards(container) {
+  const catOrder = _getCategoryOrder();
+
+  const memberCards = _annualData.members
+    .filter((m) => m.id !== 'extra')
+    .map((m) => {
+      const totalIncome = m.income.reduce((s, x) => s + x, 0);
+      let totalExpense = 0;
+      const catTotals = Object.fromEntries(catOrder.map((c) => [c, 0]));
+      Object.entries(m.expenses).forEach(([catId, catData]) => {
+        const sum = catData.amounts.reduce((s, x) => s + x, 0);
+        totalExpense += sum;
+        const catName = catData.name || '（未分類）';
+        if (catTotals[catName] != null) catTotals[catName] += sum;
+        else if (catTotals['其他'] != null) catTotals['其他'] += sum;
+      });
+      const net = totalIncome - totalExpense;
+      return `
+        <div class="glass-card" style="padding:14px;">
+          <div style="font-size:15px; font-weight:700; color:var(--neon-cyan); margin-bottom:8px;">${escapeHtml(m.name)}</div>
+          <div style="display:flex; flex-direction:column; gap:4px; font-size:12px;">
+            <div style="display:flex; justify-content:space-between;"><span class="text-muted">收入</span><span class="mono text-emerald">${formatHKD(totalIncome)}</span></div>
+            <div style="display:flex; justify-content:space-between;"><span class="text-muted">支出</span><span class="mono text-red">${formatHKD(totalExpense)}</span></div>
+            <div style="display:flex; justify-content:space-between; margin-top:6px; padding-top:6px; border-top:1px dashed rgba(255,255,255,0.08);">
+              <span class="text-muted">淨結餘</span>
+              <span class="mono ${net >= 0 ? 'text-emerald' : 'text-red'}" style="font-weight:700;">${formatHKD(net)}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    });
+
+  let sharedHtml = '';
+  const sharedTotals = Object.fromEntries(catOrder.map((c) => [c, 0]));
+  let sharedTotal = 0;
+  Object.values(_annualData.fixedExpenses).forEach((catData) => {
+    const catName = catData.catName || '其他';
+    let catSum = 0;
+    Object.values(catData.items).forEach((arr) => { catSum += arr.reduce((a, b) => a + b, 0); });
+    sharedTotal += catSum;
+    if (sharedTotals[catName] != null) sharedTotals[catName] += catSum;
+    else if (sharedTotals['其他'] != null) sharedTotals['其他'] += catSum;
+  });
+
+  if (sharedTotal > 0) {
+    sharedHtml = `
+      <div class="glass-card" style="padding:14px; border-color:rgba(217,70,239,0.4);">
+        <div style="font-size:15px; font-weight:700; color:var(--neon-magenta); margin-bottom:8px;">家庭共用</div>
+        <div style="display:flex; flex-direction:column; gap:4px; font-size:12px;">
+          <div style="display:flex; justify-content:space-between;"><span class="text-muted">支出</span><span class="mono text-red">${formatHKD(sharedTotal)}</span></div>
+          <div style="display:flex; justify-content:space-between; margin-top:6px; padding-top:6px; border-top:1px dashed rgba(255,255,255,0.08);">
+            <span class="text-muted">淨額</span>
+            <span class="mono text-magenta" style="font-weight:700;">-${formatHKD(sharedTotal)}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  container.innerHTML = `
+    <div style="padding:16px 20px 20px;">
+      <div class="data-cards-grid">
+        ${memberCards.join('')}
+        ${sharedHtml}
+      </div>
+    </div>
+  `;
 }
 
 /* ============================================
@@ -449,39 +539,31 @@ function _renderPaymentStatsCard() {
   }
 
   container.style.display = 'block';
-
   entries.sort((a, b) => {
     const sa = a[1].reduce((s, x) => s + x, 0);
     const sb = b[1].reduce((s, x) => s + x, 0);
     return sb - sa;
   });
 
-  const rows = entries.map(([pmName, arr]) => {
-    const total = arr.reduce((s, x) => s + x, 0);
-    return `
-      <tr>
-        <td>${escapeHtml(pmName)}</td>
-        <td class="num text-emerald">${formatHKD(total)}</td>
-      </tr>
-    `;
-  }).join('');
-
   const grandTotal = entries.reduce((s, [, arr]) => s + arr.reduce((a, b) => a + b, 0), 0);
 
   body.innerHTML = `
-    <div style="overflow-x:auto;">
-      <table class="annual-table" style="min-width:400px;">
-        <thead>
-          <tr><th>支付方式</th><th class="num">年度總支出</th></tr>
-        </thead>
-        <tbody>
-          ${rows}
-          <tr class="group-header">
-            <td>【總計】</td>
-            <td class="num">${formatHKD(grandTotal)}</td>
-          </tr>
-        </tbody>
-      </table>
+    <div style="padding:16px 20px 20px;">
+      <div class="data-cards-grid">
+        ${entries.map(([pmName, arr]) => {
+          const total = arr.reduce((s, x) => s + x, 0);
+          return `
+            <div class="glass-card" style="padding:14px;">
+              <div style="font-size:13px; color:var(--text-muted); margin-bottom:6px;">${escapeHtml(pmName)}</div>
+              <div class="mono text-emerald" style="font-size:18px; font-weight:700;">${formatHKD(total)}</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+      <div style="margin-top:12px; padding:10px 14px; background:rgba(0,240,255,0.04); border-radius:var(--radius-md); display:flex; justify-content:space-between; font-size:13px;">
+        <span class="text-muted">年度總支出</span>
+        <span class="mono text-cyan" style="font-weight:700;">${formatHKD(grandTotal)}</span>
+      </div>
     </div>
   `;
 
@@ -489,7 +571,7 @@ function _renderPaymentStatsCard() {
 }
 
 /* ============================================
-   按月明細
+   按月明細（不變）
    ============================================ */
 function _renderMonthly() {
   const tbody = document.getElementById('monthly-tbody');
@@ -502,28 +584,14 @@ function _renderMonthly() {
   const incomeRows = _annualData.members.filter((m) => m.income.some((v) => v > 0));
   if (incomeRows.length > 0) {
     rows.push(`<tr class="group-header"><td>【收入】</td><td class="num"></td><td class="num"></td></tr>`);
-
     incomeRows.forEach((m) => {
       const current = m.income[monthIdx] || 0;
       const annual = sumArr(m.income);
-      rows.push(`
-        <tr>
-          <td>${escapeHtml(m.name)}</td>
-          <td class="num text-emerald">${current ? formatNumber(current) : '—'}</td>
-          <td class="num text-emerald">${annual ? formatNumber(annual) : '—'}</td>
-        </tr>
-      `);
+      rows.push(`<tr><td>${escapeHtml(m.name)}</td><td class="num text-emerald">${current ? formatNumber(current) : '—'}</td><td class="num text-emerald">${annual ? formatNumber(annual) : '—'}</td></tr>`);
     });
-
     const totalCurrent = _annualData.monthly.income[monthIdx] || 0;
     const totalAnnual = sumArr(_annualData.monthly.income);
-    rows.push(`
-      <tr class="subtotal-row">
-        <td>收入小計</td>
-        <td class="num">${formatNumber(totalCurrent)}</td>
-        <td class="num">${formatNumber(totalAnnual)}</td>
-      </tr>
-    `);
+    rows.push(`<tr class="subtotal-row"><td>收入小計</td><td class="num">${formatNumber(totalCurrent)}</td><td class="num">${formatNumber(totalAnnual)}</td></tr>`);
   }
 
   _annualData.members.forEach((m) => {
@@ -533,14 +601,12 @@ function _renderMonthly() {
 
     let currentMemberSum = 0;
     let annualMemberSum = 0;
-
     const byCat = {};
     catIds.forEach((catId) => {
       const catData = m.expenses[catId];
       const amounts = catData.amounts;
       currentMemberSum += amounts[monthIdx] || 0;
       annualMemberSum += sumArr(amounts);
-
       const catName = catData.name || '（未分類）';
       if (!byCat[catName]) byCat[catName] = [];
       byCat[catName].push({ catId, catData });
@@ -561,23 +627,10 @@ function _renderMonthly() {
         catTotal.current += catData.amounts[monthIdx] || 0;
         catTotal.annual += sumArr(catData.amounts);
       });
-
-      rows.push(`
-        <tr>
-          <td style="padding-left:24px; color:var(--text-secondary); font-size:12px;">${escapeHtml(catName)}</td>
-          <td class="num">${catTotal.current ? formatNumber(catTotal.current) : '—'}</td>
-          <td class="num">${catTotal.annual ? formatNumber(catTotal.annual) : '—'}</td>
-        </tr>
-      `);
+      rows.push(`<tr><td style="padding-left:24px; color:var(--text-secondary); font-size:12px;">${escapeHtml(catName)}</td><td class="num">${catTotal.current ? formatNumber(catTotal.current) : '—'}</td><td class="num">${catTotal.annual ? formatNumber(catTotal.annual) : '—'}</td></tr>`);
     });
 
-    rows.push(`
-      <tr class="subtotal-row">
-        <td>${escapeHtml(m.name)}小計</td>
-        <td class="num">${formatNumber(currentMemberSum)}</td>
-        <td class="num">${formatNumber(annualMemberSum)}</td>
-      </tr>
-    `);
+    rows.push(`<tr class="subtotal-row"><td>${escapeHtml(m.name)}小計</td><td class="num">${formatNumber(currentMemberSum)}</td><td class="num">${formatNumber(annualMemberSum)}</td></tr>`);
   });
 
   const allFixedItems = {};
@@ -591,33 +644,17 @@ function _renderMonthly() {
   const fixedItemNames = Object.keys(allFixedItems).sort();
   if (fixedItemNames.length > 0) {
     rows.push(`<tr class="group-header"><td>【家庭共用支出】</td><td class="num"></td><td class="num"></td></tr>`);
-
     let sharedCurrentTotal = 0;
     let sharedAnnualTotal = 0;
-
     fixedItemNames.forEach((name) => {
       const amounts = allFixedItems[name];
       const current = amounts[monthIdx] || 0;
       const annual = sumArr(amounts);
       sharedCurrentTotal += current;
       sharedAnnualTotal += annual;
-
-      rows.push(`
-        <tr>
-          <td>${escapeHtml(name)}</td>
-          <td class="num">${current ? formatNumber(current) : '—'}</td>
-          <td class="num">${annual ? formatNumber(annual) : '—'}</td>
-        </tr>
-      `);
+      rows.push(`<tr><td>${escapeHtml(name)}</td><td class="num">${current ? formatNumber(current) : '—'}</td><td class="num">${annual ? formatNumber(annual) : '—'}</td></tr>`);
     });
-
-    rows.push(`
-      <tr class="subtotal-row">
-        <td>家庭共用支出小計</td>
-        <td class="num">${formatNumber(sharedCurrentTotal)}</td>
-        <td class="num">${formatNumber(sharedAnnualTotal)}</td>
-      </tr>
-    `);
+    rows.push(`<tr class="subtotal-row"><td>家庭共用支出小計</td><td class="num">${formatNumber(sharedCurrentTotal)}</td><td class="num">${formatNumber(sharedAnnualTotal)}</td></tr>`);
   }
 
   const expenseCurrent = _annualData.monthly.expense[monthIdx] || 0;
@@ -628,35 +665,19 @@ function _renderMonthly() {
   const netAnnual = incomeAnnual - expenseAnnual;
 
   rows.push(`<tr class="group-header"><td>【月度總計】</td><td class="num"></td><td class="num"></td></tr>`);
-  rows.push(`
-    <tr class="total-row">
-      <td>當月總支出</td>
-      <td class="num">${formatNumber(expenseCurrent)}</td>
-      <td class="num">${formatNumber(expenseAnnual)}</td>
-    </tr>
-  `);
-  rows.push(`
-    <tr class="net-row">
-      <td>當月淨結餘</td>
-      <td class="num" style="color:${netCurrent >= 0 ? 'var(--neon-emerald)' : 'var(--neon-red)'};">${formatNumber(netCurrent)}</td>
-      <td class="num" style="color:${netAnnual >= 0 ? 'var(--neon-emerald)' : 'var(--neon-red)'};">${formatNumber(netAnnual)}</td>
-    </tr>
-  `);
+  rows.push(`<tr class="total-row"><td>當月總支出</td><td class="num">${formatNumber(expenseCurrent)}</td><td class="num">${formatNumber(expenseAnnual)}</td></tr>`);
+  rows.push(`<tr class="net-row"><td>當月淨結餘</td><td class="num" style="color:${netCurrent >= 0 ? 'var(--neon-emerald)' : 'var(--neon-red)'};">${formatNumber(netCurrent)}</td><td class="num" style="color:${netAnnual >= 0 ? 'var(--neon-emerald)' : 'var(--neon-red)'};">${formatNumber(netAnnual)}</td></tr>`);
 
   tbody.innerHTML = rows.join('');
   if (window.lucide) window.lucide.createIcons();
 }
 
 /* ============================================
-   匯出 Excel（🆕 v101.5：動態載入 XLSX）
+   匯出 Excel
    ============================================ */
 async function _exportToExcel() {
-  if (!_annualData) {
-    alert('資料尚未載入完成');
-    return;
-  }
+  if (!_annualData) { alert('資料尚未載入完成'); return; }
 
-  // 🆕 v101.5：動態載入 XLSX
   if (typeof XLSX === 'undefined') {
     try {
       await _loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
@@ -668,7 +689,6 @@ async function _exportToExcel() {
 
   const data = _annualData;
   const rows = [];
-
   rows.push(['項目', '1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '年度小計']);
 
   const totalIncome = Math.round(data.monthly.income.reduce((s, x) => s + x, 0));
@@ -686,9 +706,7 @@ async function _exportToExcel() {
     if (m.id === 'extra') return;
     const catIds = Object.keys(m.expenses);
     if (catIds.length === 0) return;
-
     rows.push([`【${m.name}】`, '', '', '', '', '', '', '', '', '', '', '', '', '']);
-
     const monthlyMemberTotal = Array(12).fill(0);
     Object.entries(m.expenses).forEach(([catId, catData]) => {
       const amounts = catData.amounts;
@@ -696,7 +714,6 @@ async function _exportToExcel() {
       const subtotal = Math.round(amounts.reduce((s, x) => s + x, 0));
       rows.push([`  ${catData.name || '（未分類）'}`, ...amounts.map((v) => Math.round(v)), subtotal]);
     });
-
     const memberSubtotal = Math.round(monthlyMemberTotal.reduce((s, x) => s + x, 0));
     rows.push([`${m.name}小計`, ...monthlyMemberTotal.map((v) => Math.round(v)), memberSubtotal]);
   });
@@ -704,18 +721,15 @@ async function _exportToExcel() {
   const fixedCatIds = Object.keys(data.fixedExpenses);
   if (fixedCatIds.length > 0) {
     const monthlyFixedTotal = Array(12).fill(0);
-
     fixedCatIds.forEach((catId) => {
       const catData = data.fixedExpenses[catId];
       rows.push([`【家庭共用支出 - ${catData.catName}】`, '', '', '', '', '', '', '', '', '', '', '', '', '']);
-
       Object.entries(catData.items).forEach(([name, amounts]) => {
         amounts.forEach((v, i) => { monthlyFixedTotal[i] += v; });
         const subtotal = Math.round(amounts.reduce((s, x) => s + x, 0));
         rows.push([`  ${name}`, ...amounts.map((v) => Math.round(v)), subtotal]);
       });
     });
-
     const fixedSubtotal = Math.round(monthlyFixedTotal.reduce((s, x) => s + x, 0));
     rows.push(['固定支出小計', ...monthlyFixedTotal.map((v) => Math.round(v)), fixedSubtotal]);
   }
@@ -767,20 +781,14 @@ function _loadScript(src) {
    銷毀
    ============================================ */
 function _destroy() {
-  _cards.forEach((c) => {
-    try { c?.destroy(); } catch (e) { /* noop */ }
-  });
+  _cards.forEach((c) => { try { c?.destroy(); } catch (e) {} });
   _cards = [];
 
-  const yearEl = document.getElementById('year-switcher');
-  if (yearEl && _yearSwitcherHandler) {
-    yearEl.removeEventListener('click', _yearSwitcherHandler);
-    _yearSwitcherHandler = null;
-  }
+  if (_viewToggle) { try { _viewToggle.destroy(); } catch (e) {} _viewToggle = null; }
+  if (_summaryTableApi) { try { _summaryTableApi.destroy(); } catch (e) {} _summaryTableApi = null; }
 
+  const yearEl = document.getElementById('year-switcher');
+  if (yearEl && _yearSwitcherHandler) { yearEl.removeEventListener('click', _yearSwitcherHandler); _yearSwitcherHandler = null; }
   const monthEl = document.getElementById('month-switcher');
-  if (monthEl && _monthSwitcherHandler) {
-    monthEl.removeEventListener('click', _monthSwitcherHandler);
-    _monthSwitcherHandler = null;
-  }
+  if (monthEl && _monthSwitcherHandler) { monthEl.removeEventListener('click', _monthSwitcherHandler); _monthSwitcherHandler = null; }
 }

@@ -1,10 +1,12 @@
 // ============================================
-// index.js — 結算清單入口（v101.6.13）
+// index.js — 結算清單入口（v101.7.0）
 // 位置：js/pages/settlements/index.js
 // ============================================
-// v101.6.13 修正：
-//   ✅ [統一] renderDataTable 明確 mobileCardMode: false（跟隨保險清單）
-//   ✅ 保留 v101.6.11 全部功能（編輯 / 刪除 / 監聽器管理）
+// v101.7.0 新增：
+//   ✅ 雙模式切換（卡片 / 表格）
+//   ✅ 表格可摺疊 + 每列展開明細
+//   ✅ 卡片模式顯示完整資訊
+//   ✅ view-toggle 位置：右上角
 // ============================================
 
 import { AppState } from '../../core/state.js';
@@ -14,6 +16,9 @@ import {
   getInsurancePoliciesOnce,
   getInsurancePaymentsOnce,
   getAllMemberExpensesOnce,
+  getCategoriesOnce,
+  getItemsOnce,
+  getPaymentMethodsOnce,
 } from '../../core/db.js';
 import {
   formatHKD, escapeHtml, setText,
@@ -22,6 +27,7 @@ import { renderPageFilter } from '../../shared/page-filter.js';
 import { showToast } from '../../shared/toast.js';
 import { renderStatsCards } from '../../shared/stats-cards.js';
 import { renderDataTable } from '../../shared/data-table.js';
+import { initViewToggle } from '../../shared/view-toggle.js';
 import { createListenerGroup } from '../../shared/listener-group.js';
 import { registerPageCleanup } from '../../core/app.js';
 import { estimateMonthlyAmount } from '../../shared/insurance-calc.js';
@@ -51,13 +57,19 @@ let _filters = {
 };
 let _sortMode = 'pending-first';
 
+// 選項快取（供卡片 + 明細使用）
+let _categories = [];
+let _items = [];
+let _payments = [];
+
 let _filterInstance = null;
+let _viewToggle = null;
 let _statsApi = null;
 let _tableApi = null;
 let _sortHandler = null;
 let _statusChangeHandler = null;
+let _cardClickHandler = null;
 
-// 單月監聽器的 unsubscribe（避免 BUG-01 洩漏）
 let _monthlyUnsub = null;
 
 const listenerGroup = createListenerGroup();
@@ -77,6 +89,17 @@ const TABLE_COLUMNS = [
    主入口
    ============================================ */
 export async function initSettlementsPage() {
+  // 初始化 view-toggle（右上角）
+  _viewToggle = initViewToggle({
+    containerId: 'settlement-view-toggle-root',
+    storageKey: 'settlements-view',
+    defaultView: 'table',
+    cardText: '卡片',
+    tableText: '表格',
+    autoApply: false,
+    onChange: () => _render(),
+  });
+
   _filterInstance = renderPageFilter({
     containerId: 'page-filter-root',
     fields: ['year', 'month'],
@@ -114,14 +137,12 @@ export async function initSettlementsPage() {
     },
   });
 
-  // 排序
   _sortHandler = (e) => {
     _sortMode = e.target.value;
     _render();
   };
   document.getElementById('settlement-sort')?.addEventListener('change', _sortHandler);
 
-  // 訂閱成員 → 更新快取
   listenerGroup.add(
     listenMembers((list) => {
       setMembersCache(list);
@@ -129,18 +150,34 @@ export async function initSettlementsPage() {
     })
   );
 
-  // 訂閱年月變更
   listenerGroup.add(AppState.on('ym-change', () => _reload()));
 
-  // 綁定狀態變更
   _bindStatusChange();
+  _loadOptionsCache();
 
-  // 初次載入
   await _reload();
 
   registerPageCleanup(_destroy);
 
   return { destroy: _destroy };
+}
+
+/* ============================================
+   載入選項快取
+   ============================================ */
+async function _loadOptionsCache() {
+  try {
+    const [cats, items, pays] = await Promise.all([
+      getCategoriesOnce(),
+      getItemsOnce(),
+      getPaymentMethodsOnce(),
+    ]);
+    _categories = cats || [];
+    _items = items || [];
+    _payments = pays || [];
+  } catch (e) {
+    console.warn('[settlements] 載入選項失敗：', e);
+  }
 }
 
 /* ============================================
@@ -300,9 +337,7 @@ async function _loadInsurancePaymentsForMonth(year, month) {
             rows.push(_buildInsuranceRow(p, { status: '未扣款', amount: estimated, date: '' }, year, month));
           }
         }
-      } catch (e) {
-        // 忽略單一保單錯誤
-      }
+      } catch (e) { /* noop */ }
     }));
 
     return rows;
@@ -351,7 +386,24 @@ function _render() {
   _filtered = _applySort(_filtered);
 
   _renderStats();
-  _renderTable();
+
+  const view = _viewToggle?.getView() || 'table';
+  const tableRoot = document.getElementById('settlement-table-root');
+  const cardRoot = document.getElementById('settlement-card-root');
+
+  if (!tableRoot) return;
+
+  if (view === 'card') {
+    tableRoot.style.display = 'none';
+    if (cardRoot) {
+      cardRoot.style.display = 'block';
+      _renderCards(cardRoot);
+    }
+  } else {
+    tableRoot.style.display = 'block';
+    if (cardRoot) cardRoot.style.display = 'none';
+    _renderTable();
+  }
 }
 
 /* ============================================
@@ -366,33 +418,12 @@ function _renderStats() {
   const total = pendingTotal + doneTotal;
 
   const cards = [
-    {
-      title: '待處理',
-      value: formatHKD(pendingTotal),
-      valueClass: 'magenta',
-      hint: `${pending.length} 筆`,
-      icon: 'clock',
-    },
-    {
-      title: '已處理',
-      value: formatHKD(doneTotal),
-      valueClass: 'emerald',
-      hint: `${done.length} 筆`,
-      icon: 'check-circle',
-    },
-    {
-      title: '總計',
-      value: formatHKD(total),
-      valueClass: 'cyan',
-      hint: `${_filtered.length} 筆`,
-      icon: 'calculator',
-    },
+    { title: '待處理', value: formatHKD(pendingTotal), valueClass: 'magenta', hint: `${pending.length} 筆`, icon: 'clock' },
+    { title: '已處理', value: formatHKD(doneTotal), valueClass: 'emerald', hint: `${done.length} 筆`, icon: 'check-circle' },
+    { title: '總計', value: formatHKD(total), valueClass: 'cyan', hint: `${_filtered.length} 筆`, icon: 'calculator' },
   ];
 
-  if (_statsApi) {
-    try { _statsApi.destroy(); } catch (e) { /* noop */ }
-  }
-
+  if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} }
   _statsApi = renderStatsCards({
     container: 'settlement-stats-root',
     cards,
@@ -401,14 +432,14 @@ function _renderStats() {
 }
 
 /* ============================================
-   表格
+   表格（可摺疊 + 每列展開）
    ============================================ */
 function _renderTable() {
   const root = document.getElementById('settlement-table-root');
   if (!root) return;
 
   if (_tableApi) {
-    try { _tableApi.destroy(); } catch (e) { /* noop */ }
+    try { _tableApi.destroy(); } catch (e) {}
     _tableApi = null;
   }
 
@@ -444,14 +475,16 @@ function _renderTable() {
         amount: (val) => formatHKD(val),
         date: (val) => escapeHtml(val || '—'),
       },
-      // 🆕 v101.6.13：明確橫排（跟隨保險清單）
       mobileCardMode: false,
+      collapsible: true,
+      defaultCollapsed: false,
+      expandable: true,
+      storageKey: 'settlement-table',
+      renderDetail: (row) => _renderRowDetail(row),
     },
     hooks: {
       customCellRender: (col, row) => {
-        if (col.id === 'status') {
-          return renderStatusCell(row);
-        }
+        if (col.id === 'status') return renderStatusCell(row);
         return null;
       },
       customActions: actionFactory,
@@ -459,6 +492,164 @@ function _renderTable() {
   });
 
   if (window.lucide) window.lucide.createIcons();
+}
+
+/* ============================================
+   表格每列展開內容
+   ============================================ */
+function _renderRowDetail(row) {
+  const cat = row.categoryId ? _categories.find((c) => c.id === row.categoryId) : null;
+  const item = row.itemId ? _items.find((i) => i.id === row.itemId) : null;
+  const pay = row.paymentMethodId ? _payments.find((p) => p.id === row.paymentMethodId) : null;
+
+  const fields = [
+    { label: '來源', value: row.sourceLabel },
+    { label: '成員', value: getMemberName(row) },
+    { label: '年月', value: `${row.year}-${row.month}` },
+    { label: '項目名稱', value: row.name },
+    { label: '金額', value: formatHKD(row.amount) },
+    { label: '日期', value: row.date || '—' },
+    { label: '狀態', value: row.status },
+  ];
+
+  if (cat) fields.push({ label: '類別', value: cat.name });
+  if (item) fields.push({ label: '項目', value: item.name });
+  if (pay) fields.push({ label: '支付方式', value: pay.name });
+  if (row.isAutoLinked) fields.push({ label: '類型', value: '保險自動產生' });
+
+  return `
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:8px 20px; font-size:13px;">
+      ${fields.map((f) => `
+        <div>
+          <div style="font-size:11px; color:var(--text-muted); margin-bottom:2px;">${escapeHtml(f.label)}</div>
+          <div style="color:var(--text-primary);">${escapeHtml(String(f.value))}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+/* ============================================
+   卡片模式
+   ============================================ */
+function _renderCards(container) {
+  if (!_filtered.length) {
+    container.innerHTML = `<div class="glass-card"><div class="empty-state">尚無資料</div></div>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="data-cards-grid">
+      ${_filtered.map((row) => _renderCard(row)).join('')}
+    </div>
+  `;
+
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function _renderCard(row) {
+  const cat = row.categoryId ? _categories.find((c) => c.id === row.categoryId) : null;
+  const item = row.itemId ? _items.find((i) => i.id === row.itemId) : null;
+  const pay = row.paymentMethodId ? _payments.find((p) => p.id === row.paymentMethodId) : null;
+
+  const sourceBadge = renderSourceBadge(row);
+  const statusBadge = row.isDone
+    ? `<span class="badge badge-success">${escapeHtml(row.status)}</span>`
+    : `<span class="badge badge-pending">${escapeHtml(row.status)}</span>`;
+
+  return `
+    <div class="glass-card settlement-card" data-key="${escapeHtml(row.key)}">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:10px;">
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:15px; font-weight:700; color:var(--neon-cyan); word-break:break-word; margin-bottom:4px;">
+            ${escapeHtml(row.name || '（未命名）')}
+          </div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            ${sourceBadge}
+            ${statusBadge}
+          </div>
+        </div>
+        <div class="mono" style="font-size:16px; font-weight:700; color:${row.source === 'insurance' ? 'var(--neon-magenta)' : 'var(--neon-red)'}; white-space:nowrap;">
+          ${formatHKD(row.amount)}
+        </div>
+      </div>
+
+      <div class="data-card-fields" style="display:flex; flex-direction:column; gap:6px; font-size:13px;">
+        <div class="data-card-field" style="display:flex; justify-content:space-between; gap:12px;">
+          <span class="data-card-label" style="color:var(--text-muted); font-size:11px; flex-shrink:0;">年月</span>
+          <span class="data-card-value">${escapeHtml(row.year)}-${escapeHtml(row.month)}</span>
+        </div>
+        <div class="data-card-field" style="display:flex; justify-content:space-between; gap:12px;">
+          <span class="data-card-label" style="color:var(--text-muted); font-size:11px; flex-shrink:0;">成員</span>
+          <span class="data-card-value">${escapeHtml(getMemberName(row))}</span>
+        </div>
+        ${row.date ? `
+          <div class="data-card-field" style="display:flex; justify-content:space-between; gap:12px;">
+            <span class="data-card-label" style="color:var(--text-muted); font-size:11px; flex-shrink:0;">日期</span>
+            <span class="data-card-value mono" style="font-size:12px;">${escapeHtml(row.date)}</span>
+          </div>
+        ` : ''}
+        ${cat ? `
+          <div class="data-card-field" style="display:flex; justify-content:space-between; gap:12px;">
+            <span class="data-card-label" style="color:var(--text-muted); font-size:11px; flex-shrink:0;">類別</span>
+            <span class="data-card-value">${escapeHtml(cat.name)}</span>
+          </div>
+        ` : ''}
+        ${item ? `
+          <div class="data-card-field" style="display:flex; justify-content:space-between; gap:12px;">
+            <span class="data-card-label" style="color:var(--text-muted); font-size:11px; flex-shrink:0;">項目</span>
+            <span class="data-card-value">${escapeHtml(item.name)}</span>
+          </div>
+        ` : ''}
+        ${pay ? `
+          <div class="data-card-field" style="display:flex; justify-content:space-between; gap:12px;">
+            <span class="data-card-label" style="color:var(--text-muted); font-size:11px; flex-shrink:0;">支付方式</span>
+            <span class="data-card-value">${escapeHtml(pay.name)}</span>
+          </div>
+        ` : ''}
+      </div>
+
+      <div class="data-card-footer" style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.08); display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
+        <button type="button" class="btn btn-sm btn-ghost" data-action="edit-settlement" data-key="${escapeHtml(row.key)}">
+          <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+        </button>
+        <button type="button" class="btn btn-sm btn-danger" data-action="delete-settlement" data-key="${escapeHtml(row.key)}">
+          <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
+          ${row.source === 'insurance' ? '取消扣款' : '刪除'}
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+/* ============================================
+   卡片模式事件（在 _destroy 中清理）
+   ============================================ */
+function _bindCardEvents() {
+  const cardRoot = document.getElementById('settlement-card-root');
+  if (!cardRoot) return;
+
+  if (_cardClickHandler) {
+    cardRoot.removeEventListener('click', _cardClickHandler);
+  }
+
+  _cardClickHandler = async (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+
+    const action = btn.dataset.action;
+    const key = btn.dataset.key;
+    const row = _filtered.find((r) => r.key === key);
+    if (!row) return;
+
+    if (action === 'edit-settlement') {
+      openSettlementEditModal(row, _reload);
+    } else if (action === 'delete-settlement') {
+      handleSettlementDelete(row, _reload);
+    }
+  };
+
+  cardRoot.addEventListener('click', _cardClickHandler);
 }
 
 /* ============================================
@@ -509,29 +700,31 @@ function _destroy() {
   listenerGroup.destroy();
 
   if (_monthlyUnsub) {
-    try { _monthlyUnsub(); } catch (e) { /* noop */ }
+    try { _monthlyUnsub(); } catch (e) {}
     _monthlyUnsub = null;
   }
 
-  if (_filterInstance) {
-    try { _filterInstance.destroy(); } catch (e) { /* noop */ }
-    _filterInstance = null;
-  }
-  if (_statsApi) {
-    try { _statsApi.destroy(); } catch (e) { /* noop */ }
-    _statsApi = null;
-  }
-  if (_tableApi) {
-    try { _tableApi.destroy(); } catch (e) { /* noop */ }
-    _tableApi = null;
-  }
+  if (_filterInstance) { try { _filterInstance.destroy(); } catch (e) {} _filterInstance = null; }
+  if (_viewToggle) { try { _viewToggle.destroy(); } catch (e) {} _viewToggle = null; }
+  if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} _statsApi = null; }
+  if (_tableApi) { try { _tableApi.destroy(); } catch (e) {} _tableApi = null; }
+
   if (_sortHandler) {
     document.getElementById('settlement-sort')?.removeEventListener('change', _sortHandler);
     _sortHandler = null;
   }
   if (_statusChangeHandler) {
-    const root = document.getElementById('settlement-table-root');
-    root?.removeEventListener('change', _statusChangeHandler);
+    document.getElementById('settlement-table-root')?.removeEventListener('change', _statusChangeHandler);
     _statusChangeHandler = null;
   }
+  if (_cardClickHandler) {
+    document.getElementById('settlement-card-root')?.removeEventListener('click', _cardClickHandler);
+    _cardClickHandler = null;
+  }
+
+  _rows = [];
+  _filtered = [];
+  _categories = [];
+  _items = [];
+  _payments = [];
 }

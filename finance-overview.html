@@ -16,18 +16,19 @@
       <header id="navbar-root"></header>
 
       <main class="content content-min-height">
-        <div class="page-header">
-          <h1 class="page-title">財務總覽</h1>
-          <p class="page-subtitle" id="finance-month-label">載入中…</p>
+        <div class="page-header flex flex-between items-end flex-wrap gap-12">
+          <div>
+            <h1 class="page-title">財務總覽</h1>
+            <p class="page-subtitle" id="finance-month-label">載入中…</p>
+          </div>
+          <div id="finance-view-toggle-root"></div>
         </div>
 
-        <!-- 共用年月選擇器 -->
         <div id="page-filter-root" class="mb-16"></div>
 
-        <!-- 統計卡 -->
         <div id="finance-stats-root"></div>
 
-        <!-- 收入區塊 -->
+        <!-- 收入明細 -->
         <div class="glass-card collapsible-card collapsible-card-flat" style="padding:0; margin-bottom:20px;">
           <div class="collapsible-header">
             <div class="collapsible-header-title">
@@ -37,10 +38,11 @@
           </div>
           <div class="collapsible-body" style="display:block;">
             <div id="income-section-root"></div>
+            <div id="income-card-root" style="display:none; padding:16px 20px 20px;"></div>
           </div>
         </div>
 
-        <!-- 銀行區塊 -->
+        <!-- 銀行明細 -->
         <div class="glass-card collapsible-card collapsible-card-flat" style="padding:0;">
           <div class="collapsible-header">
             <div class="collapsible-header-title">
@@ -50,6 +52,7 @@
           </div>
           <div class="collapsible-body" style="display:block;">
             <div id="bank-section-root"></div>
+            <div id="bank-card-root" style="display:none; padding:16px 20px 20px;"></div>
           </div>
         </div>
       </main>
