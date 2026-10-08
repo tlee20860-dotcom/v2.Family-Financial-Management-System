@@ -1,14 +1,15 @@
 // ============================================
-// sw.js — Service Worker（v101.6.10）
+// sw.js — Service Worker（v101.6.11）
 // ============================================
-// v101.6.10 更新：
-//   ✅ CACHE_NAME = family-fin-v111（v110 → v111）
-//   ✅ 對應 v101.6.10 修正：
-//      - insurance/render.js（toggleCompletedSection）
-//      - insurance/modals.js（#completed-header 綁定）
+// v101.6.11 更新：
+//   ✅ CACHE_NAME = family-fin-v112（v111 → v112）
+//   ✅ 對應 v101.6.11 修正：
+//      - core/db.js（新增 getCategoriesOnce / getItemsOnce）
+//      - settlements/merge.js（補 itemId / paymentMethodId）
+//      - settlements/render.js（編輯 Modal 支援全部欄位）
 // ============================================
 
-const CACHE_NAME = 'family-fin-v111';
+const CACHE_NAME = 'family-fin-v112';
 
 const STATIC_ASSETS = [
   // ================= CSS =================

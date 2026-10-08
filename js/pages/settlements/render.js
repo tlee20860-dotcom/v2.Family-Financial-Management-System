@@ -1,12 +1,13 @@
 // ============================================
-// render.js — 結算清單渲染輔助（v101.6.7）
+// render.js — 結算清單渲染輔助（v101.6.11）
 // 位置：js/pages/settlements/render.js
 // ============================================
-// v101.6.7 新增：
-//   ✅ openSettlementEditModal(row, onSuccess) - 編輯 Modal
-//   ✅ handleSettlementDelete(row, onSuccess) - 刪除 / 取消扣款
-//   ✅ 個人支出：完整編輯（名稱/金額/日期/狀態）
-//   ✅ 保險扣款：僅改狀態，刪除 = 取消扣款
+// v101.6.11 修正：
+//   ✅ [需求] openSettlementEditModal 支援修改「全部欄位」
+//       - 個人支出：年份 / 月份 / 成員 / 名稱 / 金額 / 日期
+//                  / 類別 / 項目 / 支付方式 / 狀態
+//       - 路徑遷移：若年 / 月 / 成員變更，使用 batchUpdateExpenses
+//       - 保險扣款：仍僅改狀態（金額由保單自動計算）
 // ============================================
 
 import {
@@ -15,6 +16,11 @@ import {
   removeInsurancePaymentBatch,
   updateExpense,
   removeExpense,
+  batchUpdateExpenses,
+  getMembersOnce,
+  getCategoriesOnce,
+  getItemsOnce,
+  getPaymentMethodsOnce,
 } from '../../core/db.js';
 import { api } from '../../core/api.js';
 import { getStatusesByCategory } from '../../config/app-config.js';
@@ -135,12 +141,9 @@ async function _updateInsuranceStatus(row, newStatus, isDone) {
 }
 
 /* ============================================
-   🆕 v101.6.7：編輯 Modal
-   -------------------------------------------------
-   個人支出：可編輯 名稱 / 金額 / 日期 / 狀態
-   保險扣款：僅可編輯「狀態」（其他欄位 disabled）
+   編輯 Modal（v101.6.11：支援全部欄位）
    ============================================ */
-export function openSettlementEditModal(row, onSuccess) {
+export async function openSettlementEditModal(row, onSuccess) {
   if (!row) return;
 
   const MODAL_ID = 'settlement-edit-modal';
@@ -153,101 +156,18 @@ export function openSettlementEditModal(row, onSuccess) {
   overlay.className = 'modal-overlay active';
   overlay.id = MODAL_ID;
   overlay.innerHTML = `
-    <div class="modal" style="max-width:480px; max-height:90vh; overflow-y:auto;">
+    <div class="modal" style="max-width:560px; max-height:90vh; overflow-y:auto;">
       <h2 class="modal-title">編輯${isInsurance ? '保險扣款' : '支出'}</h2>
       <div id="${FORM_ROOT_ID}"></div>
     </div>
   `;
   document.body.appendChild(overlay);
 
-  const statuses = getStatusesByCategory(isInsurance ? 'insurance' : 'personal');
-
-  const fields = [
-    {
-      type: 'custom',
-      id: 'info',
-      html: `
-        <div class="glass-card-hint" style="margin-bottom:12px;">
-          來源：<b>${escapeHtml(row.sourceLabel || '')}</b>　
-          成員：<b>${escapeHtml(getMemberName(row))}</b>　
-          年月：<b>${escapeHtml(row.year)}-${escapeHtml(row.month)}</b>
-          ${isInsurance ? '<br><span style="color:var(--neon-orange);">⚠️ 保險扣款金額由保單自動計算，僅能修改狀態</span>' : ''}
-        </div>
-      `,
-    },
-    {
-      type: 'text',
-      id: 'name',
-      label: '項目名稱',
-      required: true,
-      maxlength: 60,
-      disabled: isInsurance,
-    },
-    {
-      type: 'number',
-      id: 'amount',
-      label: '金額（HK$）',
-      required: true,
-      min: 0,
-      step: 1,
-      disabled: isInsurance,
-    },
-    {
-      type: 'text',
-      id: 'date',
-      label: '日期',
-      placeholder: 'YYYY-MM-DD',
-      maxlength: 10,
-      disabled: isInsurance,
-    },
-    {
-      type: 'select',
-      id: 'status',
-      label: '狀態',
-      includeEmpty: false,
-      options: statuses.map((s) => ({ value: s.name, label: s.name })),
-    },
-  ];
-
-  buildForm({
-    containerId: FORM_ROOT_ID,
-    fields,
-    submitText: '儲存',
-    showCancel: true,
-    cancelText: '取消',
-    initialData: {
-      name: row.name || '',
-      amount: row.amount || 0,
-      date: row.date || '',
-      status: row.status || '',
-    },
-    onSubmit: async (data) => {
-      try {
-        if (row.source === 'personal') {
-          // 個人支出：完整編輯
-          const { memberId, expenseId } = row._ref;
-          await updateExpense(row.year, row.month, memberId, expenseId, {
-            name: data.name,
-            amount: Number(data.amount) || 0,
-            date: data.date || '',
-            status: data.status,
-          });
-        } else if (row.source === 'insurance') {
-          // 保險：僅改狀態
-          if (data.status !== row.status) {
-            await updateRowStatus(row, data.status);
-          }
-        }
-        closeModal(MODAL_ID);
-        showToast('✅ 已儲存', 'success');
-        if (typeof onSuccess === 'function') onSuccess();
-      } catch (err) {
-        console.error('[settlements] 儲存失敗：', err);
-        showToast('儲存失敗：' + err.message, 'error');
-      }
-    },
-    onCancel: () => closeModal(MODAL_ID),
-  });
+  if (isInsurance) {
+    _openInsuranceEditForm(row, FORM_ROOT_ID, MODAL_ID, onSuccess);
+  } else {
+    await _openPersonalEditForm(row, FORM_ROOT_ID, MODAL_ID, onSuccess);
+  }
 
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) closeModal(MODAL_ID);
@@ -258,10 +178,308 @@ export function openSettlementEditModal(row, onSuccess) {
 }
 
 /* ============================================
-   🆕 v101.6.7：刪除 / 取消扣款
-   -------------------------------------------------
-   個人支出：實際刪除
-   保險扣款：取消扣款（移除 payment 記錄 + 清除 linked 支出）
+   個人支出編輯表單（全部欄位）
+   ============================================ */
+async function _openPersonalEditForm(row, containerId, modalId, onSuccess) {
+  // 載入所有選項
+  let members = [];
+  let categories = [];
+  let items = [];
+  let payments = [];
+  try {
+    const results = await Promise.all([
+      getMembersOnce(),
+      getCategoriesOnce(),
+      getItemsOnce(),
+      getPaymentMethodsOnce(),
+    ]);
+    members = results[0] || [];
+    categories = results[1] || [];
+    items = results[2] || [];
+    payments = results[3] || [];
+  } catch (e) {
+    console.warn('[settlements] 載入選項失敗：', e);
+  }
+
+  const statuses = getStatusesByCategory('personal');
+
+  // 年份選項（當前年 ± 3）
+  const curYear = new Date().getFullYear();
+  const yearOptions = [];
+  for (let i = -3; i <= 3; i++) {
+    const y = curYear + i;
+    yearOptions.push({ value: String(y), label: `${y} 年` });
+  }
+  // 若 row.year 不在範圍內，補上
+  if (!yearOptions.some((o) => o.value === String(row.year))) {
+    yearOptions.push({ value: String(row.year), label: `${row.year} 年` });
+    yearOptions.sort((a, b) => Number(a.value) - Number(b.value));
+  }
+
+  // 月份選項
+  const monthOptions = [];
+  for (let m = 1; m <= 12; m++) {
+    const mm = String(m).padStart(2, '0');
+    monthOptions.push({ value: mm, label: `${m} 月` });
+  }
+
+  // 成員選項（含家庭共用）
+  const memberOptions = members.map((m) => ({ value: m.id, label: m.name }));
+  if (!memberOptions.some((o) => o.value === 'shared')) {
+    memberOptions.push({ value: 'shared', label: '家庭共用' });
+  }
+
+  // 類別選項
+  const categoryOptions = categories.map((c) => ({ value: c.id, label: c.name }));
+
+  // 項目選項（依當前類別）
+  const itemOptions = row.categoryId
+    ? items
+        .filter((i) => i.categoryId === row.categoryId)
+        .map((i) => ({ value: i.id, label: i.name }))
+    : [];
+
+  // 支付方式選項
+  const paymentOptions = payments.map((p) => ({ value: p.id, label: p.name }));
+
+  const formApi = buildForm({
+    containerId,
+    fields: [
+      {
+        type: 'custom',
+        id: 'info',
+        html: `
+          <div class="glass-card-hint" style="margin-bottom:12px;">
+            來源：<b>${escapeHtml(row.sourceLabel || '')}</b>
+          </div>
+        `,
+      },
+      {
+        type: 'select',
+        id: 'year',
+        label: '年份',
+        required: true,
+        includeEmpty: false,
+        options: yearOptions,
+      },
+      {
+        type: 'select',
+        id: 'month',
+        label: '月份',
+        required: true,
+        includeEmpty: false,
+        options: monthOptions,
+      },
+      {
+        type: 'select',
+        id: 'memberId',
+        label: '成員',
+        required: true,
+        includeEmpty: false,
+        options: memberOptions,
+      },
+      {
+        type: 'text',
+        id: 'name',
+        label: '項目名稱',
+        required: true,
+        maxlength: 60,
+      },
+      {
+        type: 'number',
+        id: 'amount',
+        label: '金額（HK$）',
+        required: true,
+        min: 0,
+        step: 1,
+      },
+      {
+        type: 'text',
+        id: 'date',
+        label: '日期',
+        placeholder: 'YYYY-MM-DD',
+        maxlength: 10,
+      },
+      {
+        type: 'select',
+        id: 'categoryId',
+        label: '支出類別',
+        includeEmpty: true,
+        emptyText: '— 請選擇類別 —',
+        options: categoryOptions,
+      },
+      {
+        type: 'select',
+        id: 'itemId',
+        label: '項目',
+        includeEmpty: true,
+        emptyText: row.categoryId ? '— 請選擇項目 —' : '— 請先選擇類別 —',
+        options: itemOptions,
+      },
+      {
+        type: 'select',
+        id: 'paymentMethodId',
+        label: '支付方式',
+        includeEmpty: true,
+        emptyText: '— 請選擇 —',
+        options: paymentOptions,
+      },
+      {
+        type: 'select',
+        id: 'status',
+        label: '狀態',
+        includeEmpty: false,
+        options: statuses.map((s) => ({ value: s.name, label: s.name })),
+      },
+    ],
+    submitText: '儲存',
+    showCancel: true,
+    cancelText: '取消',
+    initialData: {
+      year: String(row.year),
+      month: String(row.month),
+      memberId: row._ref.memberId,
+      name: row.name || '',
+      amount: row.amount || 0,
+      date: row.date || '',
+      categoryId: row.categoryId || '',
+      itemId: row.itemId || '',
+      paymentMethodId: row.paymentMethodId || '',
+      status: row.status || '未處理',
+    },
+    onSubmit: async (data) => {
+      try {
+        const oldMemberId = row._ref.memberId;
+        const oldYear = row.year;
+        const oldMonth = row.month;
+        const oldExpenseId = row._ref.expenseId;
+
+        const newYear = String(data.year);
+        const newMonth = String(data.month);
+        const newMemberId = data.memberId;
+
+        const pathChanged =
+          newYear !== oldYear ||
+          newMonth !== oldMonth ||
+          newMemberId !== oldMemberId;
+
+        if (pathChanged) {
+          // 路徑遷移（年份 / 月份 / 成員變更）
+          await batchUpdateExpenses([{
+            oldYear,
+            oldMonth,
+            oldMemberId,
+            expenseId: oldExpenseId,
+            data: {
+              year: newYear,
+              month: newMonth,
+              memberId: newMemberId,
+              name: data.name,
+              amount: Number(data.amount) || 0,
+              date: data.date || '',
+              categoryId: data.categoryId || '',
+              itemId: data.itemId || '',
+              paymentMethodId: data.paymentMethodId || '',
+              status: data.status,
+            },
+          }]);
+        } else {
+          // 原地更新
+          await updateExpense(oldYear, oldMonth, oldMemberId, oldExpenseId, {
+            name: data.name,
+            amount: Number(data.amount) || 0,
+            date: data.date || '',
+            categoryId: data.categoryId || '',
+            itemId: data.itemId || '',
+            paymentMethodId: data.paymentMethodId || '',
+            status: data.status,
+          });
+        }
+
+        closeModal(modalId);
+        showToast('✅ 已儲存', 'success');
+        if (typeof onSuccess === 'function') onSuccess();
+      } catch (err) {
+        console.error('[settlements] 儲存失敗：', err);
+        showToast('儲存失敗：' + err.message, 'error');
+      }
+    },
+    onCancel: () => closeModal(modalId),
+  });
+
+  // 類別 → 項目連動
+  if (formApi) {
+    formApi.onFieldChange('categoryId', () => {
+      const catId = formApi.getFieldValue('categoryId');
+      const filtered = catId
+        ? items
+            .filter((i) => i.categoryId === catId)
+            .map((i) => ({ value: i.id, label: i.name }))
+        : [];
+      formApi.updateOptions('itemId', filtered, {
+        includeEmpty: true,
+        emptyText: catId ? '— 請選擇項目 —' : '— 請先選擇類別 —',
+      });
+    });
+  }
+}
+
+/* ============================================
+   保險扣款編輯表單（僅狀態）
+   ============================================ */
+function _openInsuranceEditForm(row, containerId, modalId, onSuccess) {
+  const statuses = getStatusesByCategory('insurance');
+
+  buildForm({
+    containerId,
+    fields: [
+      {
+        type: 'custom',
+        id: 'info',
+        html: `
+          <div class="glass-card-hint" style="margin-bottom:12px;">
+            來源：<b>${escapeHtml(row.sourceLabel || '')}</b>　
+            成員：<b>${escapeHtml(getMemberName(row))}</b>　
+            年月：<b>${escapeHtml(row.year)}-${escapeHtml(row.month)}</b>
+            <br><span style="color:var(--neon-orange);">
+              ⚠️ 保險扣款金額由保單自動計算，僅能修改狀態
+            </span>
+          </div>
+        `,
+      },
+      {
+        type: 'select',
+        id: 'status',
+        label: '狀態',
+        includeEmpty: false,
+        options: statuses.map((s) => ({ value: s.name, label: s.name })),
+      },
+    ],
+    submitText: '儲存',
+    showCancel: true,
+    cancelText: '取消',
+    initialData: {
+      status: row.status || '',
+    },
+    onSubmit: async (data) => {
+      try {
+        if (data.status !== row.status) {
+          await updateRowStatus(row, data.status);
+        }
+        closeModal(modalId);
+        showToast('✅ 已儲存', 'success');
+        if (typeof onSuccess === 'function') onSuccess();
+      } catch (err) {
+        console.error('[settlements] 儲存失敗：', err);
+        showToast('儲存失敗：' + err.message, 'error');
+      }
+    },
+    onCancel: () => closeModal(modalId),
+  });
+}
+
+/* ============================================
+   刪除 / 取消扣款
    ============================================ */
 export async function handleSettlementDelete(row, onSuccess) {
   if (!row) return;

@@ -1,11 +1,10 @@
 // ============================================
-// merge.js — 結算資料合併邏輯（v101.6）
+// merge.js — 結算資料合併邏輯（v101.6.11）
 // 位置：js/pages/settlements/merge.js
 // ============================================
-// v101.6 修正：
-//   ✅ 移除 fixedExpenses 來源（固定支出廢除）
-//   ✅ 保留「家庭共用支出」（作為 shared member 的個人支出）
-//   ✅ 保險 row 支援 policyHolderId
+// v101.6.11 修正：
+//   ✅ [需求] 個人支出 row 補上 itemId / paymentMethodId
+//       （供結算清單編輯 Modal 使用）
 // ============================================
 
 import { getStatusesByCategory } from '../../config/app-config.js';
@@ -15,15 +14,6 @@ import { RESERVED_IDS } from '../../config/constants.js';
    主函式
    ============================================ */
 
-/**
- * 合併 2 個來源
- * @param {Object} params
- * @param {Array} params.memberExpenses - 成員支出（含家庭共用）
- * @param {Array} params.insuranceRows - 保險扣款
- * @param {string} params.year
- * @param {string} params.month
- * @returns {Array} 合併後的 row 陣列
- */
 export function mergeSettlementData({
   memberExpenses = [],
   insuranceRows = [],
@@ -66,6 +56,9 @@ function _buildPersonalRow(e, year, month) {
     isDone: _isDoneStatus(e.status, 'personal'),
     date: e.date || '',
     categoryId: e.categoryId || '',
+    // 🆕 v101.6.11：補上供編輯 Modal 使用的欄位
+    itemId: e.itemId || '',
+    paymentMethodId: e.paymentMethodId || '',
     isAutoLinked: false,
     _ref: {
       memberId: e.memberId,

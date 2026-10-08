@@ -1,12 +1,11 @@
 // ============================================
-// db.js — Firebase RTDB 讀寫封裝（v101.6.6）
+// db.js — Firebase RTDB 讀寫封裝（v101.6.11）
 // 位置：js/core/db.js
 // ============================================
-// v101.6.6 修正：
-//   ✅ [BUG-16] deleteInsurancePolicyAndData 增加 memberId fallback
-//       - 若未傳 memberId，自動讀取 policy 的 policyHolderId
-//       - 若仍找不到，只清除 payments 與 policy 本身（保留孤兒資料為孤兒）
-//   ✅ 保留所有 v101.6 功能
+// v101.6.11 新增：
+//   ✅ getCategoriesOnce() — 支出類別一次讀取
+//   ✅ getItemsOnce() — 支出項目一次讀取
+//       （供結算清單編輯 Modal 使用）
 // ============================================
 
 import { db } from '../config/firebase-config.js';
@@ -311,6 +310,15 @@ export function listenCategories(cb, err) {
   return listenList('expense_categories', byOrder, cb, err);
 }
 
+// 🆕 v101.6.11：一次讀取（供結算清單編輯 Modal 使用）
+export async function getCategoriesOnce() {
+  const snap = await get(familyRef('expense_categories'));
+  const val = snap.val() || {};
+  const list = Object.entries(val).map(([id, c]) => ({ id, ...c }));
+  list.sort(byOrder);
+  return list;
+}
+
 export async function addCategory(cat) {
   const newRef = push(familyRef('expense_categories'));
   await set(newRef, {
@@ -335,6 +343,13 @@ export async function removeCategory(id) {
 
 export function listenItems(cb, err) {
   return listenList('expense_items', byCreatedAt, cb, err);
+}
+
+// 🆕 v101.6.11：一次讀取（供結算清單編輯 Modal 使用）
+export async function getItemsOnce() {
+  const snap = await get(familyRef('expense_items'));
+  const val = snap.val() || {};
+  return Object.entries(val).map(([id, i]) => ({ id, ...i }));
 }
 
 export async function addItem(item) {
@@ -758,7 +773,7 @@ export async function deleteInsurancePolicyAndData(policyId, memberId) {
   const familyId = AppState.getFamilyId();
   if (!familyId) throw new Error('尚未選擇家庭');
 
-  // 🆕 v101.6.6：memberId fallback（BUG-16 修正）
+  // memberId fallback（v101.6.6 修正）
   let effectiveMemberId = memberId;
   if (!effectiveMemberId) {
     try {
@@ -778,7 +793,6 @@ export async function deleteInsurancePolicyAndData(policyId, memberId) {
 
   const linkedKey = buildLinkedKey(policyId);
 
-  // 只有當 effectiveMemberId 存在時，才清除連結支出（避免產出 undefined 路徑）
   if (effectiveMemberId) {
     for (const [year, months] of Object.entries(payments)) {
       for (const [month] of Object.entries(months)) {
