@@ -1566,3 +1566,18 @@
     font-size: 15px !important;
   }
 }
+/* ============================================
+   🆕 v101.7.4：settings 個人化 Panel 佈局
+   -------------------------------------------------
+   使用 auto-fit minmax，讓瀏覽器自動決定欄數：
+   - 寬 < 736px → 1 欄（全部 stacked）
+   - 寬 ≥ 736px → 2 欄（帳號 + 統計卡並排）
+   - 側邊欄排序永遠跨所有欄
+   ============================================ */
+
+.settings-personal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 16px;
+  align-items: start;
+}

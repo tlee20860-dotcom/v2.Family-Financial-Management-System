@@ -45,8 +45,8 @@
 
         <!-- 個人化 Panel -->
         <div id="settings-panel-personal" class="tab-panel" style="display:none;">
-          <div class="grid grid-2" style="gap:16px; align-items:start;">
-
+          <!-- 🆕 v101.7.4：使用 auto-fit minmax 取代固定 grid-2 -->
+          <div class="settings-personal-grid">
             <!-- 帳號資訊 -->
             <div class="glass-card">
               <div class="glass-card-title" style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
@@ -76,7 +76,7 @@
               </div>
             </div>
 
-            <!-- 🆕 v101.7.2：統計卡顯示模式 -->
+            <!-- 統計卡顯示模式 -->
             <div class="glass-card">
               <div class="glass-card-title" style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
                 <i data-lucide="bar-chart-2" style="width:16px;height:16px;color:var(--neon-cyan);"></i>
@@ -127,8 +127,8 @@
               </div>
             </div>
 
-            <!-- 側邊欄排序 -->
-            <div class="glass-card" style="grid-column: span 2;">
+            <!-- 側邊欄排序（跨所有欄） -->
+            <div class="glass-card" style="grid-column: 1 / -1;">
               <div class="glass-card-title" style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
                 <i data-lucide="list-ordered" style="width:16px;height:16px;color:var(--neon-cyan);"></i>
                 <span>側邊欄排序</span>
@@ -147,7 +147,6 @@
                 </button>
               </div>
             </div>
-
           </div>
         </div>
       </main>
