@@ -1,12 +1,10 @@
 // ============================================
-// admin.js — 平台管理入口（v101.8.0）
+// admin.js — 平台管理入口（v101.8.1）
 // 位置：js/admin/admin.js
 // ============================================
-// v101.8.0 新增：
-//   ✅ 家庭清單每列加入「帳號」按鈕
-//   ✅ 帳號管理 Modal（列出 / 新增 / 編輯 / 刪除）
-//   ✅ 建立帳號時設定帳號 / 密碼 / 顯示名稱 / 角色 / canInput
-//   ✅ owner 帳號不可刪除（後端保護 + 前端提示）
+// v101.8.1 修正：
+//   ✅ 建立帳號失敗（EMAIL_EXISTS）時顯示「復原舊帳號」Modal
+//   ✅ 新增 _handleRestoreAccount 呼叫 api.familyAccounts.restore
 // ============================================
 
 import { api } from '../core/api.js';
@@ -30,7 +28,6 @@ let _defaultsInstance = null;
 let _logoutHandler = null;
 let _familyListHandler = null;
 
-// 帳號管理 Modal 狀態
 let _accountModalFamilyId = '';
 let _accountModalFamilyName = '';
 let _accountModalFormApi = null;
@@ -41,6 +38,7 @@ const ACCOUNT_MODAL_ID = 'admin-account-modal';
 const ACCOUNT_FORM_ROOT_ID = 'admin-account-form-root';
 const ACCOUNT_EDIT_MODAL_ID = 'admin-account-edit-modal';
 const ACCOUNT_EDIT_FORM_ROOT_ID = 'admin-account-edit-form-root';
+const ACCOUNT_RESTORE_MODAL_ID = 'admin-account-restore-modal';
 
 /* ============================================
    主入口
@@ -115,30 +113,9 @@ function _renderFamilyPanel() {
   _familyInputApi = buildForm({
     containerId: 'admin-family-form-root',
     fields: [
-      {
-        type: 'text',
-        id: 'adm-fam-uid',
-        label: 'Firebase UID',
-        required: true,
-        placeholder: '在 Firebase Auth 建立後複製 UID',
-        maxlength: 60,
-        hint: '請先在 Firebase 控制台建立家庭帳號，再將 UID 貼上。',
-      },
-      {
-        type: 'text',
-        id: 'adm-fam-name',
-        label: '家庭名稱',
-        required: true,
-        placeholder: '例如：陳家',
-        maxlength: 30,
-      },
-      {
-        type: 'text',
-        id: 'adm-fam-email',
-        label: '擁有者 Email（可選）',
-        placeholder: '例如：chen@familyfin.local',
-        maxlength: 60,
-      },
+      { type: 'text', id: 'adm-fam-uid', label: 'Firebase UID', required: true, placeholder: '在 Firebase Auth 建立後複製 UID', maxlength: 60, hint: '請先在 Firebase 控制台建立家庭帳號，再將 UID 貼上。' },
+      { type: 'text', id: 'adm-fam-name', label: '家庭名稱', required: true, placeholder: '例如：陳家', maxlength: 30 },
+      { type: 'text', id: 'adm-fam-email', label: '擁有者 Email（可選）', placeholder: '例如：chen@familyfin.local', maxlength: 60 },
     ],
     submitText: '新增家庭',
     showCancel: false,
@@ -229,15 +206,9 @@ function _renderFamilies() {
           ${_families.map((f) => `
             <tr data-uid="${escapeHtml(f.uid)}">
               <td>${escapeHtml(f.name || '')}</td>
-              <td style="font-size:12px;">
-                ${escapeHtml(f.ownerEmail || '—')}
-              </td>
-              <td style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono); word-break:break-all;">
-                ${escapeHtml(f.uid)}
-              </td>
-              <td style="font-size:11px; color:var(--text-muted);">
-                ${f.createdAt > 0 ? new Date(f.createdAt).toLocaleString('zh-HK') : '—'}
-              </td>
+              <td style="font-size:12px;">${escapeHtml(f.ownerEmail || '—')}</td>
+              <td style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono); word-break:break-all;">${escapeHtml(f.uid)}</td>
+              <td style="font-size:11px; color:var(--text-muted);">${f.createdAt > 0 ? new Date(f.createdAt).toLocaleString('zh-HK') : '—'}</td>
               <td>
                 <button type="button" class="btn btn-sm btn-primary" data-action="enter" data-uid="${escapeHtml(f.uid)}">進入</button>
                 <button type="button" class="btn btn-sm btn-ghost" data-action="accounts" data-uid="${escapeHtml(f.uid)}">
@@ -279,9 +250,7 @@ function _bindFamilyListEvents() {
         }
         break;
       case 'accounts':
-        if (family) {
-          await _openAccountModal(uid, family.name || uid);
-        }
+        if (family) await _openAccountModal(uid, family.name || uid);
         break;
       case 'init':
         await _handleInit(uid, family);
@@ -309,11 +278,8 @@ async function _handleInit(uid, family) {
 
   try {
     const result = await api.adminInitFamily(uid);
-    if (result.skipped) {
-      showToast('此家庭已有資料，略過初始化', 'warning');
-    } else {
-      showToast('✅ 已初始化預設資料', 'success');
-    }
+    if (result.skipped) showToast('此家庭已有資料，略過初始化', 'warning');
+    else showToast('✅ 已初始化預設資料', 'success');
   } catch (err) {
     showToast('初始化失敗：' + err.message, 'error');
   }
@@ -341,16 +307,14 @@ async function _handleDelete(uid, family) {
 }
 
 /* ============================================
-   🆕 v101.8.0：帳號管理 Modal
+   帳號管理 Modal
    ============================================ */
 async function _openAccountModal(familyId, familyName) {
   _accountModalFamilyId = familyId;
   _accountModalFamilyName = familyName;
 
-  // 移除舊 Modal
   document.getElementById(ACCOUNT_MODAL_ID)?.remove();
 
-  // 建立 Modal
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay active';
   overlay.id = ACCOUNT_MODAL_ID;
@@ -366,7 +330,6 @@ async function _openAccountModal(familyId, familyName) {
         「可輸入」控制該帳號是否能新增 / 編輯 / 刪除資料。
       </div>
 
-      <!-- 新增帳號表單 -->
       <div class="glass-card" style="margin-bottom:16px; padding:16px;">
         <div style="font-size:13px; font-weight:600; color:var(--neon-cyan); margin-bottom:12px;">
           <i data-lucide="user-plus" style="width:14px;height:14px;"></i>
@@ -375,7 +338,6 @@ async function _openAccountModal(familyId, familyName) {
         <div id="${ACCOUNT_FORM_ROOT_ID}"></div>
       </div>
 
-      <!-- 帳號清單 -->
       <div class="glass-card" style="padding:0;">
         <div class="collapsible-header" style="padding:12px 16px;">
           <div class="collapsible-header-title">
@@ -393,19 +355,13 @@ async function _openAccountModal(familyId, familyName) {
   `;
   document.body.appendChild(overlay);
 
-  // 關閉事件
   overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) {
-      closeModal(ACCOUNT_MODAL_ID);
-    }
+    if (e.target === overlay) closeModal(ACCOUNT_MODAL_ID);
     const closeBtn = e.target.closest('button[data-action="close"]');
     if (closeBtn) closeModal(ACCOUNT_MODAL_ID);
   });
 
-  // 建立新增表單
   _renderAccountForm();
-
-  // 載入帳號清單
   await _loadFamilyAccounts();
 
   if (window.lucide) window.lucide.createIcons();
@@ -420,37 +376,11 @@ function _renderAccountForm() {
   _accountModalFormApi = buildForm({
     containerId: ACCOUNT_FORM_ROOT_ID,
     fields: [
+      { type: 'text', id: 'acc-account', label: '帳號（英文 / 數字）', required: true, maxlength: 30, placeholder: '例如：wife', hint: '系統會自動補 @familyfin.local' },
+      { type: 'text', id: 'acc-password', label: '密碼', required: true, maxlength: 60, placeholder: '至少 6 位' },
+      { type: 'text', id: 'acc-displayname', label: '顯示名稱', required: true, maxlength: 30, placeholder: '例如：媽媽' },
       {
-        type: 'text',
-        id: 'acc-account',
-        label: '帳號（英文 / 數字）',
-        required: true,
-        maxlength: 30,
-        placeholder: '例如：wife',
-        hint: '系統會自動補 @familyfin.local',
-      },
-      {
-        type: 'text',
-        id: 'acc-password',
-        label: '密碼',
-        required: true,
-        maxlength: 60,
-        placeholder: '至少 6 位',
-      },
-      {
-        type: 'text',
-        id: 'acc-displayname',
-        label: '顯示名稱',
-        required: true,
-        maxlength: 30,
-        placeholder: '例如：媽媽',
-      },
-      {
-        type: 'select',
-        id: 'acc-role',
-        label: '角色',
-        required: true,
-        includeEmpty: false,
+        type: 'select', id: 'acc-role', label: '角色', required: true, includeEmpty: false,
         options: [
           { value: 'member', label: '成員（一般）' },
           { value: 'owner',  label: '擁有者（owner）' },
@@ -458,11 +388,7 @@ function _renderAccountForm() {
         defaultValue: 'member',
       },
       {
-        type: 'select',
-        id: 'acc-caninput',
-        label: '可輸入',
-        required: true,
-        includeEmpty: false,
+        type: 'select', id: 'acc-caninput', label: '可輸入', required: true, includeEmpty: false,
         options: [
           { value: 'true',  label: '可輸入（可新增 / 編輯 / 刪除）' },
           { value: 'false', label: '唯讀（僅可查看）' },
@@ -496,6 +422,9 @@ function _validateAccountForm(data) {
   return true;
 }
 
+/* ============================================
+   🆕 v101.8.1：建立帳號（EMAIL_EXISTS → 復原 Modal）
+   ============================================ */
 async function _handleCreateAccount(data) {
   const account = (data['acc-account'] || '').trim().toLowerCase();
   const password = data['acc-password'] || '';
@@ -505,18 +434,112 @@ async function _handleCreateAccount(data) {
 
   try {
     await api.familyAccounts.create(_accountModalFamilyId, {
-      account,
-      password,
-      displayName,
-      role,
-      canInput,
+      account, password, displayName, role, canInput,
     });
 
     showToast(`✅ 已建立帳號「${account}」`, 'success');
     _accountModalFormApi?.reset();
     await _loadFamilyAccounts();
   } catch (err) {
-    showToast('建立失敗：' + err.message, 'error');
+    // 🆕 v101.8.1：判斷是否為 EMAIL_EXISTS
+    const isEmailExists =
+      err.code === 'EMAIL_EXISTS' ||
+      err.message.includes('已存在於 Firebase') ||
+      err.message.includes('EMAIL_EXISTS');
+
+    if (isEmailExists) {
+      await _showRestoreModal({
+        account, password, displayName, role, canInput,
+      });
+    } else {
+      showToast('建立失敗：' + err.message, 'error');
+    }
+  }
+}
+
+/* ============================================
+   🆕 v101.8.1：復原 Modal
+   ============================================ */
+async function _showRestoreModal({ account, password, displayName, role, canInput }) {
+  document.getElementById(ACCOUNT_RESTORE_MODAL_ID)?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay active';
+  overlay.id = ACCOUNT_RESTORE_MODAL_ID;
+  overlay.style.zIndex = '1200';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:480px;">
+      <h2 class="modal-title">
+        <i data-lucide="alert-triangle" style="width:18px;height:18px;color:var(--neon-orange);"></i>
+        帳號已存在
+      </h2>
+
+      <div class="banner" style="border-color:rgba(251,146,60,0.3); background:rgba(251,146,60,0.06); color:var(--neon-orange); margin-bottom:16px;">
+        帳號「${escapeHtml(account)}」在 Firebase 系統中已存在，
+        可能是先前建立時未完成初始化。
+      </div>
+
+      <div style="font-size:13px; color:var(--text-secondary); line-height:1.6; margin-bottom:16px;">
+        若您知道此帳號的<b>舊密碼</b>，可以嘗試「復原」，
+        系統會將此帳號重新綁定到當前家庭。<br><br>
+        ⚠️ 若舊密碼與剛才輸入的不同，請先修改為舊密碼後再復原。
+      </div>
+
+      <div style="font-size:12px; color:var(--text-muted); padding:10px 12px; background:rgba(0,240,255,0.03); border-radius:var(--radius-sm); margin-bottom:16px;">
+        <b>輸入的舊密碼：</b><span class="mono">${escapeHtml(password)}</span>
+      </div>
+
+      <div class="modal-actions" style="justify-content:space-between;">
+        <button type="button" class="btn btn-ghost" data-action="cancel">取消</button>
+        <button type="button" class="btn btn-primary" data-action="restore">
+          <i data-lucide="refresh-cw" style="width:14px;height:14px;"></i>
+          嘗試復原
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', async (e) => {
+    if (e.target === overlay) {
+      closeModal(ACCOUNT_RESTORE_MODAL_ID);
+      return;
+    }
+    const cancelBtn = e.target.closest('button[data-action="cancel"]');
+    if (cancelBtn) {
+      closeModal(ACCOUNT_RESTORE_MODAL_ID);
+      return;
+    }
+    const restoreBtn = e.target.closest('button[data-action="restore"]');
+    if (restoreBtn) {
+      restoreBtn.disabled = true;
+      restoreBtn.textContent = '復原中…';
+      await _handleRestoreAccount({ account, password, displayName, role, canInput });
+      closeModal(ACCOUNT_RESTORE_MODAL_ID);
+    }
+  });
+
+  if (window.lucide) window.lucide.createIcons();
+}
+
+async function _handleRestoreAccount({ account, password, displayName, role, canInput }) {
+  try {
+    await api.familyAccounts.restore(_accountModalFamilyId, {
+      account, password, displayName, role, canInput,
+    });
+    showToast(`✅ 已復原帳號「${account}」`, 'success');
+    _accountModalFormApi?.reset();
+    await _loadFamilyAccounts();
+  } catch (err) {
+    if (err.message.includes('舊密碼錯誤')) {
+      showToast('❌ 舊密碼錯誤，請確認後重試', 'error', 4000);
+    } else if (err.message.includes('不存在')) {
+      showToast('此帳號在 Firebase 系統中不存在，請改用「新增帳號」', 'warning', 4000);
+    } else if (err.message.includes('已屬於')) {
+      showToast('此帳號已屬於其他家庭，無法復原', 'warning', 4000);
+    } else {
+      showToast('復原失敗：' + err.message, 'error');
+    }
   }
 }
 
@@ -561,7 +584,6 @@ async function _loadFamilyAccounts() {
     `;
 
     _bindAccountListEvents();
-
     if (window.lucide) window.lucide.createIcons();
   } catch (err) {
     console.error('[admin] 載入帳號清單失敗：', err);
@@ -596,14 +618,10 @@ function _renderAccountRow(a) {
   `;
 }
 
-/* ============================================
-   帳號清單事件
-   ============================================ */
 function _bindAccountListEvents() {
   const listEl = document.getElementById('admin-account-list');
   if (!listEl) return;
 
-  // 移除舊監聽器（若有）
   if (_accountListHandler) {
     listEl.removeEventListener('click', _accountListHandler);
   }
@@ -615,11 +633,8 @@ function _bindAccountListEvents() {
     const uid = btn.dataset.uid;
     const action = btn.dataset.accAction;
 
-    if (action === 'edit') {
-      await _openEditAccountModal(uid);
-    } else if (action === 'delete') {
-      await _handleRemoveAccount(uid);
-    }
+    if (action === 'edit') await _openEditAccountModal(uid);
+    else if (action === 'delete') await _handleRemoveAccount(uid);
   };
 
   listEl.addEventListener('click', _accountListHandler);
@@ -629,7 +644,6 @@ function _bindAccountListEvents() {
    編輯帳號 Modal
    ============================================ */
 async function _openEditAccountModal(uid) {
-  // 先找到該帳號資料
   let accounts = [];
   try {
     const result = await api.familyAccounts.list(_accountModalFamilyId);
@@ -645,13 +659,12 @@ async function _openEditAccountModal(uid) {
     return;
   }
 
-  // 移除舊 Modal
   document.getElementById(ACCOUNT_EDIT_MODAL_ID)?.remove();
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay active';
   overlay.id = ACCOUNT_EDIT_MODAL_ID;
-  overlay.style.zIndex = '1100';   // 高於帳號管理 Modal
+  overlay.style.zIndex = '1100';
   overlay.innerHTML = `
     <div class="modal" style="max-width:480px;">
       <h2 class="modal-title">編輯成員帳號</h2>
@@ -679,32 +692,16 @@ async function _openEditAccountModal(uid) {
           </div>
         `,
       },
+      { type: 'text', id: 'edit-displayname', label: '顯示名稱', required: true, maxlength: 30 },
       {
-        type: 'text',
-        id: 'edit-displayname',
-        label: '顯示名稱',
-        required: true,
-        maxlength: 30,
-      },
-      {
-        type: 'select',
-        id: 'edit-role',
-        label: '角色',
-        required: true,
-        includeEmpty: false,
+        type: 'select', id: 'edit-role', label: '角色', required: true, includeEmpty: false,
         options: isOwner
           ? [{ value: 'owner', label: '擁有者（不可變更）' }]
-          : [
-              { value: 'member', label: '成員（一般）' },
-            ],
+          : [{ value: 'member', label: '成員（一般）' }],
         defaultValue: account.role,
       },
       {
-        type: 'select',
-        id: 'edit-caninput',
-        label: '可輸入',
-        required: true,
-        includeEmpty: false,
+        type: 'select', id: 'edit-caninput', label: '可輸入', required: true, includeEmpty: false,
         options: [
           { value: 'true',  label: '可輸入（可新增 / 編輯 / 刪除）' },
           { value: 'false', label: '唯讀（僅可查看）' },
@@ -741,13 +738,13 @@ async function _openEditAccountModal(uid) {
    ============================================ */
 async function _handleRemoveAccount(uid) {
   const ok = await openConfirm(
-    `⚠️ 確定要移除此成員帳號嗎？\n\n注意：\n• 只會移除「登入帳號」\n• 不會刪除該成員的財務資料\n• 不會刪除 Firebase Auth 帳號\n• 該成員將無法再登入系統`,
+    `⚠️ 確定要移除此成員帳號嗎？\n\n注意：\n• 只會移除「登入帳號」\n• 不會刪除該成員的財務資料\n• 不會刪除 Firebase Auth 帳號\n• 該成員將無法再登入系統\n• 若需重建同名帳號，需使用「復原」或至 Firebase Console 手動刪除`,
     { title: '移除帳號', okText: '移除', okClass: 'btn-danger' }
   );
   if (!ok) return;
 
   try {
-    await api.familyAccounts.remove(_accountModalFamilyId, uid);
+    const result = await api.familyAccounts.remove(_accountModalFamilyId, uid);
     showToast('✅ 已移除帳號', 'success');
     await _loadFamilyAccounts();
   } catch (err) {
@@ -780,4 +777,5 @@ function _destroy() {
 
   document.getElementById(ACCOUNT_MODAL_ID)?.remove();
   document.getElementById(ACCOUNT_EDIT_MODAL_ID)?.remove();
+  document.getElementById(ACCOUNT_RESTORE_MODAL_ID)?.remove();
 }

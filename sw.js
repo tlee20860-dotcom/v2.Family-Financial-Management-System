@@ -1,29 +1,15 @@
 // ============================================
-// sw.js — Service Worker（v101.8.0）
+// sw.js — Service Worker（v101.8.1）
 // ============================================
-// v101.8.0 更新：
-//   ✅ CACHE_NAME = family-fin-v121（v120 → v121）
-//   ✅ 對應 v101.8.0 修正：
-//      - functions/api/_config.js（新增 dbSignUp）
-//      - functions/api/_helpers.js（verifyFamilyAccessByUid）
-//      - functions/api/lookup-family.js（🆕）
-//      - functions/api/family-accounts.js（🆕）
-//      - js/core/state.js（帳號資訊）
-//      - js/core/api.js（lookupFamily / familyAccounts）
-//      - js/core/auth-guard.js（登入後查詢家庭）
-//      - js/admin/admin.js（帳號管理 Modal）
-//      - js/shared/entity-list-page.js（canInput 判斷）
-//      - js/shared/navbar.js（顯示 displayName / 角色）
-//      - js/pages/input-center/index.js（canInput 判斷）
-//      - js/pages/input-center/recent-list.js（canInput 判斷）
-//      - js/pages/input-center/holdings-list.js（canInput 判斷）
-//      - js/pages/settlements/index.js（canInput 判斷）
-//      - js/pages/portfolio.js（canInput 判斷）
-//      - js/pages/insurance/index.js（canInput 判斷）
-//      - js/pages/insurance/render.js（canInput 判斷）
+// v101.8.1 更新：
+//   ✅ CACHE_NAME = family-fin-v122（v121 → v122）
+//   ✅ 對應 v101.8.1 修正：
+//      - functions/api/family-accounts.js（restore + 錯誤處理）
+//      - js/core/api.js（familyAccounts.restore）
+//      - js/admin/admin.js（復原 Modal）
 // ============================================
 
-const CACHE_NAME = 'family-fin-v121';
+const CACHE_NAME = 'family-fin-v122';
 
 const STATIC_ASSETS = [
   // ================= CSS =================

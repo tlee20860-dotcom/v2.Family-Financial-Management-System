@@ -1,25 +1,18 @@
 // ============================================
-// family-accounts.js — 家庭成員帳號管理 API（v101.8.0 🆕）
+// family-accounts.js — 家庭成員帳號管理 API（v101.8.1）
 // 位置：functions/api/family-accounts.js
 // ============================================
-// 用途：
-//   superadmin 管理每個家庭的多個成員帳號
-//
-// 支援 action：
-//   - list   列出指定家庭的所有成員帳號
-//   - create 建立新成員帳號（同時建立 Firebase Auth + 寫入 RTDB）
-//   - update 更新成員帳號（displayName / role / canInput）
-//   - remove 移除成員帳號（不刪除 Firebase Auth 帳號）
-//
-// 權限：需要 superadmin
-//
-// 資料結構：
-//   platform/families/{familyId}/memberAccounts/{uid}/
-//     { email, displayName, role, canInput, createdAt }
-//   platform/uid_index/{uid} = familyId
+// v101.8.1 修正：
+//   ✅ create 明確區分 EMAIL_EXISTS 錯誤（孤兒帳號情境）
+//   ✅ create 中途失敗時嘗試回滾
+//   ✅ 新增 restore action（用舊密碼認領孤兒帳號）
+//   ✅ 新增 _signInWithPassword 內部工具
 // ============================================
 
-import { dbGet, dbPut, dbDelete, dbSignUp, SUPERADMIN_EMAIL } from './_config.js';
+import {
+  dbGet, dbPut, dbDelete, dbSignUp,
+  SUPERADMIN_EMAIL, FIREBASE_API_KEY, IDENTITY_TOOLKIT_URL,
+} from './_config.js';
 import {
   authenticate,
   errorResponse,
@@ -64,7 +57,7 @@ export async function onRequestGet({ request }) {
 }
 
 /* ============================================
-   POST — create / update / remove
+   POST — create / restore / update / remove
    ============================================ */
 export async function onRequestPost({ request }) {
   try {
@@ -91,6 +84,8 @@ export async function onRequestPost({ request }) {
     switch (action) {
       case 'create':
         return await _handleCreate(body);
+      case 'restore':
+        return await _handleRestore(body);
       case 'update':
         return await _handleUpdate(body);
       case 'remove':
@@ -130,17 +125,25 @@ async function _handleCreate(body) {
   // Email 組裝
   const email = `${accountStr}@familyfin.local`;
 
-  // 檢查是否已存在
+  // 檢查是否已存在（平台記錄）
   const existing = await dbGet(`platform/email_index/${accountStr}`);
   if (existing) {
-    return errorResponse('CONFLICT', `帳號 ${accountStr} 已存在`);
+    return errorResponse('CONFLICT', `帳號 ${accountStr} 已存在於平台記錄`);
   }
 
   // 建立 Firebase Auth 帳號
   const signUpResult = await dbSignUp(email, pwdStr);
   if (!signUpResult.ok) {
+    // 🆕 v101.8.1：明確區分 EMAIL_EXISTS（孤兒帳號）
+    if (signUpResult.error === 'EMAIL_EXISTS') {
+      return errorResponse(
+        'EMAIL_EXISTS',
+        `帳號「${accountStr}」已存在於 Firebase 系統（可能為先前建立未完成）。\n請改用其他名稱，或使用「復原舊帳號」功能。`,
+        409
+      );
+    }
+
     const errMap = {
-      EMAIL_EXISTS: '此帳號已存在',
       WEAK_PASSWORD: '密碼強度不足（至少 6 位）',
       INVALID_EMAIL: '帳號格式錯誤',
       OPERATION_NOT_ALLOWED: 'Firebase 專案未開啟 Email/Password 登入方式',
@@ -158,19 +161,30 @@ async function _handleCreate(body) {
     account: accountStr,
     displayName: String(displayName).trim(),
     role: roleStr,
-    canInput: canInput !== false, // 預設 true
+    canInput: canInput !== false,
     createdAt: now,
   };
 
   const ok1 = await dbPut(`platform/families/${familyId}/memberAccounts/${newUid}`, accountData);
   if (!ok1) {
-    return errorResponse('INTERNAL', '寫入 memberAccounts 失敗');
+    // 🆕 v101.8.1：明確提示
+    return errorResponse(
+      'INTERNAL',
+      `Firebase Auth 帳號已建立（${email}），但寫入平台記錄失敗。\n請至 Firebase Console → Authentication 刪除該帳號後重試。`,
+      500
+    );
   }
 
   // 寫入 uid_index
   const ok2 = await dbPut(`platform/uid_index/${newUid}`, familyId);
   if (!ok2) {
-    return errorResponse('INTERNAL', '寫入 uid_index 失敗（帳號已建立，請聯繫管理員）');
+    // 回滾 memberAccounts
+    await dbDelete(`platform/families/${familyId}/memberAccounts/${newUid}`);
+    return errorResponse(
+      'INTERNAL',
+      `Firebase Auth 帳號已建立（${email}），但 uid_index 寫入失敗。\n請至 Firebase Console → Authentication 刪除該帳號後重試。`,
+      500
+    );
   }
 
   // 寫入 email_index
@@ -178,6 +192,91 @@ async function _handleCreate(body) {
 
   return successResponse({
     uid: newUid,
+    account: accountData,
+  });
+}
+
+/* ============================================
+   🆕 v101.8.1：RESTORE — 復原孤兒帳號
+   ============================================
+   情境：Firebase Auth 帳號已存在（孤兒），
+        但無 memberAccounts / uid_index 記錄。
+
+   流程：
+   1. 用舊密碼驗證（signInWithPassword）
+   2. 若成功 → 取得 uid
+   3. 寫入 memberAccounts / uid_index / email_index
+   ============================================ */
+async function _handleRestore(body) {
+  const { familyId, account, password, displayName, role, canInput } = body;
+
+  const missing = requireFields(body, ['account', 'password', 'displayName']);
+  if (missing) return errorResponse('MISSING_FIELDS', '缺少 account / password / displayName');
+
+  const accountStr = String(account).trim().toLowerCase();
+  const pwdStr = String(password);
+  const email = `${accountStr}@familyfin.local`;
+
+  // 檢查平台記錄（若已存在，不需復原）
+  const existingIndex = await dbGet(`platform/email_index/${accountStr}`);
+  if (existingIndex) {
+    return errorResponse('CONFLICT', `帳號 ${accountStr} 已在平台記錄中，不需復原`);
+  }
+
+  // 驗證舊密碼
+  const signInResult = await _signInWithPassword(email, pwdStr);
+  if (!signInResult.ok) {
+    if (signInResult.error === 'EMAIL_NOT_FOUND') {
+      return errorResponse('NOT_FOUND', '此帳號在 Firebase 系統中不存在，無法復原');
+    }
+    if (
+      signInResult.error === 'INVALID_PASSWORD' ||
+      signInResult.error === 'INVALID_LOGIN_CREDENTIALS'
+    ) {
+      return errorResponse('FORBIDDEN', '舊密碼錯誤，無法復原此帳號');
+    }
+    if (signInResult.error === 'TOO_MANY_ATTEMPTS_TRY_LATER') {
+      return errorResponse('FORBIDDEN', '嘗試次數過多，請稍後再試');
+    }
+    return errorResponse('INTERNAL', `驗證失敗：${signInResult.error}`);
+  }
+
+  const uid = signInResult.uid;
+
+  // 檢查該 uid 是否已屬於某家庭
+  const uidIndex = await dbGet(`platform/uid_index/${uid}`);
+  if (uidIndex) {
+    return errorResponse('CONFLICT', `此帳號已屬於家庭 ${uidIndex}，無法重複復原`);
+  }
+
+  const now = Date.now();
+  const accountData = {
+    email,
+    account: accountStr,
+    displayName: String(displayName).trim(),
+    role: role === 'owner' ? 'owner' : 'member',
+    canInput: canInput !== false,
+    createdAt: now,
+    restoredAt: now,
+  };
+
+  // 寫入 memberAccounts
+  const ok1 = await dbPut(`platform/families/${familyId}/memberAccounts/${uid}`, accountData);
+  if (!ok1) return errorResponse('INTERNAL', '寫入 memberAccounts 失敗');
+
+  // 寫入 uid_index
+  const ok2 = await dbPut(`platform/uid_index/${uid}`, familyId);
+  if (!ok2) {
+    await dbDelete(`platform/families/${familyId}/memberAccounts/${uid}`);
+    return errorResponse('INTERNAL', '寫入 uid_index 失敗');
+  }
+
+  // 寫入 email_index
+  await dbPut(`platform/email_index/${accountStr}`, { uid, familyId });
+
+  return successResponse({
+    restored: true,
+    uid,
     account: accountData,
   });
 }
@@ -191,7 +290,6 @@ async function _handleUpdate(body) {
   const missing = requireFields(body, ['uid']);
   if (missing) return errorResponse('MISSING_FIELDS', '缺少 uid');
 
-  // 檢查帳號存在
   const existing = await dbGet(`platform/families/${familyId}/memberAccounts/${uid}`);
   if (!existing) {
     return errorResponse('NOT_FOUND', '找不到此成員帳號');
@@ -209,8 +307,6 @@ async function _handleUpdate(body) {
     if (role !== 'owner' && role !== 'member') {
       return errorResponse('BAD_REQUEST', 'role 必須是 owner 或 member');
     }
-    // ⚠️ 不允許修改為 owner（owner 只能有一個）
-    // 若原本就是 owner 則允許保留
     if (role === 'owner' && existing.role !== 'owner') {
       return errorResponse('BAD_REQUEST', '不可將成員升級為 owner');
     }
@@ -248,7 +344,8 @@ async function _handleUpdate(body) {
    注意：
    - 只從 memberAccounts + uid_index + email_index 移除
    - 不刪除 Firebase Auth 帳號（需 Admin SDK）
-   - 若同一 email 被重新建立，會產生新 UID
+   - 移除後，同名帳號無法重建（Firebase Auth 保留）
+   - 需使用「復原舊帳號」或 Firebase Console 手動刪除
    ============================================ */
 async function _handleRemove(body) {
   const { familyId, uid } = body;
@@ -256,7 +353,6 @@ async function _handleRemove(body) {
   const missing = requireFields(body, ['uid']);
   if (missing) return errorResponse('MISSING_FIELDS', '缺少 uid');
 
-  // 檢查帳號存在
   const existing = await dbGet(`platform/families/${familyId}/memberAccounts/${uid}`);
   if (!existing) {
     return errorResponse('NOT_FOUND', '找不到此成員帳號');
@@ -284,7 +380,41 @@ async function _handleRemove(body) {
   return successResponse({
     removedUid: uid,
     removedAccount: existing.account,
+    note: 'Firebase Auth 帳號仍保留，若需重建同名帳號，請使用「復原」或至 Firebase Console 手動刪除',
   });
+}
+
+/* ============================================
+   🆕 v101.8.1：內部工具 — signInWithPassword
+   ============================================ */
+async function _signInWithPassword(email, password) {
+  try {
+    const url = `${IDENTITY_TOOLKIT_URL}/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email,
+        password,
+        returnSecureToken: false,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      const errMsg = data?.error?.message || 'UNKNOWN_ERROR';
+      return { ok: false, error: errMsg };
+    }
+
+    return {
+      ok: true,
+      uid: data.localId,
+      email: data.email,
+    };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
 }
 
 /* ============================================

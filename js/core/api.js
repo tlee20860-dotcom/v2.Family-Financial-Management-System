@@ -1,13 +1,9 @@
 // ============================================
-// api.js — Cloudflare Functions 呼叫封裝（v101.8.0）
+// api.js — Cloudflare Functions 呼叫封裝（v101.8.1）
 // 位置：js/core/api.js
 // ============================================
-// v101.8.0 新增：
-//   ✅ lookupFamily() — 登入後查詢所屬家庭
-//   ✅ familyAccounts.list(familyId)
-//   ✅ familyAccounts.create(familyId, data)
-//   ✅ familyAccounts.update(familyId, uid, data)
-//   ✅ familyAccounts.remove(familyId, uid)
+// v101.8.1 新增：
+//   ✅ familyAccounts.restore(familyId, data)
 // ============================================
 
 import { AppState } from './state.js';
@@ -17,7 +13,6 @@ import { STORAGE_KEYS } from '../config/constants.js';
 /* ============================================
    基礎呼叫
    ============================================ */
-
 export async function callApi(path, options = {}) {
   const user = auth.currentUser;
   const token = user ? await user.getIdToken() : '';
@@ -43,15 +38,22 @@ export async function callApi(path, options = {}) {
 
   if (res.status === 403) {
     const text = await res.text().catch(() => '');
-    throw new Error(`無權限存取（${res.status}）：${text || 'FORBIDDEN'}`);
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch (e) { /* noop */ }
+    const msg = parsed?.message || text || '無權限存取';
+    throw new Error(msg);
   }
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     let parsed = null;
     try { parsed = JSON.parse(text); } catch (e) { /* noop */ }
+    // 🆕 v101.8.1：優先使用 message，其次 error
     const msg = parsed?.message || parsed?.error || text || '未知錯誤';
-    throw new Error(`API 失敗（${res.status}）：${msg}`);
+    const err = new Error(msg);
+    err.code = parsed?.error || 'UNKNOWN';
+    err.status = res.status;
+    throw err;
   }
 
   return res.json();
@@ -68,11 +70,7 @@ function getFamilyId() {
    ============================================ */
 
 export const api = {
-  /* ---------- 🆕 v101.8.0：家庭查詢 ---------- */
-  /**
-   * 登入後查詢所屬家庭
-   * @returns {Promise<{ familyId, familyName, memberAccount, isLegacy }>}
-   */
+  /* ---------- 家庭查詢 ---------- */
   lookupFamily: () =>
     callApi('/api/lookup-family', {
       method: 'POST',
@@ -164,20 +162,11 @@ export const api = {
       body: JSON.stringify({ uid }),
     }),
 
-  /* ---------- 🆕 v101.8.0：家庭成員帳號管理 ---------- */
+  /* ---------- 家庭成員帳號管理 ---------- */
   familyAccounts: {
-    /**
-     * 列出家庭所有成員帳號
-     * @param {string} familyId
-     */
     list: (familyId) =>
       callApi(`/api/family-accounts?familyId=${familyId}&action=list`),
 
-    /**
-     * 建立新成員帳號
-     * @param {string} familyId
-     * @param {Object} data - { account, password, displayName, role, canInput }
-     */
     create: (familyId, data) =>
       callApi('/api/family-accounts', {
         method: 'POST',
@@ -186,11 +175,17 @@ export const api = {
       }),
 
     /**
-     * 更新成員帳號
+     * 🆕 v101.8.1：復原孤兒帳號
      * @param {string} familyId
-     * @param {string} uid
-     * @param {Object} data - { displayName?, role?, canInput? }
+     * @param {Object} data - { account, password, displayName, role, canInput }
      */
+    restore: (familyId, data) =>
+      callApi('/api/family-accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'restore', familyId, ...data }),
+      }),
+
     update: (familyId, uid, data) =>
       callApi('/api/family-accounts', {
         method: 'POST',
@@ -198,11 +193,6 @@ export const api = {
         body: JSON.stringify({ action: 'update', familyId, uid, ...data }),
       }),
 
-    /**
-     * 移除成員帳號
-     * @param {string} familyId
-     * @param {string} uid
-     */
     remove: (familyId, uid) =>
       callApi('/api/family-accounts', {
         method: 'POST',
