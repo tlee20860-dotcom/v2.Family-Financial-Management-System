@@ -1,13 +1,10 @@
 // ============================================
-// index.js — 結算清單入口（v101.6）
+// index.js — 結算清單入口（v101.6.6）
 // 位置：js/pages/settlements/index.js
 // ============================================
-// v101.6 重寫：
-//   ✅ 使用 stats-cards.js 統一統計卡
-//   ✅ 使用 data-table.js 統一表格（含欄位調整）
-//   ✅ 使用 listener-group 統一訂閱
-//   ✅ 廢除固定支出來源
-//   ✅ 保留狀態編輯功能
+// v101.6.6 修正：
+//   ✅ [BUG-01] 修復監聽器洩漏：_loadMonthly 每次呼叫前先取消舊訂閱
+//   ✅ 保留所有 v101.6 功能
 // ============================================
 
 import { AppState } from '../../core/state.js';
@@ -57,6 +54,9 @@ let _statsApi = null;
 let _tableApi = null;
 let _sortHandler = null;
 let _statusChangeHandler = null;
+
+// 🆕 v101.6.6：單月監聽器的 unsubscribe（避免 BUG-01 洩漏）
+let _monthlyUnsub = null;
 
 const listenerGroup = createListenerGroup();
 
@@ -193,26 +193,38 @@ async function _reload() {
    單月載入
    ============================================ */
 async function _loadMonthly(year, month) {
-  listenerGroup.add(
-    listenAllMemberExpenses(year, month, async (memberExpenses) => {
-      const insuranceRows = await _loadInsurancePaymentsForMonth(year, month);
+  // 🆕 v101.6.6：先取消舊的 monthly 監聽器（BUG-01 修正）
+  if (_monthlyUnsub) {
+    try { _monthlyUnsub(); } catch (e) { /* noop */ }
+    _monthlyUnsub = null;
+  }
 
-      _rows = mergeSettlementData({
-        memberExpenses,
-        insuranceRows,
-        year,
-        month,
-      });
+  _monthlyUnsub = listenAllMemberExpenses(year, month, async (memberExpenses) => {
+    const insuranceRows = await _loadInsurancePaymentsForMonth(year, month);
 
-      _render();
-    })
-  );
+    _rows = mergeSettlementData({
+      memberExpenses,
+      insuranceRows,
+      year,
+      month,
+    });
+
+    _render();
+  });
+
+  listenerGroup.add(_monthlyUnsub);
 }
 
 /* ============================================
    全年載入
    ============================================ */
 async function _loadAnnual(year) {
+  // 全年模式時，取消單月監聽器
+  if (_monthlyUnsub) {
+    try { _monthlyUnsub(); } catch (e) { /* noop */ }
+    _monthlyUnsub = null;
+  }
+
   const [allExpenses, policies] = await Promise.all([
     _loadAllMemberExpensesForYear(year),
     getInsurancePoliciesOnce(),
@@ -402,7 +414,7 @@ function _renderTable() {
 
   _tableApi = renderDataTable({
     container: root,
-    entityKey: '__settlement__',    // 特殊：非標準實體
+    entityKey: '__settlement__',
     rows: _filtered,
     tableId: 'settlement-table',
     options: {
@@ -423,7 +435,7 @@ function _renderTable() {
         }
         return null;
       },
-      customActions: () => [],  // 結算清單無編輯 / 刪除按鈕
+      customActions: () => [],
     },
   });
 
@@ -476,6 +488,12 @@ function _applySort(list) {
    ============================================ */
 function _destroy() {
   listenerGroup.destroy();
+
+  // 🆕 v101.6.6：明確取消 monthly 監聽器
+  if (_monthlyUnsub) {
+    try { _monthlyUnsub(); } catch (e) { /* noop */ }
+    _monthlyUnsub = null;
+  }
 
   if (_filterInstance) {
     try { _filterInstance.destroy(); } catch (e) { /* noop */ }
