@@ -1,9 +1,11 @@
 // ============================================
-// api.js — Cloudflare Functions 呼叫封裝（v101.8.1）
+// api.js — Cloudflare Functions 呼叫封裝（v101.8.8）
 // 位置：js/core/api.js
 // ============================================
-// v101.8.1 新增：
-//   ✅ familyAccounts.restore(familyId, data)
+// v101.8.8 修正：
+//   ✅ fetchAnnualSummary 的 yearlyInsuranceTotal 取 12 月最大值
+//       - 原本只取 results[0]（1 月）→ 遺漏年中期才開始的保單
+//       - 修正後取 Math.max(所有月份的 yearlyInsuranceTotal)
 // ============================================
 
 import { AppState } from './state.js';
@@ -48,7 +50,6 @@ export async function callApi(path, options = {}) {
     const text = await res.text().catch(() => '');
     let parsed = null;
     try { parsed = JSON.parse(text); } catch (e) { /* noop */ }
-    // 🆕 v101.8.1：優先使用 message，其次 error
     const msg = parsed?.message || parsed?.error || text || '未知錯誤';
     const err = new Error(msg);
     err.code = parsed?.error || 'UNKNOWN';
@@ -112,10 +113,18 @@ export const api = {
     const totalExpense = monthly.reduce((s, m) => s + m.totalExpense, 0);
     const netBalance = totalIncome - totalExpense;
 
+    // 🆕 v101.8.8：yearlyInsuranceTotal 取 12 月最大值
+    // 原因：每月 API 回傳「該月有供款保單的年繳加總」
+    //       保單年中期才開始時，1 月不含它，需取任一月最大值
+    const yearlyInsuranceTotal = monthly.reduce(
+      (max, m) => Math.max(max, m.yearlyInsuranceTotal || 0),
+      0
+    );
+
     return {
       year, monthly,
       totalIncome, totalExpense, netBalance,
-      yearlyInsuranceTotal: results[0]?.yearlyInsuranceTotal || 0,
+      yearlyInsuranceTotal,
       totalAssets: results[11]?.totalAssets || results[0]?.totalAssets || 0,
       bankBalance: results[11]?.bankBalance || 0,
       fundValue: results[11]?.fundValue || 0,
@@ -174,11 +183,6 @@ export const api = {
         body: JSON.stringify({ action: 'create', familyId, ...data }),
       }),
 
-    /**
-     * 🆕 v101.8.1：復原孤兒帳號
-     * @param {string} familyId
-     * @param {Object} data - { account, password, displayName, role, canInput }
-     */
     restore: (familyId, data) =>
       callApi('/api/family-accounts', {
         method: 'POST',

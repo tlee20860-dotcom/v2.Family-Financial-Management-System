@@ -1,18 +1,14 @@
 // ============================================
-// insurance-calc.js — 保險計算模組（v101.5 🆕）
+// insurance-calc.js — 保險計算模組（v101.8.8）
 // 位置：js/shared/insurance-calc.js
 // ============================================
-// v101.5 新增：
-//   ✅ 從 js/pages/insurance/calc.js 提升為全站共用
-//   ✅ 新增 resolveMonthlyAmount（合併 sync.js 的 _resolveMonthlyAmount）
-//   ✅ 新增 getPolicyHolderId（policyHolderId fallback 規則）
-//   ✅ 純計算函式，無副作用
-//
-// 使用對象：
-//   js/pages/insurance/*.js
-//   js/pages/settlements/*.js
-//   js/pages/input-center/tab-insurance.js
-//   functions/api/summary.js 的對應邏輯（後端自行實作，不 import）
+// v101.8.8 修正：
+//   ✅ getPolicyAnnualPremium 支援基金保險（月供 × 12）
+//       - 原本基金保險一律回傳 0 → 年度總供款遺漏
+//   ✅ 基金保險也檢查年度範圍（firstStartYear + totalPolicyYears）
+//   ✅ computeEnrichedPolicies 新增 targetYear 參數
+//       - 依指定年度計算 _currentAnnualPremium
+//   ✅ 保留 v101.5 全部函式
 // ============================================
 
 import { getPolicyEffectiveMemberId } from '../config/constants.js';
@@ -20,12 +16,6 @@ import { getPolicyEffectiveMemberId } from '../config/constants.js';
 /* ============================================
    1. 成員 ID fallback
    ============================================ */
-
-/**
- * 取得保單的有效成員 ID（policyHolderId || memberId）
- * @param {Object} policy
- * @returns {string}
- */
 export function getPolicyHolderId(policy) {
   return getPolicyEffectiveMemberId(policy);
 }
@@ -33,13 +23,6 @@ export function getPolicyHolderId(policy) {
 /* ============================================
    2. 期間範圍
    ============================================ */
-
-/**
- * 取得某期（年度）的起迄日期
- * @param {Object} policy
- * @param {number} periodIndex - 第幾期（1-based）
- * @returns {{startY, startM, endY, endM, rangeText}}
- */
 export function getPeriodRange(policy, periodIndex) {
   const firstY = Number(policy.firstStartYear) || 0;
   const firstM = Number(policy.firstStartMonth) || 1;
@@ -59,13 +42,6 @@ export function getPeriodRange(policy, periodIndex) {
   };
 }
 
-/**
- * 取得某年月所屬的期別資訊
- * @param {Object} policy
- * @param {number} year
- * @param {number} month
- * @returns {Object|null} { periodIndex, startY, startM, endY, endM, rangeText }
- */
 export function getPeriodInfo(policy, year, month) {
   const firstY = Number(policy.firstStartYear) || 0;
   const firstM = Number(policy.firstStartMonth) || 1;
@@ -91,20 +67,10 @@ export function getPeriodInfo(policy, year, month) {
 }
 
 /* ============================================
-   3. 年繳保費
+   3. 年繳保費（🆕 v101.8.8：支援基金保險）
    ============================================ */
-
-/**
- * 取得該年度的年繳保費
- * 基金保險 → 0（不適用）
- * @param {Object} policy
- * @param {number|string} targetYear
- * @returns {number}
- */
 export function getPolicyAnnualPremium(policy, targetYear) {
   if (!policy) return 0;
-
-  if (policy.type === 'fund_insurance') return 0;
 
   const year = Number(targetYear);
   const firstY = Number(policy.firstStartYear) || 0;
@@ -116,6 +82,12 @@ export function getPolicyAnnualPremium(policy, targetYear) {
 
   if (totalYears > 0 && periodIndex > totalYears) return 0;
 
+  // 🆕 v101.8.8：基金保險 = monthlyPremium × 12
+  if (policy.type === 'fund_insurance') {
+    const mp = Number(policy.monthlyPremium) || 0;
+    return Math.round(mp * 12);
+  }
+
   const periods = policy.periods || {};
   const p = periods[String(periodIndex)];
 
@@ -123,7 +95,6 @@ export function getPolicyAnnualPremium(policy, targetYear) {
     return Math.round(Number(p.annualPremium));
   }
 
-  // fallback：找最接近的期別
   const periodKeys = Object.keys(periods)
     .map(Number)
     .filter((n) => !isNaN(n) && n > 0)
@@ -140,37 +111,19 @@ export function getPolicyAnnualPremium(policy, targetYear) {
 }
 
 /* ============================================
-   4. 每月分攤金額（統一入口）
+   4. 每月分攤金額
    ============================================ */
-
-/**
- * 解析某年月的分攤金額
- * 優先順序：
- *   1. paymentData.amount（若存在且 > 0）
- *   2. 該月所屬期別的 monthlyAverage
- *   3. policy.monthlyAverage（fallback）
- *   4. 基金保險 → policy.monthlyPremium
- *
- * @param {Object} policy
- * @param {number} year
- * @param {number} month
- * @param {Object} [paymentData]
- * @returns {number}
- */
 export function resolveMonthlyAmount(policy, year, month, paymentData) {
   if (!policy) return 0;
 
-  // 1. payment 自帶金額
   if (paymentData && paymentData.amount && Number(paymentData.amount) > 0) {
     return Math.round(Number(paymentData.amount));
   }
 
-  // 基金保險
   if (policy.type === 'fund_insurance') {
     return Math.round(Number(policy.monthlyPremium) || 0);
   }
 
-  // 2. 該月所屬期別
   const info = getPeriodInfo(policy, year, month);
   if (info) {
     const periodData = (policy.periods || {})[String(info.periodIndex)];
@@ -179,18 +132,9 @@ export function resolveMonthlyAmount(policy, year, month, paymentData) {
     }
   }
 
-  // 3. fallback
   return Math.round(Number(policy.monthlyAverage) || 0);
 }
 
-/**
- * 估算某年月的分攤金額（不考慮已存在的 payment）
- * 用於 settlements 的「未扣款」保險顯示
- * @param {Object} policy
- * @param {number} year
- * @param {number} month
- * @returns {number}
- */
 export function estimateMonthlyAmount(policy, year, month) {
   return resolveMonthlyAmount(policy, year, month, null);
 }
@@ -198,12 +142,6 @@ export function estimateMonthlyAmount(policy, year, month) {
 /* ============================================
    5. 保單總供款
    ============================================ */
-
-/**
- * 計算保單總供款（所有年期加總）
- * @param {Object} policy
- * @returns {number}
- */
 export function getPolicyTotalPremium(policy) {
   if (!policy) return 0;
 
@@ -245,14 +183,8 @@ export function getPolicyTotalPremium(policy) {
 }
 
 /* ============================================
-   6. 已供款總額
+   6. 已供款總額 / 完成期數
    ============================================ */
-
-/**
- * 計算已供款總額
- * @param {Object} payments - { year: { month: { status, amount } } }
- * @returns {number}
- */
 export function getPolicyPaidTotal(payments) {
   let total = 0;
   Object.values(payments || {}).forEach((yearData) => {
@@ -265,11 +197,6 @@ export function getPolicyPaidTotal(payments) {
   return total;
 }
 
-/**
- * 計算已完成期數（依 payments 中「已扣款」的月份數）
- * @param {Object} payments
- * @returns {number}
- */
 export function countCompletedPeriods(payments) {
   let count = 0;
   Object.values(payments || {}).forEach((yearData) => {
@@ -283,12 +210,6 @@ export function countCompletedPeriods(payments) {
 /* ============================================
    7. 供款狀態
    ============================================ */
-
-/**
- * 判斷是否已供滿
- * @param {Object} policy
- * @returns {boolean}
- */
 export function isPolicyCompleted(policy) {
   if (!policy) return false;
   if (policy.isCompleted) return true;
@@ -301,11 +222,6 @@ export function isPolicyCompleted(policy) {
   return done >= total;
 }
 
-/**
- * 計算供款進度百分比
- * @param {Object} policy
- * @returns {number} 0~100
- */
 export function calcProgress(policy) {
   const total = Number(policy.totalPolicyPeriods) || 0;
   const done = Number(policy.completedPeriods) || 0;
@@ -314,22 +230,17 @@ export function calcProgress(policy) {
 }
 
 /* ============================================
-   8. 批次計算
+   8. 批次計算（🆕 v101.8.8：targetYear）
    ============================================ */
+export function computeEnrichedPolicies(policies, paymentsCache, targetYear) {
+  // 🆕 v101.8.8：若未提供 targetYear，使用當前年
+  const year = Number(targetYear) || new Date().getFullYear();
 
-/**
- * 批次 enrich 所有保單
- * @param {Array} policies
- * @param {Object} paymentsCache - { policyId: paymentsObj }
- * @returns {Array} enriched 保單陣列
- */
-export function computeEnrichedPolicies(policies, paymentsCache) {
   return (policies || []).map((p) => {
     const payments = paymentsCache[p.id] || {};
     const completedPeriods = p.type === 'fund_insurance' ? 0 : countCompletedPeriods(payments);
 
-    const currentYear = new Date().getFullYear();
-    const currentAnnualPremium = getPolicyAnnualPremium(p, currentYear);
+    const currentAnnualPremium = getPolicyAnnualPremium(p, year);
     const totalPremium = getPolicyTotalPremium(p);
     const paidTotal = getPolicyPaidTotal(payments);
 
@@ -337,9 +248,10 @@ export function computeEnrichedPolicies(policies, paymentsCache) {
       ...p,
       completedPeriods,
       _payments: payments,
-      _currentAnnualPremium: currentAnnualPremium,
+      _currentAnnualPremium: currentAnnualPremium,   // 🆕 依 targetYear 計算
       _totalPremium: totalPremium,
       _paidTotal: paidTotal,
+      _targetYear: year,                              // 🆕 記錄計算年份
     };
 
     enriched._isCompleted = isPolicyCompleted(enriched);
@@ -348,9 +260,6 @@ export function computeEnrichedPolicies(policies, paymentsCache) {
   });
 }
 
-/**
- * 計算已供滿保單數量
- */
 export function countCompletedPolicies(enriched) {
   return (enriched || []).filter((p) => p._isCompleted).length;
 }
@@ -358,29 +267,19 @@ export function countCompletedPolicies(enriched) {
 /* ============================================
    9. 統計
    ============================================ */
-
-/**
- * 計算本年度所有保單的總保費
- * @param {Array} enriched
- * @param {number|string} year
- * @returns {number}
- */
 export function calcYearTotalPremium(enriched, year) {
-  return (enriched || []).reduce((s, p) => s + (p._currentAnnualPremium || 0), 0);
+  return (enriched || []).reduce((s, p) => s + getPolicyAnnualPremium(p, year), 0);
 }
 
-/**
- * 計算當前月分攤總額
- * @param {Array} enriched
- * @param {number} year
- * @param {number} month
- * @returns {number}
- */
 export function calcMonthlyTotalAverage(enriched, year, month) {
   let total = 0;
   (enriched || []).forEach((p) => {
     if (p.type === 'fund_insurance') {
-      total += Math.round(Number(p.monthlyPremium) || 0);
+      // 🆕 v101.8.8：基金保險也要檢查年度範圍
+      const info = getPeriodInfo(p, year, month);
+      if (info) {
+        total += Math.round(Number(p.monthlyPremium) || 0);
+      }
       return;
     }
     const info = getPeriodInfo(p, year, month);

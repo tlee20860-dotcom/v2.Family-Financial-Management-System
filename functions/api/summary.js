@@ -1,11 +1,11 @@
 // ============================================
-// summary.js — GET /api/summary?familyId=...&year=YYYY&month=MM（v101.5）
+// summary.js — GET /api/summary?familyId=...&year=YYYY&month=MM（v101.8.8）
 // 位置：functions/api/summary.js
 // ============================================
-// v101.5 修正：
-//   ✅ 補上 onRequestOptions（原本缺失，CORS preflight 會失敗）
-//   ✅ paymentBreakdown 補上保險扣款（原本只有成員 + 固定）
-//   ✅ policyCount 只計算 active 保單
+// v101.8.8 修正：
+//   ✅ 基金保險也檢查年度範圍（firstStartYear + totalPolicyYears）
+//       - 原本基金保險一律計算，不論年份 → 年度總供款不準
+//   ✅ 保留 v101.5 / v101.6 全部功能
 // ============================================
 
 import { dbGet, jsonResponse } from './_config.js';
@@ -27,22 +27,17 @@ export async function onRequestGet({ request }) {
 
     if (!familyId) return errorResponse('MISSING_FIELDS', '缺少 familyId');
 
-    // 🆕 v101.5：needFamily 會自動從 URL query 讀取
     const auth = await authenticate(request, { needFamily: true });
     if (auth instanceof Response) return auth;
     const { token } = auth;
 
     const basePath = `families/${familyId}`;
 
-    // 計算上個月
     let prevY = Number(year);
     let prevM = Number(month) - 1;
     if (prevM < 1) { prevY -= 1; prevM = 12; }
     const prevMonthStr = String(prevM).padStart(2, '0');
 
-    /* ============================================
-       平行讀取所有節點
-       ============================================ */
     const [
       members,
       policies,
@@ -89,9 +84,6 @@ export async function onRequestGet({ request }) {
     const paymentsObj = paymentMethods || {};
     const statusesObj = statuses || {};
 
-    /* ============================================
-       狀態查表
-       ============================================ */
     const statusMap = {};
     Object.entries(statusesObj).forEach(([id, s]) => {
       if (s && s.name) statusMap[s.name] = { id, ...s };
@@ -140,7 +132,7 @@ export async function onRequestGet({ request }) {
     });
 
     /* ============================================
-       固定支出匯總
+       固定支出匯總（legacy）
        ============================================ */
     const fixedList = objToList(fixedObj).map((x) => {
       const catId = x.categoryId || '';
@@ -185,7 +177,7 @@ export async function onRequestGet({ request }) {
     });
 
     /* ============================================
-       保險匯總
+       保險匯總（🆕 v101.8.8：基金保險也檢查年度）
        ============================================ */
     const policyList = Object.values(policiesObj);
     let yearlyInsuranceTotal = 0;
@@ -195,22 +187,30 @@ export async function onRequestGet({ request }) {
     const curM = Number(month);
 
     policyList.forEach((p) => {
+      const firstY = Number(p.firstStartYear) || 0;
+      const firstM = Number(p.firstStartMonth) || 1;
+      const totalYears = Number(p.totalPolicyYears) || 0;
+
+      if (!firstY) return;
+
+      // 統一年度檢查
+      const totalMonths = (curY - firstY) * 12 + (curM - firstM);
+      if (totalMonths < 0) return;   // 尚未開始
+
+      const periodIndex = Math.floor(totalMonths / 12) + 1;
+      if (totalYears > 0 && periodIndex > totalYears) return;   // 已供滿
+
+      // 🆕 基金保險：monthlyPremium × 12
       if (p.type === 'fund_insurance') {
         const mp = roundInt(p.monthlyPremium);
+        if (mp <= 0) return;
         monthlyInsuranceAverage += mp;
         yearlyInsuranceTotal += mp * 12;
         activePolicyCount++;
         return;
       }
 
-      const firstY = Number(p.firstStartYear) || 0;
-      const firstM = Number(p.firstStartMonth) || 1;
-      const totalMonths = (curY - firstY) * 12 + (curM - firstM);
-
-      if (totalMonths < 0) return;
-      const periodIndex = Math.floor(totalMonths / 12) + 1;
-      if (p.totalPolicyYears && periodIndex > p.totalPolicyYears) return;
-
+      // 普通保險：從 periods 讀取
       const periodData = (p.periods || {})[String(periodIndex)];
       if (periodData) {
         monthlyInsuranceAverage += roundInt(periodData.monthlyAverage);
@@ -220,11 +220,10 @@ export async function onRequestGet({ request }) {
     });
 
     /* ============================================
-       🆕 v101.5：支付方式統計（成員 + 固定 + 保險）
+       支付方式統計
        ============================================ */
     const paymentBreakdown = {};
 
-    // 成員支出
     Object.values(perMember).forEach((m) => {
       (m.items || []).forEach((it) => {
         const pmName = it.paymentMethodName || '（未指定）';
@@ -233,14 +232,12 @@ export async function onRequestGet({ request }) {
       });
     });
 
-    // 固定支出
     fixedList.forEach((f) => {
       const pmName = f.paymentMethodName || '（未指定）';
       if (!paymentBreakdown[pmName]) paymentBreakdown[pmName] = 0;
       paymentBreakdown[pmName] += f.amount;
     });
 
-    // 🆕 v101.5：保險扣款（使用 monthlyInsuranceAverage 分攤）
     if (monthlyInsuranceAverage > 0) {
       const pmName = '（保險扣款）';
       paymentBreakdown[pmName] = (paymentBreakdown[pmName] || 0) + monthlyInsuranceAverage;
@@ -256,21 +253,12 @@ export async function onRequestGet({ request }) {
     const fundValue = fundList.reduce((s, f) => s + roundInt(f.currentValue), 0);
     const totalAssets = bankBalanceTotal + fundValue;
 
-    /* ============================================
-       當月可用金額
-       ============================================ */
     const prevBankTotal = Object.values(prevBankBalancesObj)
       .reduce((s, b) => s + roundInt(b.amount), 0);
     const availableFunds = prevBankTotal + totalIncome;
 
-    /* ============================================
-       淨結餘
-       ============================================ */
     const netBalance = totalIncome - totalExpense;
 
-    /* ============================================
-       回應
-       ============================================ */
     return jsonResponse({
       ok: true,
       year,
@@ -282,7 +270,7 @@ export async function onRequestGet({ request }) {
 
       yearlyInsuranceTotal: roundInt(yearlyInsuranceTotal),
       monthlyInsuranceAverage: roundInt(monthlyInsuranceAverage),
-      policyCount: activePolicyCount,   // 🆕 只計算 active
+      policyCount: activePolicyCount,
 
       totalAssets: roundInt(totalAssets),
       bankBalance: roundInt(bankBalanceTotal),
@@ -302,11 +290,8 @@ export async function onRequestGet({ request }) {
       memberCount: Object.keys(membersObj).length,
 
       incomeBreakdown,
-
       paymentBreakdown,
-
       statusMap,
-
       options: settingsOptions || null,
     });
   } catch (err) {
@@ -314,9 +299,6 @@ export async function onRequestGet({ request }) {
   }
 }
 
-/* ============================================
-   🆕 v101.5：OPTIONS preflight
-   ============================================ */
 export async function onRequestOptions() {
   return handleOptions();
 }

@@ -1,12 +1,12 @@
 // ============================================
-// index.js — 保險清單表入口（v101.8.0）
+// index.js — 保險清單表入口（v101.8.8）
 // 位置：js/pages/insurance/index.js
 // ============================================
-// v101.8.0 修正：
-//   ✅ 依 AppState.canInput 隱藏「新增保單」「同步所有支出」按鈕
-//   ✅ 空狀態「新增第一張保單」依 canInput 顯示
-//   ✅ 卡片 / 表格操作按鈕依 canInput（在 render.js 處理）
-//   ✅ 唯讀模式下顯示提示 banner
+// v101.8.8 修正：
+//   ✅ _reloadAndRender 傳 AppState.year 給 computeEnrichedPolicies
+//       - 原本 computeEnrichedPolicies 用 new Date().getFullYear()
+//       - 導致切換年度時，_currentAnnualPremium 未更新
+//   ✅ _renderStats 依當前選中年份計算
 // ============================================
 
 import {
@@ -67,9 +67,7 @@ export async function initInsurancePage() {
     onChange: () => _render(),
   });
 
-  // 🆕 v101.8.0：依 canInput 決定是否綁定按鈕
   if (userCanInput) {
-    // 「同步所有支出」按鈕
     _syncAllHandler = async () => {
       const ok = await openConfirm('確定要重新同步所有保單的已扣款支出嗎？', {
         title: '同步所有支出',
@@ -87,7 +85,6 @@ export async function initInsurancePage() {
     };
     document.getElementById('sync-all-btn')?.addEventListener('click', _syncAllHandler);
 
-    // 「新增保單」按鈕
     _addPolicyHandler = () => {
       openEntityModal({
         entity: ENTITY_KEYS.POLICY,
@@ -97,7 +94,6 @@ export async function initInsurancePage() {
     };
     document.getElementById('add-policy-btn')?.addEventListener('click', _addPolicyHandler);
 
-    // 空狀態「新增第一張保單」
     _addFirstPolicyHandler = () => {
       openEntityModal({
         entity: ENTITY_KEYS.POLICY,
@@ -107,19 +103,16 @@ export async function initInsurancePage() {
     };
     document.getElementById('add-first-policy-btn')?.addEventListener('click', _addFirstPolicyHandler);
   } else {
-    // 🆕 唯讀：隱藏所有操作按鈕
     document.getElementById('sync-all-btn')?.style.setProperty('display', 'none');
     document.getElementById('add-policy-btn')?.style.setProperty('display', 'none');
     document.getElementById('add-first-policy-btn')?.style.setProperty('display', 'none');
   }
 
-  // 綁定全域事件（展開 / 收合 / 恢復供款）
   bindGlobalListeners({
     getPolicies: () => _policies,
     refresh: () => _reloadAndRender(),
   });
 
-  // 訂閱保單
   listenerGroup.add(
     listenInsurancePolicies((list) => {
       _policies = list || [];
@@ -127,7 +120,6 @@ export async function initInsurancePage() {
     })
   );
 
-  // 訂閱成員
   listenerGroup.add(
     listenMembers((list) => {
       _members = sortMembers(list);
@@ -135,15 +127,12 @@ export async function initInsurancePage() {
     })
   );
 
-  // 訂閱年月變更
   listenerGroup.add(AppState.on('ym-change', () => _reloadAndRender()));
 
-  // 綁定卡片 / 表格的編輯 / 刪除事件（僅 canInput 時）
   if (userCanInput) {
     _bindListActions();
   }
 
-  // 初次載入
   await _reloadAndRender();
 
   registerPageCleanup(_destroy);
@@ -152,9 +141,13 @@ export async function initInsurancePage() {
 }
 
 /* ============================================
-   重新載入 + 渲染
+   重新載入 + 渲染（🆕 v101.8.8：傳 targetYear）
    ============================================ */
 async function _reloadAndRender() {
+  // 🆕 v101.8.8：從 AppState 取得當前選中年份
+  const { year } = AppState.getYearMonth();
+  const targetYear = Number(year) || new Date().getFullYear();
+
   if (_policies.length === 0) {
     _enriched = [];
     _paymentsCache = {};
@@ -177,7 +170,8 @@ async function _reloadAndRender() {
     _paymentsCache[id] = data || {};
   });
 
-  _enriched = computeEnrichedPolicies(_policies, _paymentsCache);
+  // 🆕 v101.8.8：傳 targetYear
+  _enriched = computeEnrichedPolicies(_policies, _paymentsCache, targetYear);
 
   _render();
 }
@@ -206,7 +200,6 @@ function _render() {
   if (_enriched.length === 0) {
     if (emptyEl) {
       emptyEl.style.display = 'block';
-      // 🆕 v101.8.0：唯讀模式下隱藏「新增第一張保單」按鈕
       const addFirstBtn = document.getElementById('add-first-policy-btn');
       if (addFirstBtn && !AppState.getCanInput()) {
         addFirstBtn.style.display = 'none';
@@ -241,10 +234,17 @@ function _render() {
 }
 
 /* ============================================
-   統計卡
+   統計卡（🆕 v101.8.8：依當前選中年份）
    ============================================ */
 function _renderStats(year) {
-  const yearTotal = _enriched.reduce((s, p) => s + (p._currentAnnualPremium || 0), 0);
+  // 🆕 v101.8.8：_currentAnnualPremium 已依 targetYear 計算
+  // 只累加「該年度有供款」的保單（getPolicyAnnualPremium 已處理）
+  const yearTotal = _enriched.reduce(
+    (s, p) => s + (p._currentAnnualPremium || 0),
+    0
+  );
+
+  // 供款中 / 已供滿 依 enriched 狀態
   const activeCount = _enriched.filter((p) => !p._isCompleted).length;
   const completedCount = _enriched.filter((p) => p._isCompleted).length;
   const totalCount = _enriched.length;
@@ -283,7 +283,7 @@ function _renderStats(year) {
 }
 
 /* ============================================
-   卡片 / 表格的編輯 / 刪除事件（僅 canInput 時綁定）
+   卡片 / 表格的編輯 / 刪除事件
    ============================================ */
 function _bindListActions() {
   const cardEl = document.getElementById('insurance-card-view');
@@ -326,7 +326,6 @@ async function _handleDeletePolicy(policy) {
   if (!ok) return;
 
   try {
-    // v101.6.6：使用 policyHolderId（非 memberId）
     const effectiveMemberId = policy.policyHolderId || policy.memberId;
     await deleteEntity(ENTITY_KEYS.POLICY, policy.id, effectiveMemberId);
     showToast('✅ 保單與相關紀錄已徹底刪除', 'success');
