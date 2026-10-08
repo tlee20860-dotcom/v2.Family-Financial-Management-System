@@ -1,14 +1,14 @@
 // ============================================
-// sw.js — Service Worker（v101.6.8）
+// sw.js — Service Worker（v101.6.9）
 // ============================================
-// v101.6.8 更新：
-//   ✅ CACHE_NAME = family-fin-v109（v108 → v109）
-//   ✅ 對應 v101.6.8 修正：
-//      - shared/data-table.js（hasActions 判斷加入 customActions）
-//      - shared/column-settings.js（自動補上 defaultVisible 新欄位）
+// v101.6.9 更新：
+//   ✅ CACHE_NAME = family-fin-v110（v109 → v110）
+//   ✅ 對應 v101.6.9 修正：
+//      - shared/data-table.js（type="button" + 監聽器累積）
+//      - shared/data-card.js（type="button" + 監聽器累積）
 // ============================================
 
-const CACHE_NAME = 'family-fin-v109';
+const CACHE_NAME = 'family-fin-v110';
 
 const STATIC_ASSETS = [
   // ================= CSS =================

@@ -1,9 +1,11 @@
 // ============================================
-// data-card.js — 通用卡片渲染（v101.6.6）
+// data-card.js — 通用卡片渲染（v101.6.9）
 // 位置：js/shared/data-card.js
 // ============================================
-// v101.6.6 修正：
-//   ✅ [BUG-11] 移除本地 _formatCell，改用 utils.formatCellValue（SSOT）
+// v101.6.9 修正：
+//   ✅ [按鈕無反應] 所有 <button> 加上 type="button"
+//   ✅ [監聽器累積] _listener 改為保存到 root 元素屬性上
+//   ✅ 保留 v101.6.6 的 formatCellValue SSOT
 //
 // API 凍結：v101.6 發布後只加不改
 // ============================================
@@ -12,12 +14,14 @@ import { getEntityDef, getEntityUi } from '../config/entity-definitions.js';
 import { escapeHtml, formatCellValue } from '../core/utils.js';
 
 /* ============================================
+   監聽器儲存 key（避免累積）
+   ============================================ */
+const LISTENER_KEY = '__dcClickListener';
+
+/* ============================================
    主函式
    ============================================ */
 
-/**
- * 渲染資料卡片
- */
 export function renderDataCard(options) {
   const {
     container,
@@ -52,9 +56,6 @@ export function renderDataCard(options) {
     resolvers = {},
   } = extraOptions;
 
-  /* ============================================
-     準備欄位定義
-     ============================================ */
   const fieldMap = {};
   (effectiveDef.fields || []).forEach((f) => { fieldMap[f.id] = f; });
 
@@ -66,9 +67,6 @@ export function renderDataCard(options) {
 
   const hasActions = (effectiveUi.canEdit !== false) || (effectiveUi.canDelete !== false);
 
-  /* ============================================
-     渲染
-     ============================================ */
   const _beforeRows = typeof hooks.beforeRender === 'function'
     ? (hooks.beforeRender(rows) || rows)
     : rows;
@@ -134,7 +132,6 @@ export function renderDataCard(options) {
           if (!field) return '';
           const val = row[id];
           const resolver = resolvers[id];
-          // 🆕 v101.6.6：使用 utils.formatCellValue（SSOT）
           const content = resolver
             ? resolver(val, row)
             : formatCellValue(val, field.type);
@@ -158,10 +155,11 @@ export function renderDataCard(options) {
 
     let actionsHtml = '';
 
+    // 🆕 v101.6.9：加入 type="button"
     if (typeof hooks.customActions === 'function') {
       const customActions = hooks.customActions(row) || [];
       actionsHtml += customActions.map((a) => `
-        <button class="btn btn-sm ${escapeHtml(a.className || 'btn-ghost')}"
+        <button type="button" class="btn btn-sm ${escapeHtml(a.className || 'btn-ghost')}"
                 data-action="${escapeHtml(a.action || 'custom')}">
           ${a.icon ? `<i data-lucide="${escapeHtml(a.icon)}" style="width:14px;height:14px;"></i>` : ''}
           ${escapeHtml(a.label)}
@@ -170,12 +168,12 @@ export function renderDataCard(options) {
     }
 
     if (effectiveUi.canEdit !== false) {
-      actionsHtml += `<button class="btn btn-sm btn-ghost" data-action="edit">
+      actionsHtml += `<button type="button" class="btn btn-sm btn-ghost" data-action="edit">
         <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
       </button>`;
     }
     if (effectiveUi.canDelete !== false) {
-      actionsHtml += `<button class="btn btn-sm btn-danger" data-action="delete">
+      actionsHtml += `<button type="button" class="btn btn-sm btn-danger" data-action="delete">
         <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
       </button>`;
     }
@@ -188,16 +186,16 @@ export function renderDataCard(options) {
   }
 
   /* ============================================
-     事件綁定
+     事件綁定（🆕 v101.6.9：改用 root 屬性儲存監聽器）
      ============================================ */
-  let _listener = null;
-
   function _bindEvents() {
-    if (_listener) {
-      root.removeEventListener('click', _listener);
+    const oldListener = root[LISTENER_KEY];
+    if (oldListener) {
+      root.removeEventListener('click', oldListener);
+      root[LISTENER_KEY] = null;
     }
 
-    _listener = (e) => {
+    const listener = (e) => {
       const actionBtn = e.target.closest('button[data-action]');
       if (actionBtn) {
         const action = actionBtn.dataset.action;
@@ -239,7 +237,8 @@ export function renderDataCard(options) {
       }
     };
 
-    root.addEventListener('click', _listener);
+    root.addEventListener('click', listener);
+    root[LISTENER_KEY] = listener;
   }
 
   /* ============================================
@@ -251,9 +250,10 @@ export function renderDataCard(options) {
     refresh: () => _render(),
 
     destroy: () => {
-      if (_listener) {
-        root.removeEventListener('click', _listener);
-        _listener = null;
+      const oldListener = root[LISTENER_KEY];
+      if (oldListener) {
+        root.removeEventListener('click', oldListener);
+        root[LISTENER_KEY] = null;
       }
       root.innerHTML = '';
     },

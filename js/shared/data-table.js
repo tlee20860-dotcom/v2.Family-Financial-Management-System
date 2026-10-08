@@ -1,11 +1,13 @@
 // ============================================
-// data-table.js — 通用表格渲染（v101.6.8）
+// data-table.js — 通用表格渲染（v101.6.9）
 // 位置：js/shared/data-table.js
 // ============================================
-// v101.6.8 修正：
-//   ✅ [問題] hasActions 判斷加入 hooks.customActions 條件
-//       - 非標準實體（如 '__settlement__'）+ customActions 也能顯示操作欄
-//   ✅ 保留 v101.6.6 的 formatCellValue SSOT
+// v101.6.9 修正：
+//   ✅ [按鈕無反應] 所有 <button> 加上 type="button"
+//       - HTML5 默認 type="submit" 會被行動瀏覽器攔截
+//   ✅ [監聽器累積] _listener 改為保存到 root 元素屬性上
+//       - 每次 render 都能正確移除舊監聽器
+//   ✅ 保留 v101.6.8 的 hasActions 判斷
 //
 // API 凍結：v101.6 發布後只加不改
 // ============================================
@@ -13,6 +15,11 @@
 import { getEntityDef, getEntityUi } from '../config/entity-definitions.js';
 import { escapeHtml, formatCellValue } from '../core/utils.js';
 import { initColumnSettings } from './column-settings.js';
+
+/* ============================================
+   監聽器儲存 key（避免累積）
+   ============================================ */
+const LISTENER_KEY = '__dtClickListener';
 
 /* ============================================
    主函式
@@ -59,7 +66,6 @@ export function renderDataTable(options) {
 
   let allColumns;
   if (hasCustomColumns) {
-    // 自訂欄位：深拷貝避免污染呼叫端
     allColumns = customColumns.map((c) => ({ ...c }));
   } else {
     const listCols = effectiveUi.listColumns || (effectiveDef.fields || []).map((f) => f.id);
@@ -75,10 +81,7 @@ export function renderDataTable(options) {
   }
 
   /* ============================================
-     🆕 v101.6.8：判斷是否需要操作欄位
-     -------------------------------------------------
-     - 有內建編輯 / 刪除（canEdit / canDelete）
-     - 或有自訂操作（hooks.customActions 存在）
+     判斷是否需要操作欄位
      ============================================ */
   const hasBuiltinActions = (effectiveUi.canEdit !== false) || (effectiveUi.canDelete !== false);
   const hasCustomActions = typeof hooks.customActions === 'function';
@@ -125,7 +128,7 @@ export function renderDataTable(options) {
           <span class="text-muted" style="font-size:12px;">共 ${_beforeRows.length} 筆</span>
         </div>
         <div class="data-table-header-right">
-          <button class="btn btn-sm btn-ghost" data-action="column-settings" title="欄位設定">
+          <button type="button" class="btn btn-sm btn-ghost" data-action="column-settings" title="欄位設定">
             <i data-lucide="columns" style="width:14px;height:14px;"></i>
             <span class="hide-mobile">欄位</span>
           </button>
@@ -197,11 +200,11 @@ export function renderDataTable(options) {
   function _renderActions(col, row) {
     let actionsHtml = '';
 
-    // 🆕 v101.6.8：自訂 actions 優先渲染（無論 canEdit/canDelete）
+    // 🆕 v101.6.9：加入 type="button"
     if (typeof hooks.customActions === 'function') {
       const customActions = hooks.customActions(row) || [];
       actionsHtml += customActions.map((a) => `
-        <button class="btn btn-sm ${escapeHtml(a.className || 'btn-ghost')}"
+        <button type="button" class="btn btn-sm ${escapeHtml(a.className || 'btn-ghost')}"
                 data-action="${escapeHtml(a.action || 'custom')}">
           ${a.icon ? `<i data-lucide="${escapeHtml(a.icon)}" style="width:14px;height:14px;"></i>` : ''}
           ${escapeHtml(a.label)}
@@ -209,15 +212,14 @@ export function renderDataTable(options) {
       `).join('');
     }
 
-    // 內建編輯 / 刪除（僅標準實體會啟用）
     const ui = effectiveUi;
     if (ui.canEdit !== false) {
-      actionsHtml += `<button class="btn btn-sm btn-ghost" data-action="edit">
+      actionsHtml += `<button type="button" class="btn btn-sm btn-ghost" data-action="edit">
         <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
       </button>`;
     }
     if (ui.canDelete !== false) {
-      actionsHtml += `<button class="btn btn-sm btn-danger" data-action="delete">
+      actionsHtml += `<button type="button" class="btn btn-sm btn-danger" data-action="delete">
         <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
       </button>`;
     }
@@ -226,16 +228,17 @@ export function renderDataTable(options) {
   }
 
   /* ============================================
-     事件綁定
+     事件綁定（🆕 v101.6.9：改用 root 屬性儲存監聽器）
      ============================================ */
-  let _listener = null;
-
   function _bindEvents() {
-    if (_listener) {
-      root.removeEventListener('click', _listener);
+    // 🆕 v101.6.9：從 root 取出舊監聽器並移除
+    const oldListener = root[LISTENER_KEY];
+    if (oldListener) {
+      root.removeEventListener('click', oldListener);
+      root[LISTENER_KEY] = null;
     }
 
-    _listener = (e) => {
+    const listener = (e) => {
       const settingsBtn = e.target.closest('button[data-action="column-settings"]');
       if (settingsBtn) {
         colSettings.openPanel({
@@ -254,7 +257,7 @@ export function renderDataTable(options) {
         const row = _beforeRows[index];
         if (!row) return;
 
-        // 🆕 v101.6.8：自訂 action 優先
+        // 自訂 action 優先
         if (typeof hooks.customActions === 'function') {
           const customActions = hooks.customActions(row) || [];
           const matched = customActions.find((a) => (a.action || 'custom') === action);
@@ -286,7 +289,9 @@ export function renderDataTable(options) {
       }
     };
 
-    root.addEventListener('click', _listener);
+    root.addEventListener('click', listener);
+    // 🆕 v101.6.9：保存到 root 屬性，供下次移除
+    root[LISTENER_KEY] = listener;
   }
 
   /* ============================================
@@ -299,9 +304,11 @@ export function renderDataTable(options) {
     refresh: () => _render(),
 
     destroy: () => {
-      if (_listener) {
-        root.removeEventListener('click', _listener);
-        _listener = null;
+      // 🆕 v101.6.9：從 root 屬性取出並移除
+      const oldListener = root[LISTENER_KEY];
+      if (oldListener) {
+        root.removeEventListener('click', oldListener);
+        root[LISTENER_KEY] = null;
       }
       root.innerHTML = '';
     },
