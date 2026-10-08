@@ -70,15 +70,65 @@
               </div>
 
               <div style="margin-top:16px; padding-top:16px; border-top:1px dashed rgba(255,255,255,0.08); text-align:right;">
-                <!-- 🆕 v101.6.6：logout-btn → settings-logout-btn（避免與 admin 頁 ID 重複） -->
-                <button class="btn btn-danger" id="settings-logout-btn">
+                <button type="button" class="btn btn-danger" id="settings-logout-btn">
                   <i data-lucide="log-out"></i> 登出
                 </button>
               </div>
             </div>
 
-            <!-- 側邊欄排序 -->
+            <!-- 🆕 v101.7.2：統計卡顯示模式 -->
             <div class="glass-card">
+              <div class="glass-card-title" style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
+                <i data-lucide="bar-chart-2" style="width:16px;height:16px;color:var(--neon-cyan);"></i>
+                <span>統計卡顯示模式</span>
+              </div>
+
+              <p class="glass-card-hint mb-16">
+                調整頁面頂部統計卡的顯示樣式
+              </p>
+
+              <div id="stats-mode-options" style="display:flex; flex-direction:column; gap:8px;">
+                <label class="stats-mode-option" data-value="auto">
+                  <input type="radio" name="stats-mode" value="auto" style="margin-right:10px; cursor:pointer;">
+                  <div style="flex:1; cursor:pointer;">
+                    <div style="font-size:13px; font-weight:500;">自動（預設）</div>
+                    <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+                      手機一律緊湊、桌面跟隨表格 / 卡片模式
+                    </div>
+                  </div>
+                </label>
+
+                <label class="stats-mode-option" data-value="integrated">
+                  <input type="radio" name="stats-mode" value="integrated" style="margin-right:10px; cursor:pointer;">
+                  <div style="flex:1; cursor:pointer;">
+                    <div style="font-size:13px; font-weight:500;">整合（單卡內部分隔）</div>
+                    <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+                      所有統計合併成一張大卡，節省垂直空間
+                    </div>
+                  </div>
+                </label>
+
+                <label class="stats-mode-option" data-value="compact">
+                  <input type="radio" name="stats-mode" value="compact" style="margin-right:10px; cursor:pointer;">
+                  <div style="flex:1; cursor:pointer;">
+                    <div style="font-size:13px; font-weight:500;">緊湊（獨立卡片 2x2）</div>
+                    <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+                      獨立小卡片，視覺衝擊大
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              <div style="margin-top:16px; padding-top:16px; border-top:1px dashed rgba(255,255,255,0.08); text-align:right;">
+                <button type="button" class="btn btn-primary" id="save-stats-mode-btn">
+                  <i data-lucide="check" style="width:14px;height:14px;"></i>
+                  儲存顯示模式
+                </button>
+              </div>
+            </div>
+
+            <!-- 側邊欄排序 -->
+            <div class="glass-card" style="grid-column: span 2;">
               <div class="glass-card-title" style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
                 <i data-lucide="list-ordered" style="width:16px;height:16px;color:var(--neon-cyan);"></i>
                 <span>側邊欄排序</span>
@@ -91,7 +141,7 @@
               <div id="sidebar-order-list"></div>
 
               <div style="margin-top:16px; text-align:right;">
-                <button class="btn btn-ghost btn-sm" id="reset-sidebar-order-btn">
+                <button type="button" class="btn btn-ghost btn-sm" id="reset-sidebar-order-btn">
                   <i data-lucide="rotate-ccw" style="width:14px;height:14px;"></i>
                   重置為預設
                 </button>

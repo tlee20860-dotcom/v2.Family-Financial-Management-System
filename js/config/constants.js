@@ -1,28 +1,27 @@
 // ============================================
-// constants.js — 全站常數集中管理（v101.6.6）
+// constants.js — 全站常數集中管理（v101.7.2）
 // ============================================
-// v101.6.6 修正：
-//   ✅ [BUG-12] STATUS_CATEGORIES.FIXED 與 DEFAULT_STATUSES 的 fixed 類加註 legacy
-//   ✅ 保留所有 v101.6 常數
+// v101.7.2 新增：
+//   ✅ STORAGE_KEYS.STATS_MODE（統計卡顯示模式）
 // ============================================
 
 /* ============================================
    1. localStorage Keys
    ============================================ */
 export const STORAGE_KEYS = {
-  // 核心狀態
   YEAR: 'fin_year',
   MONTH: 'fin_month',
   FAMILY_ID: 'fin_family_id',
   FAMILY_NAME: 'fin_family_name',
 
-  // 側邊欄
   SIDEBAR_ORDER: 'fin_sidebar_order',
   SIDEBAR_COLLAPSED: 'fin_ui_sidebar_collapsed',
   SIDEBAR_GROUPS: 'fin_ui_sidebar_groups',
   MEMBERS_GROUP_OPEN: 'fin_ui_members_group_open',
 
-  // UI 動態 key 前綴
+  // 🆕 v101.7.2：統計卡顯示模式（auto / integrated / compact）
+  STATS_MODE: 'fin_ui_stats_mode',
+
   UI_PREFIX: 'fin_ui_',
 };
 
@@ -82,8 +81,6 @@ export const PLATFORM_RESOURCES = {
 
 /* ============================================
    6. 實體識別碼
-   -------------------------------------------------
-   v101.6：移除 FIXED_TEMPLATE
    ============================================ */
 export const ENTITY_KEYS = {
   MEMBER:   'member',
@@ -140,27 +137,24 @@ export const SUPERADMIN_DOMAIN = '@familyfin.local';
 export const SUPERADMIN_EMAIL = `superadmin${SUPERADMIN_DOMAIN}`;
 
 /* ============================================
-   11. 預設狀態清單（fallback）
-   -------------------------------------------------
-   ⚠️ [v101.6.6] category: 'fixed' 為 legacy（固定支出已於 v101.6 廢除），
-   僅保留供舊資料相容；新家庭初始化仍會寫入，但 UI 已無對應入口。
+   11. 預設狀態清單
    ============================================ */
 export const DEFAULT_STATUSES = [
   { key: 'status_untreated', name: '未處理', category: 'personal',  isDone: false, order: 1 },
   { key: 'status_done',      name: '已處理', category: 'personal',  isDone: true,  order: 2 },
   { key: 'status_unrepaid',  name: '未還款', category: 'personal',  isDone: false, order: 3 },
   { key: 'status_repaid',    name: '已還款', category: 'personal',  isDone: true,  order: 4 },
-  // ── legacy（v101.6 廢除固定支出，以下僅供舊資料相容）──
+  // legacy
   { key: 'status_unpaid',    name: '未付款', category: 'fixed',     isDone: false, order: 5 },
   { key: 'status_paid',      name: '已付款', category: 'fixed',     isDone: true,  order: 6 },
   { key: 'status_na',        name: '不適用', category: 'fixed',     isDone: true,  order: 7 },
-  // ── insurance ──
+  // insurance
   { key: 'status_unbilled',  name: '未扣款', category: 'insurance', isDone: false, order: 8 },
   { key: 'status_billed',    name: '已扣款', category: 'insurance', isDone: true,  order: 9 },
 ];
 
 /* ============================================
-   12. 預設下拉選項（fallback）
+   12. 預設下拉選項
    ============================================ */
 export const DEFAULT_OPTIONS = {
   memberRoles: [
@@ -188,31 +182,19 @@ export const DEFAULT_OPTIONS = {
   categoryOrder: ['銀行類', '醫療類', '學校類', '保險類', '固定費用類', '交通類', '其他'],
 };
 
-/* ============================================
-   13. 預設年份範圍（fallback）
-   ============================================ */
 export const DEFAULT_YEAR_RANGE = {
   startYear: null,
   futureYears: LIMITS.YEAR_FUTURE_DEFAULT,
 };
 
-/* ============================================
-   14. 預設 UI 常數（fallback）
-   ============================================ */
 export const DEFAULT_UI_CONSTANTS = {
   nameMaxLenDesktop: LIMITS.NAME_MAX_LEN_DESKTOP,
   nameMaxLenMobile: LIMITS.NAME_MAX_LEN_MOBILE,
   toastDuration: LIMITS.TOAST_DURATION_DEFAULT,
 };
 
-/* ============================================
-   15. 預設保險公司（fallback）
-   ============================================ */
 export const DEFAULT_COMPANIES = ['富通', '保誠', 'FWD', 'AIA', '宏利', 'AXA'];
 
-/* ============================================
-   16. 新家庭初始化預設值（fallback）
-   ============================================ */
 export const DEFAULT_MEMBERS = [
   { name: '成員1', role: 'husband', order: 0 },
   { name: '成員2', role: 'wife',    order: 1 },
@@ -258,79 +240,36 @@ export const DEFAULT_PAYMENTS = [
 ];
 
 /* ============================================
-   17. 側邊欄分類群組（v101.6 新結構）
+   13. 側邊欄分類群組
    ============================================ */
 export const SIDEBAR_GROUPS = [
-  {
-    key: 'overview',
-    label: '總覽',
-    icon: 'home',
-    defaultOpen: true,
-    items: [
-      { icon: 'home', label: '總覽儀表板', href: 'index.html' },
-    ],
-  },
-  {
-    key: 'record',
-    label: '記錄中心',
-    icon: 'pencil',
-    defaultOpen: true,
+  { key: 'overview', label: '總覽', icon: 'home', defaultOpen: true,
+    items: [{ icon: 'home', label: '總覽儀表板', href: 'index.html' }] },
+  { key: 'record', label: '記錄中心', icon: 'pencil', defaultOpen: true,
     items: [
       { icon: 'pencil',   label: '綜合輸入中心', href: 'input-center.html' },
       { icon: 'database', label: '基礎資料庫',   href: 'database.html' },
-    ],
-  },
-  {
-    key: 'insurance-fund',
-    label: '保險與基金',
-    icon: 'shield',
-    defaultOpen: false,
+    ] },
+  { key: 'insurance-fund', label: '保險與基金', icon: 'shield', defaultOpen: false,
     items: [
       { icon: 'shield',     label: '保險清單表', href: 'insurance.html' },
       { icon: 'line-chart', label: '基金投資表', href: 'portfolio.html' },
-    ],
-  },
-  {
-    key: 'settle',
-    label: '對帳',
-    icon: 'clipboard-check',
-    defaultOpen: false,
-    items: [
-      { icon: 'clipboard-check', label: '結算清單', href: 'settlements.html' },
-    ],
-  },
-  {
-    key: 'assets',
-    label: '資產',
-    icon: 'landmark',
-    defaultOpen: false,
-    items: [
-      { icon: 'landmark', label: '財務總覽', href: 'finance-overview.html' },
-    ],
-  },
-  {
-    key: 'reports',
-    label: '報表',
-    icon: 'bar-chart-3',
-    defaultOpen: false,
+    ] },
+  { key: 'settle', label: '對帳', icon: 'clipboard-check', defaultOpen: false,
+    items: [{ icon: 'clipboard-check', label: '結算清單', href: 'settlements.html' }] },
+  { key: 'assets', label: '資產', icon: 'landmark', defaultOpen: false,
+    items: [{ icon: 'landmark', label: '財務總覽', href: 'finance-overview.html' }] },
+  { key: 'reports', label: '報表', icon: 'bar-chart-3', defaultOpen: false,
     items: [
       { icon: 'bar-chart-3', label: '年度報表', href: 'annual-report.html' },
       { icon: 'users',       label: '成員與家庭收入與支出明細', href: 'member-report.html' },
-    ],
-  },
-  {
-    key: 'system',
-    label: '系統',
-    icon: 'settings',
-    defaultOpen: false,
-    items: [
-      { icon: 'settings', label: '系統設定', href: 'settings.html' },
-    ],
-  },
+    ] },
+  { key: 'system', label: '系統', icon: 'settings', defaultOpen: false,
+    items: [{ icon: 'settings', label: '系統設定', href: 'settings.html' }] },
 ];
 
 /* ============================================
-   18. 快速摘要卡類型
+   14. 快速摘要卡類型
    ============================================ */
 export const QUICK_SUMMARY_TYPES = {
   TOP_CATEGORIES: 'top-categories',
@@ -341,10 +280,7 @@ export const QUICK_SUMMARY_TYPES = {
 };
 
 /* ============================================
-   19. 狀態分類
-   -------------------------------------------------
-   ⚠️ [v101.6.6] FIXED 為 legacy（v101.6 廢除固定支出），
-   僅保留供舊資料 / 舊狀態相容；新功能不應再使用。
+   15. 狀態分類
    ============================================ */
 export const STATUS_CATEGORIES = {
   PERSONAL: 'personal',

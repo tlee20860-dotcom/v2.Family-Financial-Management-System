@@ -1376,3 +1376,193 @@
     grid-template-columns: 1fr;
   }
 }
+/* ============================================
+   🆕 v101.7.2：統計卡 — 方案 C（整合卡）
+   -------------------------------------------------
+   桌面 / 系統設定 = 整合 時使用
+   - 單一玻璃卡片
+   - 內部 grid（4 欄 / 或 2x2）
+   - 卡片間虛線分隔
+   ============================================ */
+
+.stats-integrated {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 0;
+  overflow: hidden;
+}
+
+.stats-integrated-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+}
+
+.stats-integrated-cell {
+  padding: 16px 18px;
+  border-right: 1px dashed rgba(255, 255, 255, 0.06);
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+  position: relative;
+}
+
+/* 桌面 4 欄時：最後一欄右側無邊 */
+.stats-integrated-grid > .stats-integrated-cell:nth-child(4n) {
+  border-right: none;
+}
+
+/* 桌面 4 欄時：最後一行下方無邊 */
+.stats-integrated-grid > .stats-integrated-cell:nth-last-child(-n+4) {
+  border-bottom: none;
+}
+
+.stats-integrated-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.stats-integrated-value {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--neon-cyan);
+  line-height: 1.2;
+  word-break: break-all;
+}
+
+.stats-integrated-value.emerald { color: var(--neon-emerald); }
+.stats-integrated-value.magenta { color: var(--neon-magenta); }
+.stats-integrated-value.red     { color: var(--neon-red); }
+.stats-integrated-value.orange  { color: var(--neon-orange); }
+.stats-integrated-value.cyan    { color: var(--neon-cyan); }
+
+.stats-integrated-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ============================================
+   🆕 v101.7.2：統計卡 — 方案 B（緊湊獨立卡）
+   -------------------------------------------------
+   手機 / 系統設定 = 緊湊 / 卡片模式 時使用
+   - 獨立卡片
+   - 2 / 3 / 4 欄動態
+   - 緊湊 padding
+   ============================================ */
+
+.stats-compact-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.stats-compact-grid-2 { grid-template-columns: repeat(2, 1fr); }
+.stats-compact-grid-3 { grid-template-columns: repeat(3, 1fr); }
+.stats-compact-grid-4 { grid-template-columns: repeat(4, 1fr); }
+
+.stats-compact-card {
+  padding: 12px 14px !important;
+}
+
+.stats-compact-card .glass-card-title {
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  line-height: 1.3;
+}
+
+.stats-compact-card .glass-card-value {
+  font-size: 17px !important;
+  line-height: 1.2;
+  word-break: break-all;
+}
+
+.stats-compact-card .glass-card-hint {
+  font-size: 10px;
+  margin-top: 4px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ============================================
+   🆕 v101.7.2：響應式調整
+   ============================================ */
+
+/* 平板（≤ 1024px）：整合卡改為 2 欄 */
+@media (max-width: 1024px) {
+  .stats-integrated-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stats-integrated-grid > .stats-integrated-cell {
+    border-right: 1px dashed rgba(255, 255, 255, 0.06);
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+  }
+
+  /* 2 欄時：偶數欄（2、4、6...）無右邊 */
+  .stats-integrated-grid > .stats-integrated-cell:nth-child(2n) {
+    border-right: none;
+  }
+
+  /* 2 欄時：最後一行無下邊 */
+  .stats-integrated-grid > .stats-integrated-cell:nth-last-child(-n+2) {
+    border-bottom: none;
+  }
+
+  /* 緊湊卡 4 欄改 2 欄 */
+  .stats-compact-grid-4 { grid-template-columns: repeat(2, 1fr); }
+
+  /* 緊湊卡 3 欄改 3 欄（不變） */
+}
+
+/* 手機（≤ 640px） */
+@media (max-width: 640px) {
+  /* 整合卡在手機也變 2 欄（但通常手機是方案 B，此為保險） */
+  .stats-integrated-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stats-integrated-cell {
+    padding: 12px 12px;
+  }
+
+  .stats-integrated-value {
+    font-size: 16px;
+  }
+
+  .stats-integrated-title {
+    font-size: 10px;
+    margin-bottom: 4px;
+  }
+
+  .stats-integrated-hint {
+    font-size: 9px;
+  }
+
+  /* 緊湊卡在手機：3 / 4 欄都變 2 欄 */
+  .stats-compact-grid-3,
+  .stats-compact-grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stats-compact-card {
+    padding: 10px 12px !important;
+  }
+
+  .stats-compact-card .glass-card-value {
+    font-size: 15px !important;
+  }
+}

@@ -1,11 +1,11 @@
 // ============================================
-// state.js — 全域狀態中心（v101.5）
+// state.js — 全域狀態中心（v101.7.2）
 // 位置：js/core/state.js
 // ============================================
-// v101.5 修正：
-//   ✅ destroy 補齊 _initialized 重置
-//   ✅ destroy 補齊 _listeners 清空
-//   ✅ 新增 hasFamily / getYearMonth 回傳格式統一
+// v101.7.2 新增：
+//   ✅ currentView 狀態（'table' | 'card'）
+//   ✅ setCurrentView() 方法
+//   ✅ 供 stats-cards 監聽 view-change 事件
 // ============================================
 
 import { STORAGE_KEYS } from '../config/constants.js';
@@ -23,6 +23,9 @@ export const AppState = {
   year: '',
   month: '',
 
+  // ---------- 🆕 v101.7.2：當前檢視模式 ----------
+  currentView: 'table',   // 'table' | 'card'
+
   // ---------- 事件總線 ----------
   _listeners: {},
   _initialized: false,
@@ -39,18 +42,11 @@ export const AppState = {
     const savedFamilyId = localStorage.getItem(STORAGE_KEYS.FAMILY_ID);
     const savedFamilyName = localStorage.getItem(STORAGE_KEYS.FAMILY_NAME);
 
-    if (savedYear) {
-      this.year = savedYear;
-    } else {
-      const d = new Date();
-      this.year = String(d.getFullYear());
-    }
+    if (savedYear) this.year = savedYear;
+    else this.year = String(new Date().getFullYear());
 
-    if (savedMonth) {
-      this.month = savedMonth;
-    } else {
-      this.month = 'all';
-    }
+    if (savedMonth) this.month = savedMonth;
+    else this.month = 'all';
 
     if (savedFamilyId) {
       this.currentFamilyId = savedFamilyId;
@@ -58,9 +54,6 @@ export const AppState = {
     }
   },
 
-  /**
-   * 銷毀所有狀態與事件監聽
-   */
   destroy() {
     this._listeners = {};
     this._initialized = false;
@@ -68,6 +61,7 @@ export const AppState = {
     this.isSuperAdmin = false;
     this.currentFamilyId = '';
     this.currentFamilyName = '';
+    this.currentView = 'table';
   },
 
   /* ============================================
@@ -104,20 +98,9 @@ export const AppState = {
     });
   },
 
-  getFamilyId() {
-    return this.currentFamilyId;
-  },
-
-  getFamilyName() {
-    return this.currentFamilyName;
-  },
-
-  /**
-   * 🆕 v101.5：是否有家庭
-   */
-  hasFamily() {
-    return !!this.currentFamilyId;
-  },
+  getFamilyId() { return this.currentFamilyId; },
+  getFamilyName() { return this.currentFamilyName; },
+  hasFamily() { return !!this.currentFamilyId; },
 
   clearFamily() {
     this.currentFamilyId = '';
@@ -138,12 +121,21 @@ export const AppState = {
     this.emit('ym-change', { year: this.year, month: this.month });
   },
 
-  getYearMonth() {
-    return { year: this.year, month: this.month };
+  getYearMonth() { return { year: this.year, month: this.month }; },
+  isAnnualMode() { return this.month === 'all'; },
+
+  /* ============================================
+     🆕 v101.7.2：當前檢視模式
+     ============================================ */
+  setCurrentView(view) {
+    if (view !== 'table' && view !== 'card') return;
+    if (this.currentView === view) return;
+    this.currentView = view;
+    this.emit('view-change', view);
   },
 
-  isAnnualMode() {
-    return this.month === 'all';
+  getCurrentView() {
+    return this.currentView;
   },
 
   /* ============================================
@@ -165,9 +157,7 @@ export const AppState = {
 
   emit(event, data) {
     (this._listeners[event] || []).forEach((cb) => {
-      try {
-        cb(data);
-      } catch (err) {
+      try { cb(data); } catch (err) {
         console.error(`[AppState] 事件 ${event} 回呼失敗：`, err);
       }
     });

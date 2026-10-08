@@ -1,11 +1,11 @@
 // ============================================
-// settings.js — 系統設定（v101.6.6）
+// settings.js — 系統設定（v101.7.2）
 // 位置：js/pages/settings.js
 // ============================================
-// v101.6.6 修正：
-//   ✅ [BUG-14] logout-btn → settings-logout-btn（避免與 admin 頁 ID 重複）
-//   ✅ [BUG-15] ALL_MENU_ITEMS → getAllMenuItems()（動態 getter）
-//   ✅ 保留所有 v101.5 功能
+// v101.7.2 新增：
+//   ✅ 「統計卡顯示模式」設定區塊（auto / integrated / compact）
+//   ✅ 儲存後顯示重新整理提示 Modal
+//   ✅ 儲存後自動 reload
 // ============================================
 
 import {
@@ -24,8 +24,9 @@ import { getUIConstants, initAppConfig } from '../config/app-config.js';
 import { api } from '../core/api.js';
 import { buildForm } from '../shared/form-builder.js';
 import { initTabPanel } from '../shared/tab-panel.js';
-import { openConfirm } from '../shared/modal.js';
+import { openConfirm, openModal, closeModal } from '../shared/modal.js';
 import { registerPageCleanup } from '../core/app.js';
+import { STORAGE_KEYS } from '../config/constants.js';
 
 /* ============================================
    Module 狀態
@@ -35,6 +36,7 @@ let _uiFormApi = null;
 let _currentOrder = [];
 let _unsubOrder = null;
 let _logoutHandler = null;
+let _saveStatsModeHandler = null;
 
 /* ============================================
    主入口
@@ -76,12 +78,11 @@ export function initSettingsPage() {
   }
 
   _renderPersonalPanel();
+  _renderStatsModePanel();
 
   registerPageCleanup(_destroy);
 
-  return {
-    destroy: _destroy,
-  };
+  return { destroy: _destroy };
 }
 
 /* ============================================
@@ -113,7 +114,6 @@ function _renderAccountInfo() {
     familyEl.value = AppState.getFamilyName() || '—';
   }
 
-  // 🆕 v101.6.6：改用 settings-logout-btn
   _logoutHandler = async () => {
     const ok = await openConfirm('確定要登出嗎？', {
       title: '登出',
@@ -136,36 +136,9 @@ function _renderPlatformPanel() {
   _uiFormApi = buildForm({
     containerId: 'settings-platform-form-root',
     fields: [
-      {
-        type: 'number',
-        id: 'st-name-desktop',
-        label: '名稱截斷長度（桌面）',
-        required: true,
-        min: 4,
-        max: 40,
-        step: 1,
-        hint: '桌面版表格中的名稱最多顯示幾個字元',
-      },
-      {
-        type: 'number',
-        id: 'st-name-mobile',
-        label: '名稱截斷長度（手機）',
-        required: true,
-        min: 2,
-        max: 20,
-        step: 1,
-        hint: '手機版表格中的名稱最多顯示幾個字元',
-      },
-      {
-        type: 'number',
-        id: 'st-toast-duration',
-        label: 'Toast 顯示時間（毫秒）',
-        required: true,
-        min: 500,
-        max: 10000,
-        step: 100,
-        hint: '提示訊息的顯示時間',
-      },
+      { type: 'number', id: 'st-name-desktop', label: '名稱截斷長度（桌面）', required: true, min: 4, max: 40, step: 1, hint: '桌面版表格中的名稱最多顯示幾個字元' },
+      { type: 'number', id: 'st-name-mobile', label: '名稱截斷長度（手機）', required: true, min: 2, max: 20, step: 1, hint: '手機版表格中的名稱最多顯示幾個字元' },
+      { type: 'number', id: 'st-toast-duration', label: 'Toast 顯示時間（毫秒）', required: true, min: 500, max: 10000, step: 100, hint: '提示訊息的顯示時間' },
     ],
     submitText: '儲存平台設定',
     showCancel: false,
@@ -196,7 +169,6 @@ function _validatePlatformSettings(data) {
 
 function _reloadUIConstants() {
   if (!_uiFormApi) return;
-
   const cfg = getUIConstants();
   _uiFormApi.setData({
     'st-name-desktop': cfg.nameMaxLenDesktop,
@@ -215,17 +187,120 @@ async function _handlePlatformSave(data) {
   try {
     await api.platformSettings.update(payload);
     showToast('✅ 平台設定已儲存', 'success');
-
-    try {
-      await initAppConfig(AppState.getFamilyId());
-    } catch (e) { /* noop */ }
+    try { await initAppConfig(AppState.getFamilyId()); } catch (e) { /* noop */ }
   } catch (err) {
     showToast('儲存失敗：' + err.message, 'error');
   }
 }
 
 /* ============================================
-   個人化
+   🆕 v101.7.2：統計卡顯示模式
+   ============================================ */
+function _renderStatsModePanel() {
+  const optionsRoot = document.getElementById('stats-mode-options');
+  if (!optionsRoot) return;
+
+  // 讀取當前模式
+  let currentMode = 'auto';
+  try {
+    const saved = localStorage.getItem(STORAGE_KEYS.STATS_MODE);
+    if (saved === 'auto' || saved === 'integrated' || saved === 'compact') {
+      currentMode = saved;
+    }
+  } catch (e) { /* noop */ }
+
+  // 套用選中狀態
+  optionsRoot.querySelectorAll('input[name="stats-mode"]').forEach((radio) => {
+    radio.checked = (radio.value === currentMode);
+  });
+
+  // 點擊整個 label 也能選中
+  optionsRoot.querySelectorAll('.stats-mode-option').forEach((label) => {
+    label.addEventListener('click', (e) => {
+      const radio = label.querySelector('input[type="radio"]');
+      if (radio && e.target !== radio) {
+        radio.checked = true;
+      }
+      // 視覺強調
+      _updateStatsModeSelection(optionsRoot);
+    });
+  });
+
+  // 初始化視覺
+  _updateStatsModeSelection(optionsRoot);
+
+  // 儲存按鈕
+  _saveStatsModeHandler = async () => {
+    const selected = optionsRoot.querySelector('input[name="stats-mode"]:checked');
+    if (!selected) return;
+
+    const newMode = selected.value;
+    const oldMode = currentMode;
+
+    try {
+      localStorage.setItem(STORAGE_KEYS.STATS_MODE, newMode);
+    } catch (e) {
+      showToast('儲存失敗', 'error');
+      return;
+    }
+
+    if (newMode === oldMode) {
+      showToast('顯示模式未變更', 'info');
+      return;
+    }
+
+    // 顯示重新整理提示 Modal
+    _showReloadPrompt();
+  };
+
+  document.getElementById('save-stats-mode-btn')?.addEventListener('click', _saveStatsModeHandler);
+}
+
+function _updateStatsModeSelection(optionsRoot) {
+  optionsRoot.querySelectorAll('.stats-mode-option').forEach((label) => {
+    const radio = label.querySelector('input[type="radio"]');
+    if (!radio) return;
+    const isChecked = radio.checked;
+    label.style.borderColor = isChecked ? 'var(--neon-cyan)' : 'var(--glass-border)';
+    label.style.background = isChecked ? 'rgba(0, 240, 255, 0.05)' : 'transparent';
+  });
+}
+
+function _showReloadPrompt() {
+  const MODAL_ID = 'stats-mode-reload-modal';
+  document.getElementById(MODAL_ID)?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay active';
+  overlay.id = MODAL_ID;
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:400px;">
+      <h2 class="modal-title">✅ 已儲存顯示模式</h2>
+      <div style="font-size:14px; line-height:1.6; color:var(--text-secondary);">
+        統計卡顯示模式已更新。請重新整理頁面以套用變更。
+      </div>
+      <div class="modal-actions" style="margin-top:20px;">
+        <button type="button" class="btn btn-primary" data-action="reload">
+          <i data-lucide="refresh-cw" style="width:14px;height:14px;"></i>
+          立即重新整理
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action="reload"]');
+    if (btn) {
+      window.location.reload();
+    }
+  });
+
+  if (window.lucide) window.lucide.createIcons();
+}
+
+/* ============================================
+   個人化：側邊欄排序
    ============================================ */
 function _renderPersonalPanel() {
   const listEl = document.getElementById('sidebar-order-list');
@@ -257,7 +332,6 @@ function _renderOrderList() {
   const listEl = document.getElementById('sidebar-order-list');
   if (!listEl) return;
 
-  // 🆕 v101.6.6：使用動態 getter（BUG-15 修正）
   const sorted = sortByOrder(getAllMenuItems(), _currentOrder);
 
   listEl.innerHTML = `
@@ -273,11 +347,11 @@ function _renderOrderList() {
               <span style="font-size:14px;">${escapeHtml(item.label)}</span>
             </div>
             <div style="display:flex; gap:4px;">
-              <button class="btn btn-sm btn-ghost" data-action="up" data-href="${item.href}"
+              <button type="button" class="btn btn-sm btn-ghost" data-action="up" data-href="${item.href}"
                 ${isFirst ? 'disabled' : ''} title="上移" style="padding:4px 8px; line-height:1;">
                 <i data-lucide="chevron-up" style="width:14px;height:14px;"></i>
               </button>
-              <button class="btn btn-sm btn-ghost" data-action="down" data-href="${item.href}"
+              <button type="button" class="btn btn-sm btn-ghost" data-action="down" data-href="${item.href}"
                 ${isLast ? 'disabled' : ''} title="下移" style="padding:4px 8px; line-height:1;">
                 <i data-lucide="chevron-down" style="width:14px;height:14px;"></i>
               </button>
@@ -318,21 +392,15 @@ async function _handleMove(href, direction) {
    銷毀
    ============================================ */
 function _destroy() {
-  if (_tabPanel) {
-    try { _tabPanel.destroy(); } catch (e) { /* noop */ }
-    _tabPanel = null;
-  }
-  if (_uiFormApi) {
-    try { _uiFormApi.destroy(); } catch (e) { /* noop */ }
-    _uiFormApi = null;
-  }
-  if (_unsubOrder) {
-    try { _unsubOrder(); } catch (e) { /* noop */ }
-    _unsubOrder = null;
-  }
-  // 🆕 v101.6.6：清理 logout handler
+  if (_tabPanel) { try { _tabPanel.destroy(); } catch (e) {} _tabPanel = null; }
+  if (_uiFormApi) { try { _uiFormApi.destroy(); } catch (e) {} _uiFormApi = null; }
+  if (_unsubOrder) { try { _unsubOrder(); } catch (e) {} _unsubOrder = null; }
   if (_logoutHandler) {
     document.getElementById('settings-logout-btn')?.removeEventListener('click', _logoutHandler);
     _logoutHandler = null;
+  }
+  if (_saveStatsModeHandler) {
+    document.getElementById('save-stats-mode-btn')?.removeEventListener('click', _saveStatsModeHandler);
+    _saveStatsModeHandler = null;
   }
 }
