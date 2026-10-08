@@ -1,15 +1,14 @@
 // ============================================
-// sw.js — Service Worker（v101.6.7）
+// sw.js — Service Worker（v101.6.8）
 // ============================================
-// v101.6.7 更新：
-//   ✅ CACHE_NAME = family-fin-v108（v107 → v108）
-//   ✅ 對應 v101.6.7 修正：
-//      - input-center/recent-list.js（rowKey 修正）
-//      - settlements/index.js（編輯/刪除按鈕）
-//      - settlements/render.js（編輯/刪除邏輯）
+// v101.6.8 更新：
+//   ✅ CACHE_NAME = family-fin-v109（v108 → v109）
+//   ✅ 對應 v101.6.8 修正：
+//      - shared/data-table.js（hasActions 判斷加入 customActions）
+//      - shared/column-settings.js（自動補上 defaultVisible 新欄位）
 // ============================================
 
-const CACHE_NAME = 'family-fin-v108';
+const CACHE_NAME = 'family-fin-v109';
 
 const STATIC_ASSETS = [
   // ================= CSS =================

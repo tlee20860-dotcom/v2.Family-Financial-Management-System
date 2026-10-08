@@ -1,9 +1,11 @@
 // ============================================
-// data-table.js — 通用表格渲染（v101.6.6）
+// data-table.js — 通用表格渲染（v101.6.8）
 // 位置：js/shared/data-table.js
 // ============================================
-// v101.6.6 修正：
-//   ✅ [BUG-11] 移除本地 _formatCell，改用 utils.formatCellValue（SSOT）
+// v101.6.8 修正：
+//   ✅ [問題] hasActions 判斷加入 hooks.customActions 條件
+//       - 非標準實體（如 '__settlement__'）+ customActions 也能顯示操作欄
+//   ✅ 保留 v101.6.6 的 formatCellValue SSOT
 //
 // API 凍結：v101.6 發布後只加不改
 // ============================================
@@ -16,11 +18,6 @@ import { initColumnSettings } from './column-settings.js';
    主函式
    ============================================ */
 
-/**
- * 渲染資料表格
- * @param {Object} options
- * @returns {Object} { container, table, refresh, destroy }
- */
 export function renderDataTable(options) {
   const {
     container,
@@ -62,7 +59,8 @@ export function renderDataTable(options) {
 
   let allColumns;
   if (hasCustomColumns) {
-    allColumns = customColumns;
+    // 自訂欄位：深拷貝避免污染呼叫端
+    allColumns = customColumns.map((c) => ({ ...c }));
   } else {
     const listCols = effectiveUi.listColumns || (effectiveDef.fields || []).map((f) => f.id);
     allColumns = listCols.map((id) => {
@@ -76,14 +74,23 @@ export function renderDataTable(options) {
     });
   }
 
-  const hasActions = (effectiveUi.canEdit !== false) || (effectiveUi.canDelete !== false);
-  if (hasActions && !allColumns.some((c) => c.id === '__actions__')) {
+  /* ============================================
+     🆕 v101.6.8：判斷是否需要操作欄位
+     -------------------------------------------------
+     - 有內建編輯 / 刪除（canEdit / canDelete）
+     - 或有自訂操作（hooks.customActions 存在）
+     ============================================ */
+  const hasBuiltinActions = (effectiveUi.canEdit !== false) || (effectiveUi.canDelete !== false);
+  const hasCustomActions = typeof hooks.customActions === 'function';
+  const shouldRenderActions = hasBuiltinActions || hasCustomActions;
+
+  if (shouldRenderActions && !allColumns.some((c) => c.id === '__actions__')) {
     allColumns.push({
       id: '__actions__',
       label: '操作',
       type: 'actions',
       defaultVisible: true,
-      defaultWidth: 160,
+      defaultWidth: 180,
     });
   }
 
@@ -177,7 +184,6 @@ export function renderDataTable(options) {
 
     const val = row[col.id];
     const resolver = resolvers[col.id];
-    // 🆕 v101.6.6：使用 utils.formatCellValue（SSOT）
     const content = resolver
       ? resolver(val, row)
       : formatCellValue(val, col.type);
@@ -191,6 +197,7 @@ export function renderDataTable(options) {
   function _renderActions(col, row) {
     let actionsHtml = '';
 
+    // 🆕 v101.6.8：自訂 actions 優先渲染（無論 canEdit/canDelete）
     if (typeof hooks.customActions === 'function') {
       const customActions = hooks.customActions(row) || [];
       actionsHtml += customActions.map((a) => `
@@ -202,6 +209,7 @@ export function renderDataTable(options) {
       `).join('');
     }
 
+    // 內建編輯 / 刪除（僅標準實體會啟用）
     const ui = effectiveUi;
     if (ui.canEdit !== false) {
       actionsHtml += `<button class="btn btn-sm btn-ghost" data-action="edit">
@@ -246,6 +254,7 @@ export function renderDataTable(options) {
         const row = _beforeRows[index];
         if (!row) return;
 
+        // 🆕 v101.6.8：自訂 action 優先
         if (typeof hooks.customActions === 'function') {
           const customActions = hooks.customActions(row) || [];
           const matched = customActions.find((a) => (a.action || 'custom') === action);

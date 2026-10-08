@@ -1,11 +1,11 @@
 // ============================================
-// column-settings.js — 表格欄位設定 SSOT（v101.6.1）
+// column-settings.js — 表格欄位設定 SSOT（v101.6.8）
 // 位置：js/shared/column-settings.js
 // ============================================
-// v101.6.1 修正：
-//   ✅ 移除 HTML5 拖拽（手機版不支援）
-//   ✅ 改為「上移 / 下移」按鈕（手機 + 桌面通用）
-//   ✅ 保留勾選顯示 / 寬度調整
+// v101.6.8 修正：
+//   ✅ [問題] _loadFromStorage 自動補上 defaultVisible=true 但不在 visible 的新欄位
+//       - 讓新加入的 __actions__ 欄位在使用者已有舊 localStorage 時仍能顯示
+//   ✅ 保留 v101.6.1 的「上移 / 下移」按鈕（無拖拽）
 //
 // 儲存格式：
 //   localStorage['fin_ui_columns_{tableId}'] = JSON.stringify({
@@ -61,9 +61,18 @@ export function initColumnSettings(options) {
       if (!raw) return;
       const data = JSON.parse(raw);
 
+      // 🆕 v101.6.8：visible 過濾 + 自動補上 defaultVisible=true 但未包含的新欄位
       if (Array.isArray(data.visible)) {
         _visible = data.visible.filter((id) => columns.some((c) => c.id === id));
+        // 自動補上：defaultVisible !== false 但不在 visible 的欄位（例如新加入的 __actions__）
+        columns.forEach((c) => {
+          if (c.defaultVisible !== false && !_visible.includes(c.id)) {
+            _visible.push(c.id);
+          }
+        });
       }
+
+      // order 過濾 + 自動補上未包含的新欄位
       if (Array.isArray(data.order)) {
         const validOrder = data.order.filter((id) => columns.some((c) => c.id === id));
         columns.forEach((c) => {
@@ -71,6 +80,7 @@ export function initColumnSettings(options) {
         });
         _order = validOrder;
       }
+
       if (data.widths && typeof data.widths === 'object') {
         _widths = { ..._defaultWidths, ...data.widths };
       }
@@ -195,7 +205,6 @@ export function initColumnSettings(options) {
           <div class="column-settings-row" data-id="${escapeHtml(c.id)}" data-index="${i}"
                style="display:flex; align-items:center; gap:8px; padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.05);">
 
-            <!-- 上下移動按鈕（v101.6.1） -->
             <div style="display:flex; flex-direction:column; gap:2px; flex-shrink:0;">
               <button type="button" class="btn btn-sm btn-ghost" data-role="move-up"
                       ${isFirst ? 'disabled' : ''}
@@ -209,14 +218,12 @@ export function initColumnSettings(options) {
               </button>
             </div>
 
-            <!-- 勾選可見 + 標籤 -->
             <label style="display:flex; align-items:center; gap:8px; flex:1; cursor:pointer; min-width:0;">
               <input type="checkbox" data-role="visible" ${c.visible ? 'checked' : ''}
                      style="width:auto; cursor:pointer; flex-shrink:0;">
               <span style="font-size:13px; word-break:break-word;">${escapeHtml(c.label)}</span>
             </label>
 
-            <!-- 寬度輸入 -->
             <input type="number" data-role="width" value="${c.width ?? ''}"
                    placeholder="自動" min="40" max="500" step="10"
                    style="width:70px; padding:4px 8px; font-size:12px; background:rgba(8,11,17,0.6); border:1px solid var(--glass-border); border-radius:var(--radius-sm); color:var(--text-primary); flex-shrink:0;">
@@ -253,7 +260,7 @@ export function initColumnSettings(options) {
     });
 
     /* ============================================
-       事件：上移 / 下移（v101.6.1）
+       事件：上移 / 下移
        ============================================ */
     listEl.addEventListener('click', (e) => {
       const btn = e.target.closest('button[data-role]');
