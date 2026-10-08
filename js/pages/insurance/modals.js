@@ -1,17 +1,17 @@
 // ============================================
-// modals.js — 保險頁面事件綁定（v101.6）
+// modals.js — 保險頁面事件綁定（v101.6.10）
 // 位置：js/pages/insurance/modals.js
 // ============================================
-// v101.6 修正：
-//   ✅ 移除 edit-policy / delete-policy（已由 index.js 處理）
-//   ✅ 保留展開 / 收合 / 恢復供款 / 同步
-//   ✅ 使用 openConfirm
+// v101.6.10 修正：
+//   ✅ [已供滿保單不能點開] _handleClick 加入 #completed-header 判斷
+//       - 呼叫 render.js 的 toggleCompletedSection()
+//   ✅ 保留 v101.6 的其他處理
 // ============================================
 
 import { updateInsurancePolicy } from '../../core/db.js';
 import { showToast } from '../../shared/toast.js';
 import { openConfirm } from '../../shared/modal.js';
-import { toggleExpand } from './render.js';
+import { toggleExpand, toggleCompletedSection } from './render.js';
 import {
   autoSyncPolicyExpenses,
   autoSyncAfterEdit,
@@ -41,6 +41,15 @@ export function bindGlobalListeners(config) {
    全域點擊處理
    ============================================ */
 async function _handleClick(e) {
+  /* ---------- 0. 🆕 v101.6.10：已供滿保單區塊展開 / 收合 ---------- */
+  const completedHeader = e.target.closest('#completed-header');
+  if (completedHeader) {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleCompletedSection();
+    return;
+  }
+
   /* ---------- 1. 展開 / 收合明細 ---------- */
   const toggleBtn = e.target.closest('[data-toggle-key]');
   if (toggleBtn) {
@@ -63,7 +72,7 @@ async function _handleClick(e) {
     return;
   }
 
-  /* ---------- 3. 單一保單同步（若未來新增） ---------- */
+  /* ---------- 3. 單一保單同步 ---------- */
   const syncBtn = e.target.closest('button[data-action="sync-one"]');
   if (syncBtn) {
     e.preventDefault();

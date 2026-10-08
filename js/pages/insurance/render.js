@@ -1,11 +1,12 @@
 // ============================================
-// render.js — 保險渲染模組（v101.6.6）
+// render.js — 保險渲染模組（v101.6.10）
 // 位置：js/pages/insurance/render.js
 // ============================================
-// v101.6.6 修正：
-//   ✅ [BUG-04] 移除硬編碼「已扣款」→ 改用 isDoneStatus()
-//   ✅ 明細顯示實際狀態名稱（支援家庭自訂）
-//   ✅ 保留所有 v101.6 功能
+// v101.6.10 修正：
+//   ✅ [已供滿保單不能點開] 新增 toggleCompletedSection() 導出函式
+//       - 由 modals.js 的 document 級 _handleClick 呼叫
+//       - 用 _completedOpen 保存展開狀態（重新渲染後仍保持）
+//   ✅ 保留 v101.6.6 的 isDoneStatus 修正
 // ============================================
 
 import { escapeHtml, formatHKD } from '../../core/utils.js';
@@ -21,6 +22,9 @@ import { isDoneStatus } from '../../shared/entity-helpers.js';
    ============================================ */
 const _expandedKeys = new Set();
 
+// 🆕 v101.6.10：已供滿保單區塊展開狀態
+let _completedOpen = false;
+
 export function toggleExpand(key) {
   if (_expandedKeys.has(key)) _expandedKeys.delete(key);
   else _expandedKeys.add(key);
@@ -32,6 +36,44 @@ export function isExpanded(key) {
 
 export function clearExpanded() {
   _expandedKeys.clear();
+}
+
+/* ============================================
+   🆕 v101.6.10：已供滿區塊展開 / 收合
+   ============================================ */
+
+/**
+ * 切換「已供滿保單」區塊的展開狀態
+ * 由 modals.js 的 _handleClick 呼叫
+ */
+export function toggleCompletedSection() {
+  _completedOpen = !_completedOpen;
+  _applyCompletedOpenState();
+  if (window.lucide) window.lucide.createIcons();
+}
+
+/**
+ * 取得當前展開狀態
+ */
+export function isCompletedSectionOpen() {
+  return _completedOpen;
+}
+
+/**
+ * 內部：套用 _completedOpen 狀態到 DOM
+ */
+function _applyCompletedOpenState() {
+  const section = document.getElementById('completed-section');
+  const body = document.getElementById('completed-body');
+  if (!section || !body) return;
+
+  if (_completedOpen) {
+    section.classList.add('open');
+    body.style.display = 'block';
+  } else {
+    section.classList.remove('open');
+    body.style.display = 'none';
+  }
 }
 
 /* ============================================
@@ -57,6 +99,8 @@ export function renderCompletedSection(completed, members) {
     if (body) body.style.display = 'none';
     if (countEl) countEl.textContent = '0';
     grid.innerHTML = '';
+    // 🆕 v101.6.10：無資料時重置展開狀態
+    _completedOpen = false;
     return;
   }
 
@@ -64,6 +108,9 @@ export function renderCompletedSection(completed, members) {
   if (countEl) countEl.textContent = String(completed.length);
 
   grid.innerHTML = completed.map((p) => _renderCardInner(p, members, true)).join('');
+
+  // 🆕 v101.6.10：套用展開狀態（保持用戶上次操作）
+  _applyCompletedOpenState();
 
   if (window.lucide) window.lucide.createIcons();
 }
@@ -147,10 +194,10 @@ function _renderFundInsuranceCard(p, members) {
       </div>
     </div>
     <div class="policy-actions">
-      <button class="btn btn-sm btn-ghost" data-action="edit-policy" data-id="${p.id}">
+      <button type="button" class="btn btn-sm btn-ghost" data-action="edit-policy" data-id="${p.id}">
         <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
       </button>
-      <button class="btn btn-sm btn-danger" data-action="delete-policy" data-id="${p.id}">
+      <button type="button" class="btn btn-sm btn-danger" data-action="delete-policy" data-id="${p.id}">
         <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
       </button>
     </div>
@@ -226,7 +273,7 @@ function _renderNormalPolicyCard(p, members, isCompleted) {
     </div>
 
     <div style="margin-top:12px;">
-      <button class="btn btn-sm btn-ghost insurance-expand-btn" data-toggle-key="${cardKey}" style="width:100%; justify-content:space-between;">
+      <button type="button" class="btn btn-sm btn-ghost insurance-expand-btn" data-toggle-key="${cardKey}" style="width:100%; justify-content:space-between;">
         <span>${isOpen ? '收起明細' : '展開明細'}</span>
         <i data-lucide="${isOpen ? 'chevron-up' : 'chevron-down'}" style="width:14px;height:14px;"></i>
       </button>
@@ -236,13 +283,13 @@ function _renderNormalPolicyCard(p, members, isCompleted) {
     </div>
 
     <div class="policy-actions">
-      <button class="btn btn-sm btn-ghost" data-action="edit-policy" data-id="${p.id}">
+      <button type="button" class="btn btn-sm btn-ghost" data-action="edit-policy" data-id="${p.id}">
         <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
       </button>
-      <button class="btn btn-sm btn-danger" data-action="delete-policy" data-id="${p.id}">
+      <button type="button" class="btn btn-sm btn-danger" data-action="delete-policy" data-id="${p.id}">
         <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
       </button>
-      ${isCompleted ? `<button class="btn btn-sm btn-ghost" data-action="restore" data-id="${p.id}">
+      ${isCompleted ? `<button type="button" class="btn btn-sm btn-ghost" data-action="restore" data-id="${p.id}">
         <i data-lucide="rotate-ccw" style="width:14px;height:14px;"></i> 恢復供款
       </button>` : ''}
     </div>
@@ -318,7 +365,7 @@ function _renderTableRow(p, members) {
   return `
     <tr>
       <td>
-        <button class="btn btn-sm btn-ghost" data-toggle-key="${tableKey}" style="padding:2px 6px;">
+        <button type="button" class="btn btn-sm btn-ghost" data-toggle-key="${tableKey}" style="padding:2px 6px;">
           <i data-lucide="${isOpen ? 'chevron-up' : 'chevron-down'}" style="width:14px;height:14px;"></i>
         </button>
       </td>
@@ -336,10 +383,10 @@ function _renderTableRow(p, members) {
         <div class="progress"><div class="progress-bar" style="width:${pct}%;"></div></div>
       </td>
       <td>
-        <button class="btn btn-sm btn-ghost" data-action="edit-policy" data-id="${p.id}" title="編輯">
+        <button type="button" class="btn btn-sm btn-ghost" data-action="edit-policy" data-id="${p.id}" title="編輯">
           <i data-lucide="pencil" style="width:14px;height:14px;"></i>
         </button>
-        <button class="btn btn-sm btn-danger" data-action="delete-policy" data-id="${p.id}" title="刪除">
+        <button type="button" class="btn btn-sm btn-danger" data-action="delete-policy" data-id="${p.id}" title="刪除">
           <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
         </button>
       </td>
@@ -355,7 +402,7 @@ function _renderTableRow(p, members) {
 }
 
 /* ============================================
-   5. 保單明細（v101.6.6：狀態判定改用 isDoneStatus）
+   5. 保單明細（狀態判定用 isDoneStatus）
    ============================================ */
 function _renderPolicyDetail(policy, payments) {
   const totalYears = policy.totalPolicyYears || 1;
@@ -381,9 +428,7 @@ function _renderPolicyDetail(policy, payments) {
       );
       const amount = payment.amount ? Math.round(payment.amount) : defaultAmount;
 
-      // 🆕 v101.6.6：改用 isDoneStatus（支援家庭自訂狀態名稱）
       const isPaid = isDoneStatus(payment.status, 'insurance');
-      // 顯示實際狀態名稱；若無則顯示預設
       const statusText = payment.status
         || (isPaid ? '已扣款' : '未扣款');
 

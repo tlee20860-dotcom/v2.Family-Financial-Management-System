@@ -1,14 +1,14 @@
 // ============================================
-// sw.js — Service Worker（v101.6.9）
+// sw.js — Service Worker（v101.6.10）
 // ============================================
-// v101.6.9 更新：
-//   ✅ CACHE_NAME = family-fin-v110（v109 → v110）
-//   ✅ 對應 v101.6.9 修正：
-//      - shared/data-table.js（type="button" + 監聽器累積）
-//      - shared/data-card.js（type="button" + 監聽器累積）
+// v101.6.10 更新：
+//   ✅ CACHE_NAME = family-fin-v111（v110 → v111）
+//   ✅ 對應 v101.6.10 修正：
+//      - insurance/render.js（toggleCompletedSection）
+//      - insurance/modals.js（#completed-header 綁定）
 // ============================================
 
-const CACHE_NAME = 'family-fin-v110';
+const CACHE_NAME = 'family-fin-v111';
 
 const STATIC_ASSETS = [
   // ================= CSS =================
