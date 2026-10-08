@@ -1,11 +1,13 @@
 // ============================================
-// api.js — Cloudflare Functions 呼叫封裝（v101.5）
+// api.js — Cloudflare Functions 呼叫封裝（v101.8.0）
 // 位置：js/core/api.js
 // ============================================
-// v101.5 修正：
-//   ✅ fetchAnnualSummary 改為內部使用 Promise.all（已是）
-//   ✅ 新增 insurance-sync 的 policyHolderId 參數
-//   ✅ 新增 generic callApi 的錯誤標準化
+// v101.8.0 新增：
+//   ✅ lookupFamily() — 登入後查詢所屬家庭
+//   ✅ familyAccounts.list(familyId)
+//   ✅ familyAccounts.create(familyId, data)
+//   ✅ familyAccounts.update(familyId, uid, data)
+//   ✅ familyAccounts.remove(familyId, uid)
 // ============================================
 
 import { AppState } from './state.js';
@@ -48,7 +50,7 @@ export async function callApi(path, options = {}) {
     const text = await res.text().catch(() => '');
     let parsed = null;
     try { parsed = JSON.parse(text); } catch (e) { /* noop */ }
-    const msg = parsed?.error || parsed?.message || text || '未知錯誤';
+    const msg = parsed?.message || parsed?.error || text || '未知錯誤';
     throw new Error(`API 失敗（${res.status}）：${msg}`);
   }
 
@@ -66,6 +68,18 @@ function getFamilyId() {
    ============================================ */
 
 export const api = {
+  /* ---------- 🆕 v101.8.0：家庭查詢 ---------- */
+  /**
+   * 登入後查詢所屬家庭
+   * @returns {Promise<{ familyId, familyName, memberAccount, isLegacy }>}
+   */
+  lookupFamily: () =>
+    callApi('/api/lookup-family', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }),
+
   /* ---------- 摘要 ---------- */
   summary: (year, month) =>
     callApi(`/api/summary?familyId=${getFamilyId()}&year=${year}&month=${month}`),
@@ -111,9 +125,6 @@ export const api = {
   },
 
   /* ---------- 保險同步 ---------- */
-  /**
-   * 保險同步（v101.5：支援 policyHolderId）
-   */
   insuranceSync: (payload) =>
     callApi('/api/insurance-sync', {
       method: 'POST',
@@ -152,6 +163,53 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid }),
     }),
+
+  /* ---------- 🆕 v101.8.0：家庭成員帳號管理 ---------- */
+  familyAccounts: {
+    /**
+     * 列出家庭所有成員帳號
+     * @param {string} familyId
+     */
+    list: (familyId) =>
+      callApi(`/api/family-accounts?familyId=${familyId}&action=list`),
+
+    /**
+     * 建立新成員帳號
+     * @param {string} familyId
+     * @param {Object} data - { account, password, displayName, role, canInput }
+     */
+    create: (familyId, data) =>
+      callApi('/api/family-accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create', familyId, ...data }),
+      }),
+
+    /**
+     * 更新成員帳號
+     * @param {string} familyId
+     * @param {string} uid
+     * @param {Object} data - { displayName?, role?, canInput? }
+     */
+    update: (familyId, uid, data) =>
+      callApi('/api/family-accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update', familyId, uid, ...data }),
+      }),
+
+    /**
+     * 移除成員帳號
+     * @param {string} familyId
+     * @param {string} uid
+     */
+    remove: (familyId, uid) =>
+      callApi('/api/family-accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'remove', familyId, uid }),
+      }),
+  },
 
   /* ---------- 平台設定 ---------- */
   platformSettings: {

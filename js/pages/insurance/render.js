@@ -1,15 +1,16 @@
 // ============================================
-// render.js — 保險渲染模組（v101.6.10）
+// render.js — 保險渲染模組（v101.8.0）
 // 位置：js/pages/insurance/render.js
 // ============================================
-// v101.6.10 修正：
-//   ✅ [已供滿保單不能點開] 新增 toggleCompletedSection() 導出函式
-//       - 由 modals.js 的 document 級 _handleClick 呼叫
-//       - 用 _completedOpen 保存展開狀態（重新渲染後仍保持）
-//   ✅ 保留 v101.6.6 的 isDoneStatus 修正
+// v101.8.0 修正：
+//   ✅ 依 AppState.canInput 隱藏編輯 / 刪除 / 恢復供款按鈕
+//   ✅ 卡片 policy-actions 區塊依 canInput
+//   ✅ 表格操作欄依 canInput（唯讀時整欄隱藏）
+//   ✅ 保留 v101.6.10 已供滿展開 + v101.6.6 isDoneStatus 修正
 // ============================================
 
 import { escapeHtml, formatHKD } from '../../core/utils.js';
+import { AppState } from '../../core/state.js';
 import {
   getPeriodRange,
   calcProgress,
@@ -22,7 +23,7 @@ import { isDoneStatus } from '../../shared/entity-helpers.js';
    ============================================ */
 const _expandedKeys = new Set();
 
-// 🆕 v101.6.10：已供滿保單區塊展開狀態
+// v101.6.10：已供滿保單區塊展開狀態
 let _completedOpen = false;
 
 export function toggleExpand(key) {
@@ -39,29 +40,18 @@ export function clearExpanded() {
 }
 
 /* ============================================
-   🆕 v101.6.10：已供滿區塊展開 / 收合
+   已供滿區塊展開 / 收合
    ============================================ */
-
-/**
- * 切換「已供滿保單」區塊的展開狀態
- * 由 modals.js 的 _handleClick 呼叫
- */
 export function toggleCompletedSection() {
   _completedOpen = !_completedOpen;
   _applyCompletedOpenState();
   if (window.lucide) window.lucide.createIcons();
 }
 
-/**
- * 取得當前展開狀態
- */
 export function isCompletedSectionOpen() {
   return _completedOpen;
 }
 
-/**
- * 內部：套用 _completedOpen 狀態到 DOM
- */
 function _applyCompletedOpenState() {
   const section = document.getElementById('completed-section');
   const body = document.getElementById('completed-body');
@@ -99,7 +89,6 @@ export function renderCompletedSection(completed, members) {
     if (body) body.style.display = 'none';
     if (countEl) countEl.textContent = '0';
     grid.innerHTML = '';
-    // 🆕 v101.6.10：無資料時重置展開狀態
     _completedOpen = false;
     return;
   }
@@ -109,7 +98,6 @@ export function renderCompletedSection(completed, members) {
 
   grid.innerHTML = completed.map((p) => _renderCardInner(p, members, true)).join('');
 
-  // 🆕 v101.6.10：套用展開狀態（保持用戶上次操作）
   _applyCompletedOpenState();
 
   if (window.lucide) window.lucide.createIcons();
@@ -158,9 +146,52 @@ function _holderName(members, p) {
   return _memberName(members, getPolicyHolderId(p));
 }
 
+/**
+ * 🆕 v101.8.0：取得操作按鈕 HTML（依 canInput）
+ */
+function _getActionsHtml(p, isCompleted) {
+  if (!AppState.getCanInput()) return '';
+
+  const actions = [];
+
+  actions.push(`
+    <button type="button" class="btn btn-sm btn-ghost" data-action="edit-policy" data-id="${p.id}">
+      <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+    </button>
+  `);
+
+  actions.push(`
+    <button type="button" class="btn btn-sm btn-danger" data-action="delete-policy" data-id="${p.id}">
+      <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
+    </button>
+  `);
+
+  if (isCompleted) {
+    actions.push(`
+      <button type="button" class="btn btn-sm btn-ghost" data-action="restore" data-id="${p.id}">
+        <i data-lucide="rotate-ccw" style="width:14px;height:14px;"></i> 恢復供款
+      </button>
+    `);
+  }
+
+  return `<div class="policy-actions">${actions.join('')}</div>`;
+}
+
 function _renderFundInsuranceCard(p, members) {
   const insuredName = _memberName(members, p.memberId);
   const holderName = _holderName(members, p);
+
+  // 🆕 v101.8.0：依 canInput 顯示操作按鈕
+  const actionsHtml = AppState.getCanInput() ? `
+    <div class="policy-actions">
+      <button type="button" class="btn btn-sm btn-ghost" data-action="edit-policy" data-id="${p.id}">
+        <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+      </button>
+      <button type="button" class="btn btn-sm btn-danger" data-action="delete-policy" data-id="${p.id}">
+        <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
+      </button>
+    </div>
+  ` : '';
 
   return `
     <div class="policy-header">
@@ -193,14 +224,7 @@ function _renderFundInsuranceCard(p, members) {
         <span class="policy-info-value">${p.totalPolicyYears || '—'} 年</span>
       </div>
     </div>
-    <div class="policy-actions">
-      <button type="button" class="btn btn-sm btn-ghost" data-action="edit-policy" data-id="${p.id}">
-        <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
-      </button>
-      <button type="button" class="btn btn-sm btn-danger" data-action="delete-policy" data-id="${p.id}">
-        <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
-      </button>
-    </div>
+    ${actionsHtml}
   `;
 }
 
@@ -282,17 +306,7 @@ function _renderNormalPolicyCard(p, members, isCompleted) {
       </div>
     </div>
 
-    <div class="policy-actions">
-      <button type="button" class="btn btn-sm btn-ghost" data-action="edit-policy" data-id="${p.id}">
-        <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
-      </button>
-      <button type="button" class="btn btn-sm btn-danger" data-action="delete-policy" data-id="${p.id}">
-        <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
-      </button>
-      ${isCompleted ? `<button type="button" class="btn btn-sm btn-ghost" data-action="restore" data-id="${p.id}">
-        <i data-lucide="rotate-ccw" style="width:14px;height:14px;"></i> 恢復供款
-      </button>` : ''}
-    </div>
+    ${_getActionsHtml(p, isCompleted)}
   `;
 }
 
@@ -313,6 +327,10 @@ export function renderPolicyTable(container, list, { members }) {
     return da - db;
   });
 
+  // 🆕 v101.8.0：依 canInput 決定是否顯示操作欄
+  const userCanInput = AppState.getCanInput();
+  const actionsHeader = userCanInput ? `<th>操作</th>` : '';
+
   container.innerHTML = `
     <div class="glass-card policy-table-wrapper" style="padding:0; overflow:hidden;">
       <div style="overflow-x:auto;">
@@ -330,7 +348,7 @@ export function renderPolicyTable(container, list, { members }) {
               <th class="num">已供款總額</th>
               <th class="num hide-mobile">每月分攤</th>
               <th class="progress-cell">進度</th>
-              <th>操作</th>
+              ${actionsHeader}
             </tr>
           </thead>
           <tbody>
@@ -362,6 +380,21 @@ function _renderTableRow(p, members) {
   const tableKey = `table-${p.id}`;
   const isOpen = isExpanded(tableKey);
 
+  // 🆕 v101.8.0：依 canInput 決定操作欄
+  const userCanInput = AppState.getCanInput();
+  const colspan = userCanInput ? 12 : 11;
+
+  const actionsCell = userCanInput ? `
+    <td>
+      <button type="button" class="btn btn-sm btn-ghost" data-action="edit-policy" data-id="${p.id}" title="編輯">
+        <i data-lucide="pencil" style="width:14px;height:14px;"></i>
+      </button>
+      <button type="button" class="btn btn-sm btn-danger" data-action="delete-policy" data-id="${p.id}" title="刪除">
+        <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
+      </button>
+    </td>
+  ` : '';
+
   return `
     <tr>
       <td>
@@ -382,17 +415,10 @@ function _renderTableRow(p, members) {
         <div class="progress-text">${done} / ${totalPeriods} 期 (${pct}%)</div>
         <div class="progress"><div class="progress-bar" style="width:${pct}%;"></div></div>
       </td>
-      <td>
-        <button type="button" class="btn btn-sm btn-ghost" data-action="edit-policy" data-id="${p.id}" title="編輯">
-          <i data-lucide="pencil" style="width:14px;height:14px;"></i>
-        </button>
-        <button type="button" class="btn btn-sm btn-danger" data-action="delete-policy" data-id="${p.id}" title="刪除">
-          <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
-        </button>
-      </td>
+      ${actionsCell}
     </tr>
     <tr class="insurance-table-detail-row" style="display:${isOpen ? 'table-row' : 'none'};">
-      <td colspan="12">
+      <td colspan="${colspan}">
         <div class="detail-wrapper">
           ${_renderPolicyDetail(p, p._payments || {})}
         </div>
@@ -428,9 +454,9 @@ function _renderPolicyDetail(policy, payments) {
       );
       const amount = payment.amount ? Math.round(payment.amount) : defaultAmount;
 
+      // v101.6.6：改用 isDoneStatus（支援家庭自訂狀態名稱）
       const isPaid = isDoneStatus(payment.status, 'insurance');
-      const statusText = payment.status
-        || (isPaid ? '已扣款' : '未扣款');
+      const statusText = payment.status || (isPaid ? '已扣款' : '未扣款');
 
       if (isPaid) totalPaid += amount;
 
@@ -464,12 +490,4 @@ function _renderPolicyDetail(policy, payments) {
   }
 
   return `<div class="insurance-detail-container">${detailBlocks.join('')}</div>`;
-}
-
-/* ============================================
-   工具
-   ============================================ */
-function _setText(id, text) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = text;
 }

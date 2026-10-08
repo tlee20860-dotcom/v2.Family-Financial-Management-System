@@ -1,17 +1,17 @@
 // ============================================
-// _helpers.js — API 共用輔助函式（v101.5）
+// _helpers.js — API 共用輔助函式（v101.8.0）
 // 位置：functions/api/_helpers.js
 // ============================================
-// v101.5 修正：
-//   ✅ authenticate 的 needFamily 支援 URL query（GET 請求）
-//   ✅ requireFields 錯誤訊息更清楚
-//   ✅ 新增 PLATFORM_RESOURCES（與前端 constants.js 對齊）
+// v101.8.0 新增：
+//   ✅ verifyFamilyAccessByUid(uid) — 從 uid 查詢所屬家庭
+//   ✅ authenticate 的 needFamily 支援 memberAccounts
+//   ✅ 保留 v101.6.10 全部功能
 // ============================================
 
-import { SUPERADMIN_EMAIL, jsonResponse } from './_config.js';
+import { SUPERADMIN_EMAIL, jsonResponse, dbGet } from './_config.js';
 
 /* ============================================
-   CORS preflight 處理（就地定義）
+   CORS preflight 處理
    ============================================ */
 export function handleOptions() {
   return new Response(null, {
@@ -29,14 +29,11 @@ export function handleOptions() {
    常數
    ============================================ */
 
-// ⚠️ 與 js/config/firebase-config.js 的 apiKey 一致
 const FIREBASE_API_KEY = 'AIzaSyCQlrNdorKJI9xsqr4m4ME046lrubo9Y7I';
-
-const IDENTITY_TOOLKIT_URL =
-  'https://identitytoolkit.googleapis.com/v1/accounts:lookup';
+const IDENTITY_TOOLKIT_URL = 'https://identitytoolkit.googleapis.com/v1/accounts:lookup';
 
 /* ============================================
-   🆕 v101.5：平台資源對照表（與前端 constants.js 對齊）
+   平台資源對照表
    ============================================ */
 export const PLATFORM_RESOURCES = {
   members:     { path: 'members',             type: 'list' },
@@ -119,6 +116,18 @@ export async function verifySuperAdmin(token) {
   return user;
 }
 
+/**
+ * 驗證家庭存取權（v101.8.0 擴充）
+ *
+ * 判斷順序：
+ * 1. superadmin → 通過
+ * 2. user.uid === familyId → 通過（舊版）
+ * 3. platform/families/{familyId}/memberAccounts/{uid} 存在 → 通過（新版）
+ *
+ * @param {string} token
+ * @param {string} familyId
+ * @returns {Promise<{ user, isSuper, isOwner, canInput } | null>}
+ */
 export async function verifyFamilyAccess(token, familyId) {
   if (!familyId) return null;
 
@@ -126,14 +135,92 @@ export async function verifyFamilyAccess(token, familyId) {
   if (!user) return null;
 
   const isSuper = user.email === SUPERADMIN_EMAIL;
-  if (isSuper) return { user, isSuper: true };
+  if (isSuper) return { user, isSuper: true, isOwner: true, canInput: true };
 
-  if (user.localId !== familyId) return null;
-  return { user, isSuper: false };
+  // 舊版：UID = familyId
+  if (user.localId === familyId) {
+    // 檢查是否有 memberAccounts 記錄（若有，讀取 canInput）
+    const memberAccount = await _getMemberAccount(familyId, user.localId);
+    return {
+      user,
+      isSuper: false,
+      isOwner: memberAccount?.role === 'owner' || !memberAccount,
+      canInput: memberAccount ? memberAccount.canInput !== false : true,
+    };
+  }
+
+  // 新版：查詢 memberAccounts
+  const memberAccount = await _getMemberAccount(familyId, user.localId);
+  if (memberAccount) {
+    return {
+      user,
+      isSuper: false,
+      isOwner: memberAccount.role === 'owner',
+      canInput: memberAccount.canInput !== false,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * 🆕 v101.8.0：從 UID 查詢所屬家庭
+ *
+ * 判斷順序：
+ * 1. platform/uid_index/{uid} → familyId（新版）
+ * 2. 檢查 UID 本身是否為 familyId（舊版 fallback）
+ *
+ * @param {string} uid
+ * @returns {Promise<{ familyId, memberAccount, isLegacy } | null>}
+ */
+export async function verifyFamilyAccessByUid(uid) {
+  if (!uid) return null;
+
+  // 1. 新版：從 uid_index 查詢
+  const familyId = await dbGet(`platform/uid_index/${uid}`);
+  if (familyId && typeof familyId === 'string') {
+    const memberAccount = await _getMemberAccount(familyId, uid);
+    return {
+      familyId,
+      memberAccount: memberAccount || null,
+      isLegacy: false,
+    };
+  }
+
+  // 2. 舊版 fallback：UID 即 familyId
+  const familySnap = await dbGet(`platform/families/${uid}`);
+  if (familySnap) {
+    return {
+      familyId: uid,
+      memberAccount: {
+        email: '',
+        displayName: familySnap.name || '我的家庭',
+        role: 'owner',
+        canInput: true,
+      },
+      isLegacy: true,
+    };
+  }
+
+  return null;
 }
 
 /* ============================================
-   4. 必填欄位檢查
+   4. 內部工具：讀取 memberAccount
+   ============================================ */
+
+async function _getMemberAccount(familyId, uid) {
+  try {
+    const result = await dbGet(`platform/families/${familyId}/memberAccounts/${uid}`);
+    return result || null;
+  } catch (err) {
+    console.warn('[_helpers] 讀取 memberAccount 失敗：', err);
+    return null;
+  }
+}
+
+/* ============================================
+   5. 必填欄位檢查
    ============================================ */
 
 export function requireFields(body, fields) {
@@ -153,7 +240,7 @@ export function requireFields(body, fields) {
 }
 
 /* ============================================
-   5. 錯誤回應
+   6. 錯誤回應
    ============================================ */
 
 export function errorResponse(code, message = '', status) {
@@ -186,19 +273,9 @@ export function successResponse(data = {}) {
 }
 
 /* ============================================
-   6. 通用驗證流程
-   🆕 v101.5：needFamily 支援 URL query（GET 請求）
+   7. 通用驗證流程
    ============================================ */
 
-/**
- * @param {Request} request
- * @param {Object} options
- * @param {Object} [options.body] - POST 的 body（若有）
- * @param {string[]} [options.requiredFields]
- * @param {boolean} [options.needSuperAdmin]
- * @param {boolean} [options.needFamily]
- * @returns {Promise<Response|{token, user, isSuper}>}
- */
 export async function authenticate(request, options = {}) {
   const { body, requiredFields, needSuperAdmin, needFamily } = options;
 
@@ -216,7 +293,6 @@ export async function authenticate(request, options = {}) {
   }
 
   if (needFamily) {
-    // 🆕 v101.5：familyId 可從 body 或 URL query 取得
     let familyId = body?.familyId;
     if (!familyId) {
       try {
@@ -230,7 +306,14 @@ export async function authenticate(request, options = {}) {
     if (!familyId) return errorResponse('MISSING_FIELDS', 'familyId 為必填');
     const result = await verifyFamilyAccess(token, familyId);
     if (!result) return errorResponse('FORBIDDEN', '無權存取此家庭');
-    return { token, user: result.user, isSuper: result.isSuper, familyId };
+    return {
+      token,
+      user: result.user,
+      isSuper: result.isSuper,
+      isOwner: result.isOwner,
+      canInput: result.canInput,
+      familyId,
+    };
   }
 
   const user = await verifyToken(token);
@@ -239,7 +322,7 @@ export async function authenticate(request, options = {}) {
 }
 
 /* ============================================
-   7. 資料工具
+   8. 資料工具
    ============================================ */
 
 export function filterEmpty(obj) {
@@ -262,7 +345,7 @@ export function roundInt(v) {
 }
 
 /* ============================================
-   8. 🆕 v101.5：保險連動前綴（與前端 constants.js 對齊）
+   9. 保險連動前綴
    ============================================ */
 export const LINKED_PREFIX = 'linked_';
 

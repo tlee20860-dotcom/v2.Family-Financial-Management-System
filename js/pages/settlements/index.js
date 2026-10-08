@@ -1,12 +1,11 @@
 // ============================================
-// index.js — 結算清單入口（v101.7.0）
+// index.js — 結算清單入口（v101.8.0）
 // 位置：js/pages/settlements/index.js
 // ============================================
-// v101.7.0 新增：
-//   ✅ 雙模式切換（卡片 / 表格）
-//   ✅ 表格可摺疊 + 每列展開明細
-//   ✅ 卡片模式顯示完整資訊
-//   ✅ view-toggle 位置：右上角
+// v101.8.0 修正：
+//   ✅ 依 AppState.canInput 隱藏編輯 / 刪除按鈕
+//   ✅ 唯讀模式下，狀態欄改為純 badge（不顯示下拉）
+//   ✅ 保留 v101.7.6 全部功能（雙模式 + 可摺疊）
 // ============================================
 
 import { AppState } from '../../core/state.js';
@@ -57,7 +56,6 @@ let _filters = {
 };
 let _sortMode = 'pending-first';
 
-// 選項快取（供卡片 + 明細使用）
 let _categories = [];
 let _items = [];
 let _payments = [];
@@ -68,7 +66,6 @@ let _statsApi = null;
 let _tableApi = null;
 let _sortHandler = null;
 let _statusChangeHandler = null;
-let _cardClickHandler = null;
 
 let _monthlyUnsub = null;
 
@@ -89,7 +86,6 @@ const TABLE_COLUMNS = [
    主入口
    ============================================ */
 export async function initSettlementsPage() {
-  // 初始化 view-toggle（右上角）
   _viewToggle = initViewToggle({
     containerId: 'settlement-view-toggle-root',
     storageKey: 'settlements-view',
@@ -181,13 +177,16 @@ async function _loadOptionsCache() {
 }
 
 /* ============================================
-   狀態變更事件委派
+   狀態變更事件委派（僅 canInput 時可觸發）
    ============================================ */
 function _bindStatusChange() {
   const root = document.getElementById('settlement-table-root');
   if (!root) return;
 
   _statusChangeHandler = async (e) => {
+    // 🆕 v101.8.0：唯讀模式不處理
+    if (!AppState.getCanInput()) return;
+
     const sel = e.target.closest('.settlement-status-select');
     if (!sel) return;
 
@@ -432,33 +431,35 @@ function _renderStats() {
 }
 
 /* ============================================
-   表格（可摺疊 + 每列展開）
+   表格
    ============================================ */
 function _renderTable() {
   const root = document.getElementById('settlement-table-root');
   if (!root) return;
 
-  if (_tableApi) {
-    try { _tableApi.destroy(); } catch (e) {}
-    _tableApi = null;
-  }
+  if (_tableApi) { try { _tableApi.destroy(); } catch (e) {} _tableApi = null; }
 
-  const actionFactory = (row) => [
-    {
-      label: '編輯',
-      icon: 'pencil',
-      className: 'btn-ghost',
-      action: 'edit-settlement',
-      onClick: (r) => openSettlementEditModal(r, _reload),
-    },
-    {
-      label: row.source === 'insurance' ? '取消扣款' : '刪除',
-      icon: 'trash-2',
-      className: 'btn-danger',
-      action: 'delete-settlement',
-      onClick: (r) => handleSettlementDelete(r, _reload),
-    },
-  ];
+  // 🆕 v101.8.0：依 canInput 決定
+  const userCanInput = AppState.getCanInput();
+
+  const actionFactory = userCanInput
+    ? (row) => [
+        {
+          label: '編輯',
+          icon: 'pencil',
+          className: 'btn-ghost',
+          action: 'edit-settlement',
+          onClick: (r) => openSettlementEditModal(r, _reload),
+        },
+        {
+          label: row.source === 'insurance' ? '取消扣款' : '刪除',
+          icon: 'trash-2',
+          className: 'btn-danger',
+          action: 'delete-settlement',
+          onClick: (r) => handleSettlementDelete(r, _reload),
+        },
+      ]
+    : () => [];   // 🆕 唯讀回傳空陣列
 
   _tableApi = renderDataTable({
     container: root,
@@ -484,7 +485,13 @@ function _renderTable() {
     },
     hooks: {
       customCellRender: (col, row) => {
-        if (col.id === 'status') return renderStatusCell(row);
+        if (col.id === 'status') {
+          // 🆕 v101.8.0：唯讀時顯示純 badge（不顯示下拉）
+          if (!userCanInput) {
+            return _renderStatusBadge(row);
+          }
+          return renderStatusCell(row);
+        }
         return null;
       },
       customActions: actionFactory,
@@ -492,6 +499,15 @@ function _renderTable() {
   });
 
   if (window.lucide) window.lucide.createIcons();
+}
+
+/**
+ * 🆕 v101.8.0：唯讀模式的狀態 badge
+ */
+function _renderStatusBadge(row) {
+  const cls = row.isDone ? 'badge-success' : 'badge-pending';
+  const status = row.status || '未處理';
+  return `<span class="badge ${cls}">${escapeHtml(status)}</span>`;
 }
 
 /* ============================================
@@ -544,6 +560,8 @@ function _renderCards(container) {
     </div>
   `;
 
+  _bindCardEvents();
+
   if (window.lucide) window.lucide.createIcons();
 }
 
@@ -556,6 +574,20 @@ function _renderCard(row) {
   const statusBadge = row.isDone
     ? `<span class="badge badge-success">${escapeHtml(row.status)}</span>`
     : `<span class="badge badge-pending">${escapeHtml(row.status)}</span>`;
+
+  // 🆕 v101.8.0：依 canInput 顯示操作按鈕
+  const userCanInput = AppState.getCanInput();
+  const actionsHtml = userCanInput ? `
+    <div class="data-card-footer" style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.08); display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
+      <button type="button" class="btn btn-sm btn-ghost" data-action="edit-settlement" data-key="${escapeHtml(row.key)}">
+        <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+      </button>
+      <button type="button" class="btn btn-sm btn-danger" data-action="delete-settlement" data-key="${escapeHtml(row.key)}">
+        <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
+        ${row.source === 'insurance' ? '取消扣款' : '刪除'}
+      </button>
+    </div>
+  ` : '';
 
   return `
     <div class="glass-card settlement-card" data-key="${escapeHtml(row.key)}">
@@ -609,22 +641,13 @@ function _renderCard(row) {
         ` : ''}
       </div>
 
-      <div class="data-card-footer" style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.08); display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
-        <button type="button" class="btn btn-sm btn-ghost" data-action="edit-settlement" data-key="${escapeHtml(row.key)}">
-          <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
-        </button>
-        <button type="button" class="btn btn-sm btn-danger" data-action="delete-settlement" data-key="${escapeHtml(row.key)}">
-          <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
-          ${row.source === 'insurance' ? '取消扣款' : '刪除'}
-        </button>
-      </div>
+      ${actionsHtml}
     </div>
   `;
 }
 
-/* ============================================
-   卡片模式事件（在 _destroy 中清理）
-   ============================================ */
+let _cardClickHandler = null;
+
 function _bindCardEvents() {
   const cardRoot = document.getElementById('settlement-card-root');
   if (!cardRoot) return;
@@ -634,6 +657,8 @@ function _bindCardEvents() {
   }
 
   _cardClickHandler = async (e) => {
+    if (!AppState.getCanInput()) return;
+
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
 

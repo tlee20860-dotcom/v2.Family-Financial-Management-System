@@ -1,14 +1,17 @@
 // ============================================
-// portfolio.js — 基金投資表（v101.6.12）
+// portfolio.js — 基金投資表（v101.8.0）
 // 位置：js/pages/portfolio.js
 // ============================================
-// v101.6.12 修正：
-//   ✅ [統一] 表格模式移除 .mobile-cards（改為橫排，跟隨保險清單）
+// v101.8.0 修正：
+//   ✅ 依 AppState.canInput 隱藏新增 / 編輯 / 刪除按鈕
+//   ✅ 唯讀模式下卡片 / 表格不顯示操作欄
+//   ✅ 保留 v101.6.12 表格橫排 + v101.7.0 雙模式
 // ============================================
 
 import { listenFunds } from '../core/db.js';
 import { escapeHtml, formatHKD, setText } from '../core/utils.js';
 import { ENTITY_KEYS } from '../config/constants.js';
+import { AppState } from '../core/state.js';
 import { initViewToggle } from '../shared/view-toggle.js';
 import { renderQuickSummary } from '../shared/quick-summary.js';
 import { renderStatsCards } from '../shared/stats-cards.js';
@@ -28,6 +31,8 @@ let _viewToggle = null;
 let _statsApi = null;
 let _addFundHandler = null;
 let _addFirstFundHandler = null;
+let _cardClickHandler = null;
+let _tableClickHandler = null;
 
 const listenerGroup = createListenerGroup();
 
@@ -35,6 +40,8 @@ const listenerGroup = createListenerGroup();
    主入口
    ============================================ */
 export async function initPortfolioPage() {
+  const userCanInput = AppState.getCanInput();
+
   _viewToggle = initViewToggle({
     containerId: 'view-toggle-root',
     storageKey: 'portfolio-view',
@@ -45,23 +52,32 @@ export async function initPortfolioPage() {
     onChange: () => _render(),
   });
 
-  _addFundHandler = () => {
-    openEntityModal({
-      entity: ENTITY_KEYS.FUND,
-      mode: 'add',
-      allRows: _funds,
-    });
-  };
-  document.getElementById('add-fund-btn')?.addEventListener('click', _addFundHandler);
+  // 🆕 v101.8.0：依 canInput 決定是否綁定新增按鈕
+  if (userCanInput) {
+    _addFundHandler = () => {
+      openEntityModal({
+        entity: ENTITY_KEYS.FUND,
+        mode: 'add',
+        allRows: _funds,
+      });
+    };
+    document.getElementById('add-fund-btn')?.addEventListener('click', _addFundHandler);
 
-  _addFirstFundHandler = () => {
-    openEntityModal({
-      entity: ENTITY_KEYS.FUND,
-      mode: 'add',
-      allRows: _funds,
-    });
-  };
-  document.getElementById('add-first-fund-btn')?.addEventListener('click', _addFirstFundHandler);
+    _addFirstFundHandler = () => {
+      openEntityModal({
+        entity: ENTITY_KEYS.FUND,
+        mode: 'add',
+        allRows: _funds,
+      });
+    };
+    document.getElementById('add-first-fund-btn')?.addEventListener('click', _addFirstFundHandler);
+  } else {
+    // 唯讀：隱藏新增按鈕
+    const addBtn = document.getElementById('add-fund-btn');
+    if (addBtn) addBtn.style.display = 'none';
+    const addFirstBtn = document.getElementById('add-first-fund-btn');
+    if (addFirstBtn) addFirstBtn.style.display = 'none';
+  }
 
   listenerGroup.add(
     listenFunds((list) => {
@@ -149,9 +165,7 @@ function _renderStats() {
     },
   ];
 
-  if (_statsApi) {
-    try { _statsApi.destroy(); } catch (e) { /* noop */ }
-  }
+  if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} }
 
   _statsApi = renderStatsCards({
     container: 'portfolio-stats-root',
@@ -178,6 +192,19 @@ function _renderCard(f) {
   const pnlPct = cost > 0 ? ((pnl / cost) * 100).toFixed(2) : '0.00';
   const pnlClass = pnl >= 0 ? 'text-emerald' : 'text-red';
   const sign = pnl >= 0 ? '+' : '';
+
+  // 🆕 v101.8.0：依 canInput 決定是否顯示操作按鈕
+  const userCanInput = AppState.getCanInput();
+  const actionsHtml = userCanInput ? `
+    <div class="policy-actions">
+      <button type="button" class="btn btn-sm btn-ghost" data-action="edit-fund" data-id="${f.id}">
+        <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+      </button>
+      <button type="button" class="btn btn-sm btn-danger" data-action="delete-fund" data-id="${f.id}">
+        <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
+      </button>
+    </div>
+  ` : '';
 
   return `
     <div class="glass-card fund-card" data-id="${f.id}">
@@ -213,22 +240,20 @@ function _renderCard(f) {
 
       ${f.note ? `<div class="glass-card-hint">📝 ${escapeHtml(f.note)}</div>` : ''}
 
-      <div class="policy-actions">
-        <button type="button" class="btn btn-sm btn-ghost" data-action="edit-fund" data-id="${f.id}">
-          <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
-        </button>
-        <button type="button" class="btn btn-sm btn-danger" data-action="delete-fund" data-id="${f.id}">
-          <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
-        </button>
-      </div>
+      ${actionsHtml}
     </div>
   `;
 }
 
 /* ============================================
-   表格模式（🆕 v101.6.12：移除 mobile-cards）
+   表格模式
    ============================================ */
 function _renderTable(container) {
+  // 🆕 v101.8.0：依 canInput 決定是否顯示操作欄
+  const userCanInput = AppState.getCanInput();
+
+  const actionsHeader = userCanInput ? `<th style="width:150px;">操作</th>` : '';
+
   container.innerHTML = `
     <div class="glass-card collapsible-card collapsible-card-flat" style="padding:0;">
       <div class="data-table-scroll-wrapper">
@@ -241,7 +266,7 @@ function _renderTable(container) {
               <th class="num">盈虧</th>
               <th class="num">報酬率</th>
               <th class="num">單位數</th>
-              <th style="width:150px;">操作</th>
+              ${actionsHeader}
             </tr>
           </thead>
           <tbody>
@@ -261,6 +286,19 @@ function _renderTableRow(f) {
   const pnlCls = pnl >= 0 ? 'text-emerald' : 'text-red';
   const sign = pnl >= 0 ? '+' : '';
 
+  // 🆕 v101.8.0：依 canInput 決定是否顯示操作按鈕
+  const userCanInput = AppState.getCanInput();
+  const actionsCell = userCanInput ? `
+    <td>
+      <button type="button" class="btn btn-sm btn-ghost" data-action="edit-fund" data-id="${f.id}">
+        <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+      </button>
+      <button type="button" class="btn btn-sm btn-danger" data-action="delete-fund" data-id="${f.id}">
+        <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
+      </button>
+    </td>
+  ` : '';
+
   return `
     <tr data-id="${f.id}">
       <td>
@@ -272,22 +310,17 @@ function _renderTableRow(f) {
       <td class="num ${pnlCls}">${sign}${formatHKD(pnl)}</td>
       <td class="num ${pnlCls}">${pnlPct}%</td>
       <td class="num">${f.units || '—'}</td>
-      <td>
-        <button type="button" class="btn btn-sm btn-ghost" data-action="edit-fund" data-id="${f.id}">
-          <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
-        </button>
-        <button type="button" class="btn btn-sm btn-danger" data-action="delete-fund" data-id="${f.id}">
-          <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
-        </button>
-      </td>
+      ${actionsCell}
     </tr>
   `;
 }
 
 /* ============================================
-   事件綁定
+   事件綁定（🆕 v101.8.0：依 canInput 決定是否綁定）
    ============================================ */
 function _bindListActions() {
+  if (!AppState.getCanInput()) return;   // 🆕 唯讀不綁定
+
   const cardEl = document.getElementById('fund-card-view');
   const tableEl = document.getElementById('fund-table-view');
 
@@ -313,6 +346,10 @@ function _bindListActions() {
       await _handleDeleteFund(fund);
     }
   };
+
+  // 保存 handler 供 destroy 清理
+  _cardClickHandler = handler;
+  _tableClickHandler = handler;
 
   cardEl?.addEventListener('click', handler);
   tableEl?.addEventListener('click', handler);
@@ -369,14 +406,9 @@ function _renderQuickSummary() {
 function _destroy() {
   listenerGroup.destroy();
 
-  if (_viewToggle) {
-    try { _viewToggle.destroy(); } catch (e) { /* noop */ }
-    _viewToggle = null;
-  }
-  if (_statsApi) {
-    try { _statsApi.destroy(); } catch (e) { /* noop */ }
-    _statsApi = null;
-  }
+  if (_viewToggle) { try { _viewToggle.destroy(); } catch (e) {} _viewToggle = null; }
+  if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} _statsApi = null; }
+
   if (_addFundHandler) {
     document.getElementById('add-fund-btn')?.removeEventListener('click', _addFundHandler);
     _addFundHandler = null;
@@ -384,5 +416,13 @@ function _destroy() {
   if (_addFirstFundHandler) {
     document.getElementById('add-first-fund-btn')?.removeEventListener('click', _addFirstFundHandler);
     _addFirstFundHandler = null;
+  }
+  if (_cardClickHandler) {
+    document.getElementById('fund-card-view')?.removeEventListener('click', _cardClickHandler);
+    _cardClickHandler = null;
+  }
+  if (_tableClickHandler) {
+    document.getElementById('fund-table-view')?.removeEventListener('click', _tableClickHandler);
+    _tableClickHandler = null;
   }
 }

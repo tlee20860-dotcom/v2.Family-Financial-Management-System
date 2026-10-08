@@ -1,15 +1,17 @@
 // ============================================
-// holdings-list.js — 輸入中心：保單 / 基金 / 銀行（v101.7.0）
+// holdings-list.js — 輸入中心：保單 / 基金 / 銀行（v101.8.0）
 // 位置：js/pages/input-center/holdings-list.js
 // ============================================
-// v101.7.0 新增：
-//   ✅ 每個 section 加雙模式切換（卡片 / 表格）
-//   ✅ 表格可摺疊 + 每列展開
+// v101.8.0 修正：
+//   ✅ 依 AppState.canInput 隱藏編輯 / 刪除按鈕
+//   ✅ 卡片 footer 依 canInput 決定是否顯示
+//   ✅ 保留 v101.7.0 雙模式 + 可摺疊
 // ============================================
 
 import { listenInsurancePolicies, listenFunds, listenBanks } from '../../core/db.js';
 import { escapeHtml, formatHKD } from '../../core/utils.js';
 import { ENTITY_KEYS } from '../../config/constants.js';
+import { AppState } from '../../core/state.js';
 import { showToast } from '../../shared/toast.js';
 import { openConfirm } from '../../shared/modal.js';
 import { openEntityModal } from '../../shared/entity-modal.js';
@@ -80,7 +82,6 @@ function _render(root, containerId, types, instances) {
 
   if (window.lucide) window.lucide.createIcons();
 
-  // 初始化每個 section 的 view-toggle + 表格
   sections.forEach((key) => {
     _initSection(key, containerId, instances);
   });
@@ -196,7 +197,6 @@ function _initSection(key, containerId, instances) {
     return;
   }
 
-  // 銷毀舊實例
   if (instances[key]) {
     if (instances[key].viewToggle) { try { instances[key].viewToggle.destroy(); } catch (e) {} }
     if (instances[key].tableApi) { try { instances[key].tableApi.destroy(); } catch (e) {} }
@@ -235,6 +235,9 @@ function _renderSectionContent(key, containerId, config, instances) {
 function _renderSectionTable(contentEl, rows, config, key, instances) {
   contentEl.innerHTML = `<div id="holdings-${key}-table-root"></div>`;
 
+  // 🆕 v101.8.0：依 canInput 決定是否提供操作按鈕
+  const userCanInput = AppState.getCanInput();
+
   instances[key].tableApi = renderDataTable({
     container: `holdings-${key}-table-root`,
     entityKey: `__holdings_${key}__`,
@@ -251,10 +254,12 @@ function _renderSectionTable(contentEl, rows, config, key, instances) {
       renderDetail: config.renderDetail,
     },
     hooks: {
-      customActions: (row) => [
-        { label: '編輯', icon: 'pencil', className: 'btn-ghost', action: 'edit-item', onClick: (r) => _handleEdit(key, config.entityKey, r) },
-        { label: '刪除', icon: 'trash-2', className: 'btn-danger', action: 'delete-item', onClick: (r) => _handleDelete(key, config.entityKey, r) },
-      ],
+      customActions: userCanInput
+        ? (row) => [
+            { label: '編輯', icon: 'pencil', className: 'btn-ghost', action: 'edit-item', onClick: (r) => _handleEdit(key, config.entityKey, r) },
+            { label: '刪除', icon: 'trash-2', className: 'btn-danger', action: 'delete-item', onClick: (r) => _handleDelete(key, config.entityKey, r) },
+          ]
+        : () => [],
     },
   });
 
@@ -269,7 +274,6 @@ function _renderSectionCards(contentEl, rows, config) {
   `;
   if (window.lucide) window.lucide.createIcons();
 
-  // 綁定事件
   contentEl.querySelector('.data-cards-grid')?.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
@@ -286,6 +290,19 @@ function _renderSectionCard(row, config) {
   const amount = config.cardAmount(row);
   const subtitle = config.cardSubtitle(row);
   const fields = config.cardFields(row);
+  // 🆕 v101.8.0：依 canInput 決定是否顯示按鈕
+  const userCanInput = AppState.getCanInput();
+
+  const actionsHtml = userCanInput ? `
+    <div style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.08); display:flex; gap:8px; justify-content:flex-end;">
+      <button type="button" class="btn btn-sm btn-ghost" data-action="edit-item" data-id="${escapeHtml(row.id)}">
+        <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+      </button>
+      <button type="button" class="btn btn-sm btn-danger" data-action="delete-item" data-id="${escapeHtml(row.id)}">
+        <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
+      </button>
+    </div>
+  ` : '';
 
   return `
     <div class="glass-card" style="padding:14px;">
@@ -297,19 +314,13 @@ function _renderSectionCard(row, config) {
           ${fields.map((f) => `<div style="display:flex; justify-content:space-between;"><span class="text-muted">${escapeHtml(f.label)}</span><span>${escapeHtml(String(f.value))}</span></div>`).join('')}
         </div>
       ` : ''}
-      <div style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.08); display:flex; gap:8px; justify-content:flex-end;">
-        <button type="button" class="btn btn-sm btn-ghost" data-action="edit-item" data-id="${escapeHtml(row.id)}">
-          <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
-        </button>
-        <button type="button" class="btn btn-sm btn-danger" data-action="delete-item" data-id="${escapeHtml(row.id)}">
-          <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
-        </button>
-      </div>
+      ${actionsHtml}
     </div>
   `;
 }
 
 function _handleEdit(sectionKey, entityKey, row) {
+  if (!AppState.getCanInput()) return;
   openEntityModal({ entity: entityKey, mode: 'edit', id: row.id, allRows: _getRowsByEntityKey(entityKey) });
 }
 
@@ -321,6 +332,8 @@ function _getRowsByEntityKey(entityKey) {
 }
 
 async function _handleDelete(sectionKey, entityKey, row) {
+  if (!AppState.getCanInput()) return;
+
   let confirmText = `確定要刪除「${row.name || row.id}」嗎？`;
   if (entityKey === ENTITY_KEYS.POLICY) confirmText = `⚠️ 確定要刪除保單「${row.name}」嗎？\n\n這將會一併刪除所有相關的扣款紀錄與成員支出，此操作無法復原。`;
   else if (entityKey === ENTITY_KEYS.BANK) confirmText = `⚠️ 確定要刪除「${row.name}」嗎？\n\n這將會一併刪除該銀行在所有月份的結餘紀錄，此操作無法復原。`;

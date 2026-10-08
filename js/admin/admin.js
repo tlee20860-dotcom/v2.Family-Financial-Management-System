@@ -1,10 +1,12 @@
 // ============================================
-// admin.js — 平台管理入口（v101.6.6）
+// admin.js — 平台管理入口（v101.8.0）
 // 位置：js/admin/admin.js
 // ============================================
-// v101.6.6 修正：
-//   ✅ [BUG-14] logout-btn → admin-logout-btn（避免與 settings 頁 ID 重複）
-//   ✅ 保留所有 v101.5 功能
+// v101.8.0 新增：
+//   ✅ 家庭清單每列加入「帳號」按鈕
+//   ✅ 帳號管理 Modal（列出 / 新增 / 編輯 / 刪除）
+//   ✅ 建立帳號時設定帳號 / 密碼 / 顯示名稱 / 角色 / canInput
+//   ✅ owner 帳號不可刪除（後端保護 + 前端提示）
 // ============================================
 
 import { api } from '../core/api.js';
@@ -12,7 +14,7 @@ import { escapeHtml } from '../core/utils.js';
 import { logout } from '../core/auth.js';
 import { AppState } from '../core/state.js';
 import { showToast } from '../shared/toast.js';
-import { openConfirm } from '../shared/modal.js';
+import { openConfirm, openModal, closeModal } from '../shared/modal.js';
 import { buildForm } from '../shared/form-builder.js';
 import { initTabPanel } from '../shared/tab-panel.js';
 import { registerPageCleanup } from '../core/app.js';
@@ -27,6 +29,18 @@ let _tabPanel = null;
 let _defaultsInstance = null;
 let _logoutHandler = null;
 let _familyListHandler = null;
+
+// 帳號管理 Modal 狀態
+let _accountModalFamilyId = '';
+let _accountModalFamilyName = '';
+let _accountModalFormApi = null;
+let _accountEditFormApi = null;
+let _accountListHandler = null;
+
+const ACCOUNT_MODAL_ID = 'admin-account-modal';
+const ACCOUNT_FORM_ROOT_ID = 'admin-account-form-root';
+const ACCOUNT_EDIT_MODAL_ID = 'admin-account-edit-modal';
+const ACCOUNT_EDIT_FORM_ROOT_ID = 'admin-account-edit-form-root';
 
 /* ============================================
    主入口
@@ -46,7 +60,6 @@ export function initAdminPage() {
     });
     if (ok) logout();
   };
-  // 🆕 v101.6.6：改用 admin-logout-btn
   document.getElementById('admin-logout-btn')?.addEventListener('click', _logoutHandler);
 
   _tabPanel = initTabPanel({
@@ -64,9 +77,7 @@ export function initAdminPage() {
 
   registerPageCleanup(_destroy);
 
-  return {
-    destroy: _destroy,
-  };
+  return { destroy: _destroy };
 }
 
 /* ============================================
@@ -204,33 +215,36 @@ function _renderFamilies() {
 
   listEl.innerHTML = `
     <div style="overflow-x:auto;">
-      <table class="data-table mobile-cards">
+      <table class="data-table">
         <thead>
           <tr>
             <th>家庭名稱</th>
-            <th class="hide-mobile">擁有者 Email</th>
-            <th class="hide-mobile">UID</th>
-            <th class="hide-mobile">建立時間</th>
-            <th style="width:220px;">操作</th>
+            <th>擁有者 Email</th>
+            <th>UID</th>
+            <th>建立時間</th>
+            <th style="width:280px;">操作</th>
           </tr>
         </thead>
         <tbody>
           ${_families.map((f) => `
             <tr data-uid="${escapeHtml(f.uid)}">
-              <td data-primary="1">${escapeHtml(f.name || '')}</td>
-              <td class="hide-mobile" data-label="Email" style="font-size:12px;">
+              <td>${escapeHtml(f.name || '')}</td>
+              <td style="font-size:12px;">
                 ${escapeHtml(f.ownerEmail || '—')}
               </td>
-              <td class="hide-mobile" data-label="UID" style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono); word-break:break-all;">
+              <td style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono); word-break:break-all;">
                 ${escapeHtml(f.uid)}
               </td>
-              <td class="hide-mobile" data-label="建立時間" style="font-size:11px; color:var(--text-muted);">
+              <td style="font-size:11px; color:var(--text-muted);">
                 ${f.createdAt > 0 ? new Date(f.createdAt).toLocaleString('zh-HK') : '—'}
               </td>
-              <td data-label="操作">
-                <button class="btn btn-sm btn-primary" data-action="enter" data-uid="${escapeHtml(f.uid)}">進入</button>
-                <button class="btn btn-sm btn-ghost" data-action="init" data-uid="${escapeHtml(f.uid)}">初始化</button>
-                <button class="btn btn-sm btn-danger" data-action="delete" data-uid="${escapeHtml(f.uid)}">刪除</button>
+              <td>
+                <button type="button" class="btn btn-sm btn-primary" data-action="enter" data-uid="${escapeHtml(f.uid)}">進入</button>
+                <button type="button" class="btn btn-sm btn-ghost" data-action="accounts" data-uid="${escapeHtml(f.uid)}">
+                  <i data-lucide="users" style="width:12px;height:12px;"></i> 帳號
+                </button>
+                <button type="button" class="btn btn-sm btn-ghost" data-action="init" data-uid="${escapeHtml(f.uid)}">初始化</button>
+                <button type="button" class="btn btn-sm btn-danger" data-action="delete" data-uid="${escapeHtml(f.uid)}">刪除</button>
               </td>
             </tr>
           `).join('')}
@@ -262,6 +276,11 @@ function _bindFamilyListEvents() {
         if (family) {
           AppState.setFamily(uid, family.name || '');
           window.location.href = 'index.html';
+        }
+        break;
+      case 'accounts':
+        if (family) {
+          await _openAccountModal(uid, family.name || uid);
         }
         break;
       case 'init':
@@ -322,23 +341,429 @@ async function _handleDelete(uid, family) {
 }
 
 /* ============================================
+   🆕 v101.8.0：帳號管理 Modal
+   ============================================ */
+async function _openAccountModal(familyId, familyName) {
+  _accountModalFamilyId = familyId;
+  _accountModalFamilyName = familyName;
+
+  // 移除舊 Modal
+  document.getElementById(ACCOUNT_MODAL_ID)?.remove();
+
+  // 建立 Modal
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay active';
+  overlay.id = ACCOUNT_MODAL_ID;
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:720px; max-height:90vh; overflow-y:auto;">
+      <h2 class="modal-title">
+        <i data-lucide="users" style="width:18px;height:18px;"></i>
+        家庭成員帳號 — ${escapeHtml(familyName)}
+      </h2>
+
+      <div class="banner" style="margin-bottom:16px;">
+        ℹ️ 每個帳號可獨立登入，共用同一份家庭資料。
+        「可輸入」控制該帳號是否能新增 / 編輯 / 刪除資料。
+      </div>
+
+      <!-- 新增帳號表單 -->
+      <div class="glass-card" style="margin-bottom:16px; padding:16px;">
+        <div style="font-size:13px; font-weight:600; color:var(--neon-cyan); margin-bottom:12px;">
+          <i data-lucide="user-plus" style="width:14px;height:14px;"></i>
+          新增成員帳號
+        </div>
+        <div id="${ACCOUNT_FORM_ROOT_ID}"></div>
+      </div>
+
+      <!-- 帳號清單 -->
+      <div class="glass-card" style="padding:0;">
+        <div class="collapsible-header" style="padding:12px 16px;">
+          <div class="collapsible-header-title">
+            <i data-lucide="list" style="width:14px;height:14px;"></i>
+            <span>帳號清單 <span class="text-muted" id="admin-account-count" style="font-size:12px;"></span></span>
+          </div>
+        </div>
+        <div id="admin-account-list" style="padding:0;"></div>
+      </div>
+
+      <div class="modal-actions" style="margin-top:16px;">
+        <button type="button" class="btn btn-ghost" data-action="close">關閉</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // 關閉事件
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      closeModal(ACCOUNT_MODAL_ID);
+    }
+    const closeBtn = e.target.closest('button[data-action="close"]');
+    if (closeBtn) closeModal(ACCOUNT_MODAL_ID);
+  });
+
+  // 建立新增表單
+  _renderAccountForm();
+
+  // 載入帳號清單
+  await _loadFamilyAccounts();
+
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function _renderAccountForm() {
+  const formRoot = document.getElementById(ACCOUNT_FORM_ROOT_ID);
+  if (!formRoot) return;
+
+  formRoot.innerHTML = '';
+
+  _accountModalFormApi = buildForm({
+    containerId: ACCOUNT_FORM_ROOT_ID,
+    fields: [
+      {
+        type: 'text',
+        id: 'acc-account',
+        label: '帳號（英文 / 數字）',
+        required: true,
+        maxlength: 30,
+        placeholder: '例如：wife',
+        hint: '系統會自動補 @familyfin.local',
+      },
+      {
+        type: 'text',
+        id: 'acc-password',
+        label: '密碼',
+        required: true,
+        maxlength: 60,
+        placeholder: '至少 6 位',
+      },
+      {
+        type: 'text',
+        id: 'acc-displayname',
+        label: '顯示名稱',
+        required: true,
+        maxlength: 30,
+        placeholder: '例如：媽媽',
+      },
+      {
+        type: 'select',
+        id: 'acc-role',
+        label: '角色',
+        required: true,
+        includeEmpty: false,
+        options: [
+          { value: 'member', label: '成員（一般）' },
+          { value: 'owner',  label: '擁有者（owner）' },
+        ],
+        defaultValue: 'member',
+      },
+      {
+        type: 'select',
+        id: 'acc-caninput',
+        label: '可輸入',
+        required: true,
+        includeEmpty: false,
+        options: [
+          { value: 'true',  label: '可輸入（可新增 / 編輯 / 刪除）' },
+          { value: 'false', label: '唯讀（僅可查看）' },
+        ],
+        defaultValue: 'true',
+      },
+    ],
+    submitText: '新增帳號',
+    showCancel: false,
+    showReset: true,
+    resetText: '重置',
+    beforeSubmit: _validateAccountForm,
+    onSubmit: _handleCreateAccount,
+  });
+}
+
+function _validateAccountForm(data) {
+  const account = (data['acc-account'] || '').trim().toLowerCase();
+  const password = (data['acc-password'] || '');
+  const displayName = (data['acc-displayname'] || '').trim();
+
+  if (!account) return { field: 'acc-account', message: '請填寫帳號' };
+  if (!/^[a-z0-9._-]+$/.test(account)) {
+    return { field: 'acc-account', message: '帳號只能包含小寫英數字、點、底線、連字號' };
+  }
+  if (!password || password.length < 6) {
+    return { field: 'acc-password', message: '密碼至少 6 位' };
+  }
+  if (!displayName) return { field: 'acc-displayname', message: '請填寫顯示名稱' };
+
+  return true;
+}
+
+async function _handleCreateAccount(data) {
+  const account = (data['acc-account'] || '').trim().toLowerCase();
+  const password = data['acc-password'] || '';
+  const displayName = (data['acc-displayname'] || '').trim();
+  const role = data['acc-role'] || 'member';
+  const canInput = data['acc-caninput'] === 'true';
+
+  try {
+    await api.familyAccounts.create(_accountModalFamilyId, {
+      account,
+      password,
+      displayName,
+      role,
+      canInput,
+    });
+
+    showToast(`✅ 已建立帳號「${account}」`, 'success');
+    _accountModalFormApi?.reset();
+    await _loadFamilyAccounts();
+  } catch (err) {
+    showToast('建立失敗：' + err.message, 'error');
+  }
+}
+
+/* ============================================
+   載入帳號清單
+   ============================================ */
+async function _loadFamilyAccounts() {
+  const listEl = document.getElementById('admin-account-list');
+  const countEl = document.getElementById('admin-account-count');
+  if (!listEl) return;
+
+  listEl.innerHTML = '<div class="empty-state">載入中…</div>';
+
+  try {
+    const result = await api.familyAccounts.list(_accountModalFamilyId);
+    const accounts = result.accounts || [];
+
+    if (countEl) countEl.textContent = `（共 ${accounts.length} 個）`;
+
+    if (accounts.length === 0) {
+      listEl.innerHTML = '<div class="empty-state" style="padding:20px;">尚無成員帳號</div>';
+      return;
+    }
+
+    listEl.innerHTML = `
+      <div style="overflow-x:auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>顯示名稱</th>
+              <th>帳號</th>
+              <th>角色</th>
+              <th>可輸入</th>
+              <th style="width:160px;">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${accounts.map((a) => _renderAccountRow(a)).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    _bindAccountListEvents();
+
+    if (window.lucide) window.lucide.createIcons();
+  } catch (err) {
+    console.error('[admin] 載入帳號清單失敗：', err);
+    listEl.innerHTML = `<div class="empty-state text-red">載入失敗：${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function _renderAccountRow(a) {
+  const roleLabel = a.role === 'owner' ? '👑 擁有者' : '一般成員';
+  const canInputBadge = a.canInput
+    ? '<span class="badge badge-success">可輸入</span>'
+    : '<span class="badge badge-muted">唯讀</span>';
+  const isOwner = a.role === 'owner';
+
+  return `
+    <tr data-uid="${escapeHtml(a.id)}">
+      <td style="font-weight:500;">${escapeHtml(a.displayName || '—')}</td>
+      <td class="mono" style="font-size:12px;">${escapeHtml(a.account || '—')}</td>
+      <td style="font-size:12px;">${roleLabel}</td>
+      <td>${canInputBadge}</td>
+      <td>
+        <button type="button" class="btn btn-sm btn-ghost" data-acc-action="edit" data-uid="${escapeHtml(a.id)}">
+          <i data-lucide="pencil" style="width:12px;height:12px;"></i> 編輯
+        </button>
+        ${isOwner ? '' : `
+          <button type="button" class="btn btn-sm btn-danger" data-acc-action="delete" data-uid="${escapeHtml(a.id)}">
+            <i data-lucide="trash-2" style="width:12px;height:12px;"></i> 移除
+          </button>
+        `}
+      </td>
+    </tr>
+  `;
+}
+
+/* ============================================
+   帳號清單事件
+   ============================================ */
+function _bindAccountListEvents() {
+  const listEl = document.getElementById('admin-account-list');
+  if (!listEl) return;
+
+  // 移除舊監聽器（若有）
+  if (_accountListHandler) {
+    listEl.removeEventListener('click', _accountListHandler);
+  }
+
+  _accountListHandler = async (e) => {
+    const btn = e.target.closest('button[data-acc-action]');
+    if (!btn) return;
+
+    const uid = btn.dataset.uid;
+    const action = btn.dataset.accAction;
+
+    if (action === 'edit') {
+      await _openEditAccountModal(uid);
+    } else if (action === 'delete') {
+      await _handleRemoveAccount(uid);
+    }
+  };
+
+  listEl.addEventListener('click', _accountListHandler);
+}
+
+/* ============================================
+   編輯帳號 Modal
+   ============================================ */
+async function _openEditAccountModal(uid) {
+  // 先找到該帳號資料
+  let accounts = [];
+  try {
+    const result = await api.familyAccounts.list(_accountModalFamilyId);
+    accounts = result.accounts || [];
+  } catch (err) {
+    showToast('載入帳號失敗：' + err.message, 'error');
+    return;
+  }
+
+  const account = accounts.find((a) => a.id === uid);
+  if (!account) {
+    showToast('找不到此帳號', 'error');
+    return;
+  }
+
+  // 移除舊 Modal
+  document.getElementById(ACCOUNT_EDIT_MODAL_ID)?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay active';
+  overlay.id = ACCOUNT_EDIT_MODAL_ID;
+  overlay.style.zIndex = '1100';   // 高於帳號管理 Modal
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:480px;">
+      <h2 class="modal-title">編輯成員帳號</h2>
+      <div id="${ACCOUNT_EDIT_FORM_ROOT_ID}"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeModal(ACCOUNT_EDIT_MODAL_ID);
+  });
+
+  const isOwner = account.role === 'owner';
+
+  _accountEditFormApi = buildForm({
+    containerId: ACCOUNT_EDIT_FORM_ROOT_ID,
+    fields: [
+      {
+        type: 'custom',
+        id: 'info',
+        html: `
+          <div class="glass-card-hint" style="margin-bottom:12px;">
+            帳號：<b class="mono">${escapeHtml(account.account)}</b>
+            ${isOwner ? '<br><span style="color:var(--neon-orange);">⚠️ 擁有者帳號不可降級或移除</span>' : ''}
+          </div>
+        `,
+      },
+      {
+        type: 'text',
+        id: 'edit-displayname',
+        label: '顯示名稱',
+        required: true,
+        maxlength: 30,
+      },
+      {
+        type: 'select',
+        id: 'edit-role',
+        label: '角色',
+        required: true,
+        includeEmpty: false,
+        options: isOwner
+          ? [{ value: 'owner', label: '擁有者（不可變更）' }]
+          : [
+              { value: 'member', label: '成員（一般）' },
+            ],
+        defaultValue: account.role,
+      },
+      {
+        type: 'select',
+        id: 'edit-caninput',
+        label: '可輸入',
+        required: true,
+        includeEmpty: false,
+        options: [
+          { value: 'true',  label: '可輸入（可新增 / 編輯 / 刪除）' },
+          { value: 'false', label: '唯讀（僅可查看）' },
+        ],
+        defaultValue: account.canInput ? 'true' : 'false',
+      },
+    ],
+    submitText: '儲存',
+    showCancel: true,
+    cancelText: '取消',
+    onSubmit: async (data) => {
+      try {
+        await api.familyAccounts.update(_accountModalFamilyId, uid, {
+          displayName: data['edit-displayname'],
+          role: data['edit-role'],
+          canInput: data['edit-caninput'] === 'true',
+        });
+        showToast('✅ 已更新帳號', 'success');
+        closeModal(ACCOUNT_EDIT_MODAL_ID);
+        await _loadFamilyAccounts();
+      } catch (err) {
+        showToast('更新失敗：' + err.message, 'error');
+      }
+    },
+    onCancel: () => closeModal(ACCOUNT_EDIT_MODAL_ID),
+  });
+
+  openModal(ACCOUNT_EDIT_MODAL_ID);
+  if (window.lucide) window.lucide.createIcons();
+}
+
+/* ============================================
+   移除帳號
+   ============================================ */
+async function _handleRemoveAccount(uid) {
+  const ok = await openConfirm(
+    `⚠️ 確定要移除此成員帳號嗎？\n\n注意：\n• 只會移除「登入帳號」\n• 不會刪除該成員的財務資料\n• 不會刪除 Firebase Auth 帳號\n• 該成員將無法再登入系統`,
+    { title: '移除帳號', okText: '移除', okClass: 'btn-danger' }
+  );
+  if (!ok) return;
+
+  try {
+    await api.familyAccounts.remove(_accountModalFamilyId, uid);
+    showToast('✅ 已移除帳號', 'success');
+    await _loadFamilyAccounts();
+  } catch (err) {
+    showToast('移除失敗：' + err.message, 'error');
+  }
+}
+
+/* ============================================
    銷毀
    ============================================ */
 function _destroy() {
-  if (_tabPanel) {
-    try { _tabPanel.destroy(); } catch (e) { /* noop */ }
-    _tabPanel = null;
-  }
-  if (_familyInputApi) {
-    try { _familyInputApi.destroy(); } catch (e) { /* noop */ }
-    _familyInputApi = null;
-  }
-  if (_defaultsInstance) {
-    try { _defaultsInstance.destroy?.(); } catch (e) { /* noop */ }
-    _defaultsInstance = null;
-  }
+  if (_tabPanel) { try { _tabPanel.destroy(); } catch (e) {} _tabPanel = null; }
+  if (_familyInputApi) { try { _familyInputApi.destroy(); } catch (e) {} _familyInputApi = null; }
+  if (_defaultsInstance) { try { _defaultsInstance.destroy?.(); } catch (e) {} _defaultsInstance = null; }
+
   if (_logoutHandler) {
-    // 🆕 v101.6.6：改用 admin-logout-btn
     document.getElementById('admin-logout-btn')?.removeEventListener('click', _logoutHandler);
     _logoutHandler = null;
   }
@@ -346,4 +771,13 @@ function _destroy() {
     document.getElementById('admin-family-list')?.removeEventListener('click', _familyListHandler);
     _familyListHandler = null;
   }
+  if (_accountListHandler) {
+    document.getElementById('admin-account-list')?.removeEventListener('click', _accountListHandler);
+    _accountListHandler = null;
+  }
+  if (_accountModalFormApi) { try { _accountModalFormApi.destroy(); } catch (e) {} _accountModalFormApi = null; }
+  if (_accountEditFormApi) { try { _accountEditFormApi.destroy(); } catch (e) {} _accountEditFormApi = null; }
+
+  document.getElementById(ACCOUNT_MODAL_ID)?.remove();
+  document.getElementById(ACCOUNT_EDIT_MODAL_ID)?.remove();
 }

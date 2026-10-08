@@ -1,10 +1,11 @@
 // ============================================
-// navbar.js — 頂部導覽列（v101.2）
+// navbar.js — 頂部導覽列（v101.8.0）
 // 位置：js/shared/navbar.js
 // ============================================
-// v101.2 修正：
-//   ✅ 事件處理改為「只在點 backdrop 本身時關閉」
-//   ✅ 加入 closest 判斷，避免點 sidebar 內部被攔截
+// v101.8.0 修正：
+//   ✅ 顯示登入者 displayName（若存在），fallback 到帳號名稱
+//   ✅ 顯示角色標籤（owner / member / superadmin）
+//   ✅ 唯讀帳號加「唯讀」badge
 // ============================================
 
 import { AppState } from '../core/state.js';
@@ -13,6 +14,8 @@ import { STORAGE_KEYS } from '../config/constants.js';
 
 let _eventBound = false;
 let _unsubscribeUserChange = null;
+let _unsubscribeFamilyChange = null;
+let _unsubscribeMemberAccountChange = null;
 
 /**
  * 渲染頂部導覽列
@@ -31,7 +34,7 @@ export function renderNavbar(containerId = 'navbar-root', title = '') {
     : '';
 
   root.innerHTML = `
-    <button class="hamburger" id="hamburger-btn" aria-label="切換選單">
+    <button type="button" class="hamburger" id="hamburger-btn" aria-label="切換選單">
       <i data-lucide="menu"></i>
     </button>
     <div class="navbar-title">${title || ''}</div>
@@ -48,7 +51,7 @@ export function renderNavbar(containerId = 'navbar-root', title = '') {
 }
 
 /* ============================================
-   使用者資訊
+   使用者資訊（🆕 v101.8.0）
    ============================================ */
 function _renderUserInfo() {
   const box = document.getElementById('navbar-user');
@@ -60,11 +63,44 @@ function _renderUserInfo() {
     return;
   }
 
-  const name = getDisplayName(user);
+  // 🆕 v101.8.0：優先使用 displayName，fallback 到帳號名稱
+  const displayName = AppState.getDisplayName() || getDisplayName(user);
   const familyName = AppState.getFamilyName();
+  const role = AppState.getRole();
+  const canInput = AppState.getCanInput();
+
   const familyTag = familyName ? ` · ${familyName}` : '';
 
-  box.innerHTML = `<span class="mono" style="font-size:12px; color:var(--text-muted); margin-right:10px;">👤 ${name}${familyTag}</span>`;
+  // 🆕 v101.8.0：角色標籤
+  let roleBadge = '';
+  if (role === 'superadmin') {
+    roleBadge = ' <span class="badge badge-magenta" style="font-size:10px;">超級管理員</span>';
+  } else if (role === 'owner') {
+    roleBadge = ' <span class="badge badge-info" style="font-size:10px;">👑</span>';
+  } else if (role === 'member') {
+    roleBadge = ' <span class="badge badge-muted" style="font-size:10px;">成員</span>';
+  }
+
+  // 🆕 v101.8.0：唯讀標記
+  const readonlyBadge = (!canInput && role !== 'superadmin')
+    ? ' <span class="badge badge-pending" style="font-size:10px;">唯讀</span>'
+    : '';
+
+  box.innerHTML = `
+    <span class="mono" style="font-size:12px; color:var(--text-muted); margin-right:10px;">
+      👤 ${_escape(displayName)}${familyTag}${roleBadge}${readonlyBadge}
+    </span>
+  `;
+}
+
+function _escape(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[c]));
 }
 
 /* ============================================
@@ -89,29 +125,29 @@ function _bindGlobalEvents() {
     /* ---------- 3. 點 sidebar 內部的連結 → 讓它自然跳轉 ---------- */
     const navLink = e.target.closest('.sidebar .nav-item');
     if (navLink) {
-      // 手機版：點擊後關閉 sidebar（但不阻止跳轉）
       if (window.innerWidth < 640) {
         _closeMobileSidebar();
       }
-      // 不 stopPropagation，讓 <a> 的預設跳轉繼續
       return;
     }
 
     /* ---------- 4. 點 sidebar 群組標題 → 由 sidebar.js 處理 ---------- */
     const groupToggle = e.target.closest('[data-group-toggle]');
     if (groupToggle) {
-      // 群組展開由 sidebar.js 的 document listener 處理
-      // 這裡不做事，避免衝突
       return;
     }
   });
 
   /* ---------- 監聽使用者變更 ---------- */
-  if (_unsubscribeUserChange) {
-    try { _unsubscribeUserChange(); } catch (err) { /* noop */ }
-  }
+  if (_unsubscribeUserChange) { try { _unsubscribeUserChange(); } catch (err) { /* noop */ } }
   _unsubscribeUserChange = AppState.on('user-change', () => _renderUserInfo());
-  AppState.on('family-change', () => _renderUserInfo());
+
+  if (_unsubscribeFamilyChange) { try { _unsubscribeFamilyChange(); } catch (err) { /* noop */ } }
+  _unsubscribeFamilyChange = AppState.on('family-change', () => _renderUserInfo());
+
+  // 🆕 v101.8.0：監聽 memberAccount 變更
+  if (_unsubscribeMemberAccountChange) { try { _unsubscribeMemberAccountChange(); } catch (err) { /* noop */ } }
+  _unsubscribeMemberAccountChange = AppState.on('member-account-change', () => _renderUserInfo());
 }
 
 /* ============================================
@@ -122,15 +158,10 @@ function _toggleSidebar() {
   if (!sidebar) return;
 
   if (window.innerWidth < 640) {
-    // 手機版
     const isOpen = sidebar.classList.contains('mobile-open');
-    if (isOpen) {
-      _closeMobileSidebar();
-    } else {
-      _openMobileSidebar();
-    }
+    if (isOpen) _closeMobileSidebar();
+    else _openMobileSidebar();
   } else {
-    // 桌面版：摺疊
     sidebar.classList.toggle('collapsed');
     try {
       localStorage.setItem(
@@ -146,7 +177,6 @@ function _openMobileSidebar() {
   if (!sidebar) return;
   sidebar.classList.add('mobile-open');
 
-  // 確保 backdrop 存在
   let backdrop = document.querySelector('.sidebar-backdrop');
   if (!backdrop) {
     backdrop = document.createElement('div');
@@ -177,8 +207,7 @@ export function refreshNavbarUser() {
 }
 
 export function destroyNavbar() {
-  if (_unsubscribeUserChange) {
-    try { _unsubscribeUserChange(); } catch (err) { /* noop */ }
-    _unsubscribeUserChange = null;
-  }
+  if (_unsubscribeUserChange) { try { _unsubscribeUserChange(); } catch (err) { /* noop */ } _unsubscribeUserChange = null; }
+  if (_unsubscribeFamilyChange) { try { _unsubscribeFamilyChange(); } catch (err) { /* noop */ } _unsubscribeFamilyChange = null; }
+  if (_unsubscribeMemberAccountChange) { try { _unsubscribeMemberAccountChange(); } catch (err) { /* noop */ } _unsubscribeMemberAccountChange = null; }
 }

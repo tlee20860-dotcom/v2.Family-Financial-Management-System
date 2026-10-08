@@ -1,12 +1,11 @@
 // ============================================
-// recent-list.js — 輸入中心：最近 20 筆（v101.7.1）
+// recent-list.js — 輸入中心：最近 20 筆（v101.8.0）
 // 位置：js/pages/input-center/recent-list.js
 // ============================================
-// v101.7.1 修正：
-//   ✅ [成員顯示] _memberName() 補上 RESERVED_IDS.SHARED_MEMBER 處理
-//       - memberId === 'shared' → 「家庭共用」
-//       - 與 settlements/render.js 的 getMemberName 邏輯對齊
-//   ✅ 保留 v101.7.0 全部功能（雙模式 + 可摺疊）
+// v101.8.0 修正：
+//   ✅ 依 AppState.canInput 隱藏編輯 / 刪除按鈕
+//   ✅ 唯讀模式下卡片 footer 不顯示
+//   ✅ 保留 v101.7.1 成員顯示修正
 // ============================================
 
 import {
@@ -18,6 +17,7 @@ import {
 import { escapeHtml, formatHKD, setText } from '../../core/utils.js';
 import { getStatusesByCategory } from '../../config/app-config.js';
 import { RESERVED_IDS, LIMITS } from '../../config/constants.js';
+import { AppState } from '../../core/state.js';
 import { showToast } from '../../shared/toast.js';
 import { openModal, closeModal, openConfirm } from '../../shared/modal.js';
 import { buildForm } from '../../shared/form-builder.js';
@@ -29,7 +29,6 @@ let _expenses = [];
 let _incomes = [];
 let _members = [];
 let _membersMap = {};
-let _items = [];
 
 let _viewToggle = null;
 let _tableApi = null;
@@ -135,6 +134,9 @@ function _renderTable(contentEl, limited, totalCount) {
     <div id="recent-list-table-root"></div>
   `;
 
+  // 🆕 v101.8.0：依 canInput 決定是否提供編輯 / 刪除
+  const userCanInput = AppState.getCanInput();
+
   _tableApi = renderDataTable({
     container: 'recent-list-table-root',
     entityKey: '__recent__',
@@ -174,10 +176,13 @@ function _renderTable(contentEl, limited, totalCount) {
       `,
     },
     hooks: {
-      customActions: (row) => [
-        { label: '編輯', icon: 'pencil', className: 'btn-ghost', action: 'edit-row', onClick: (r) => _handleEdit(r) },
-        { label: '刪除', icon: 'trash-2', className: 'btn-danger', action: 'delete-row', onClick: (r) => _handleDelete(r) },
-      ],
+      // 🆕 v101.8.0：依 canInput 決定是否提供操作按鈕
+      customActions: userCanInput
+        ? (row) => [
+            { label: '編輯', icon: 'pencil', className: 'btn-ghost', action: 'edit-row', onClick: (r) => _handleEdit(r) },
+            { label: '刪除', icon: 'trash-2', className: 'btn-danger', action: 'delete-row', onClick: (r) => _handleDelete(r) },
+          ]
+        : () => [],
     },
   });
 
@@ -217,6 +222,19 @@ function _renderCards(contentEl, limited, totalCount) {
 function _renderCard(it) {
   const memberName = _memberName(it.memberId);
   const amountCls = it.type === 'income' ? 'text-emerald' : 'text-red';
+  // 🆕 v101.8.0：依 canInput 決定是否顯示按鈕
+  const userCanInput = AppState.getCanInput();
+
+  const actionsHtml = userCanInput ? `
+    <div style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.08); display:flex; gap:8px; justify-content:flex-end;">
+      <button type="button" class="btn btn-sm btn-ghost" data-action="edit-row" data-key="${escapeHtml(it.id)}">
+        <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
+      </button>
+      <button type="button" class="btn btn-sm btn-danger" data-action="delete-row" data-key="${escapeHtml(it.id)}">
+        <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
+      </button>
+    </div>
+  ` : '';
 
   return `
     <div class="glass-card" style="padding:14px;">
@@ -232,14 +250,7 @@ function _renderCard(it) {
         <div style="display:flex; justify-content:space-between;"><span class="text-muted">成員</span><span>${escapeHtml(memberName)}</span></div>
         ${it.date ? `<div style="display:flex; justify-content:space-between;"><span class="text-muted">日期</span><span class="mono">${escapeHtml(it.date)}</span></div>` : ''}
       </div>
-      <div style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.08); display:flex; gap:8px; justify-content:flex-end;">
-        <button type="button" class="btn btn-sm btn-ghost" data-action="edit-row" data-key="${escapeHtml(it.id)}">
-          <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
-        </button>
-        <button type="button" class="btn btn-sm btn-danger" data-action="delete-row" data-key="${escapeHtml(it.id)}">
-          <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
-        </button>
-      </div>
+      ${actionsHtml}
     </div>
   `;
 }
@@ -277,25 +288,23 @@ function _mergeItems() {
   return items;
 }
 
-/* ============================================
-   🆕 v101.7.1：成員名稱（含家庭共用 / 額外收入）
-   ============================================ */
 function _memberName(memberId) {
   if (memberId === RESERVED_IDS.EXTRA_INCOME) return '額外收入';
-  // 🆕 v101.7.1：與 settlements/render.js 對齊
   if (memberId === RESERVED_IDS.SHARED_MEMBER) return '家庭共用';
   return _membersMap[memberId] || '（未知）';
 }
 
 /* ============================================
-   編輯 / 刪除處理
+   編輯 / 刪除處理（僅 canInput 時可呼叫）
    ============================================ */
 async function _handleEdit(row) {
+  if (!AppState.getCanInput()) return;
   if (row.type === 'expense') _openEditExpenseModal(row);
   else if (row.type === 'income') _openEditIncomeModal(row);
 }
 
 async function _handleDelete(row) {
+  if (!AppState.getCanInput()) return;
   if (row.type === 'expense') _deleteExpense(row);
   else if (row.type === 'income') _deleteIncome(row);
 }

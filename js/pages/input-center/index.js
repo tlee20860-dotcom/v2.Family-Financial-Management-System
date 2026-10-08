@@ -1,12 +1,11 @@
 // ============================================
-// index.js — 綜合輸入中心入口（v101.6.4）
+// index.js — 綜合輸入中心入口（v101.8.0）
 // 位置：js/pages/input-center/index.js
 // ============================================
-// v101.6.4 重寫：
-//   ✅ 上方按鈕列（5 個新增按鈕）
-//   ✅ 下方 4 個 Tab：支出 / 保險 / 基金 / 銀行
-//   ✅ 點擊 Tab 才載入對應資料（懶載入）
-//   ✅ 廢除「最近新增 + 保單/基金/銀行」的雙區塊設計
+// v101.8.0 修正：
+//   ✅ 依 AppState.canInput 隱藏上方 5 個按鈕
+//   ✅ 唯讀模式下顯示提示 banner
+//   ✅ 保留 v101.6.4 全部功能（4 Tab / lazy load）
 // ============================================
 
 import { initTabPanel } from '../../shared/tab-panel.js';
@@ -60,7 +59,6 @@ export async function initInputCenterPage() {
   _renderSkeleton();
   _bindButtons();
 
-  // 初始化 Tab Panel
   _tabPanel = initTabPanel({
     containerId: 'ic-tab-bar-root',
     tabs: TABS,
@@ -69,7 +67,6 @@ export async function initInputCenterPage() {
     onChange: (key) => _activateTab(key),
   });
 
-  // 初次載入預設 Tab
   if (_tabPanel) {
     await _activateTab(_tabPanel.getCurrent());
   }
@@ -87,30 +84,39 @@ export async function initInputCenterPage() {
    骨架
    ============================================ */
 function _renderSkeleton() {
-  _container.innerHTML = `
-    <!-- 上方按鈕列 -->
+  // 🆕 v101.8.0：依 canInput 決定是否顯示新增按鈕
+  const userCanInput = AppState.getCanInput();
+
+  const buttonsHtml = userCanInput ? `
     <div class="flex flex-wrap gap-8 mb-20" id="ic-buttons-root">
-      <button class="btn btn-primary" data-action="add-expense">
+      <button type="button" class="btn btn-primary" data-action="add-expense">
         <i data-lucide="plus"></i> 新增支出
       </button>
-      <button class="btn btn-primary" data-action="add-income">
+      <button type="button" class="btn btn-primary" data-action="add-income">
         <i data-lucide="plus"></i> 新增收入
       </button>
-      <button class="btn btn-primary" data-action="add-policy">
+      <button type="button" class="btn btn-primary" data-action="add-policy">
         <i data-lucide="plus"></i> 新增保單
       </button>
-      <button class="btn btn-primary" data-action="add-fund">
+      <button type="button" class="btn btn-primary" data-action="add-fund">
         <i data-lucide="plus"></i> 新增基金
       </button>
-      <button class="btn btn-primary" data-action="add-bank-balance">
+      <button type="button" class="btn btn-primary" data-action="add-bank-balance">
         <i data-lucide="plus"></i> 新增銀行結餘
       </button>
     </div>
+  ` : `
+    <div class="banner mb-20" style="border-color:rgba(251,146,60,0.3); background:rgba(251,146,60,0.06); color:var(--neon-orange);">
+      <i data-lucide="lock" style="width:14px;height:14px;"></i>
+      目前為唯讀模式，僅可檢視資料。如需輸入權限請聯繫管理員。
+    </div>
+  `;
 
-    <!-- Tab 列 -->
+  _container.innerHTML = `
+    ${buttonsHtml}
+
     <div id="ic-tab-bar-root" class="mb-16"></div>
 
-    <!-- Tab 面板 -->
     <div id="ic-panel-expense"   class="tab-panel" style="display:none;"></div>
     <div id="ic-panel-insurance" class="tab-panel" style="display:none;"></div>
     <div id="ic-panel-fund"      class="tab-panel" style="display:none;"></div>
@@ -125,7 +131,7 @@ function _renderSkeleton() {
    ============================================ */
 function _bindButtons() {
   const root = document.getElementById('ic-buttons-root');
-  if (!root) return;
+  if (!root) return;   // 唯讀模式無此容器
 
   root.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-action]');
@@ -159,13 +165,11 @@ async function _activateTab(key) {
   const tabDef = TABS.find((t) => t.key === key);
   if (!tabDef) return;
 
-  // 已初始化 → 只 refresh
   if (_tabInstances[key]) {
     try { _tabInstances[key].refresh?.(); } catch (e) { /* noop */ }
     return;
   }
 
-  // 首次初始化
   try {
     const instance = await _initTabModule(key, tabDef.panelId);
     _tabInstances[key] = instance;
@@ -206,6 +210,8 @@ async function _initTabModule(key, containerId) {
    新增支出 Modal
    ============================================ */
 async function _openAddExpenseModal() {
+  if (!AppState.getCanInput()) return;
+
   const MODAL_ID = 'ic-add-expense-modal';
   _destroyModal(MODAL_ID);
 
@@ -224,7 +230,7 @@ async function _openAddExpenseModal() {
   ];
   const defaultStatus = getDefaultStatus('personal');
 
-  const overlay = _createModal(MODAL_ID, '新增支出');
+  _createModal(MODAL_ID, '新增支出');
   const formApi = buildForm({
     containerId: `${MODAL_ID}-form-root`,
     fields: [
@@ -261,7 +267,6 @@ async function _openAddExpenseModal() {
     onCancel: () => closeModal(MODAL_ID),
   });
 
-  // 類別 → 項目連動
   formApi.onFieldChange('category', async () => {
     const catId = formApi.getFieldValue('category');
     const items = await _getItemsByCategory(catId);
@@ -271,7 +276,6 @@ async function _openAddExpenseModal() {
     });
   });
 
-  // 載入類別 / 支付方式
   _populateExpenseForm(formApi);
 
   openModal(MODAL_ID);
@@ -282,6 +286,8 @@ async function _openAddExpenseModal() {
    新增收入 Modal
    ============================================ */
 async function _openAddIncomeModal() {
+  if (!AppState.getCanInput()) return;
+
   const MODAL_ID = 'ic-add-income-modal';
   _destroyModal(MODAL_ID);
 
@@ -315,8 +321,8 @@ async function _openAddIncomeModal() {
     placeholder: '0',
   });
 
-  const overlay = _createModal(MODAL_ID, '新增收入');
-  const formApi = buildForm({
+  _createModal(MODAL_ID, '新增收入');
+  buildForm({
     containerId: `${MODAL_ID}-form-root`,
     fields,
     submitText: '儲存收入',
@@ -347,6 +353,8 @@ async function _openAddIncomeModal() {
    新增銀行結餘 Modal
    ============================================ */
 async function _openAddBankBalanceModal() {
+  if (!AppState.getCanInput()) return;
+
   const MODAL_ID = 'ic-add-bank-modal';
   _destroyModal(MODAL_ID);
 
@@ -354,7 +362,7 @@ async function _openAddBankBalanceModal() {
   const curYear = ym.year || String(new Date().getFullYear());
   const curMonth = ym.month === 'all' ? '01' : (ym.month || '01');
 
-  const overlay = _createModal(MODAL_ID, '新增銀行結餘');
+  _createModal(MODAL_ID, '新增銀行結餘');
   const formApi = buildForm({
     containerId: `${MODAL_ID}-form-root`,
     fields: [

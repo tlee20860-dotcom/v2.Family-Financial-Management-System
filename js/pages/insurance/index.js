@@ -1,10 +1,12 @@
 // ============================================
-// index.js — 保險清單表入口（v101.6.6）
+// index.js — 保險清單表入口（v101.8.0）
 // 位置：js/pages/insurance/index.js
 // ============================================
-// v101.6.6 修正：
-//   ✅ [BUG-02] 刪除保單時使用 policyHolderId（非 memberId）
-//   ✅ 保留所有 v101.6 功能
+// v101.8.0 修正：
+//   ✅ 依 AppState.canInput 隱藏「新增保單」「同步所有支出」按鈕
+//   ✅ 空狀態「新增第一張保單」依 canInput 顯示
+//   ✅ 卡片 / 表格操作按鈕依 canInput（在 render.js 處理）
+//   ✅ 唯讀模式下顯示提示 banner
 // ============================================
 
 import {
@@ -53,6 +55,8 @@ const listenerGroup = createListenerGroup();
    主入口
    ============================================ */
 export async function initInsurancePage() {
+  const userCanInput = AppState.getCanInput();
+
   _viewToggle = initViewToggle({
     containerId: 'view-toggle-root',
     storageKey: 'insurance-view',
@@ -63,43 +67,51 @@ export async function initInsurancePage() {
     onChange: () => _render(),
   });
 
-  // 「同步所有支出」按鈕
-  _syncAllHandler = async () => {
-    const ok = await openConfirm('確定要重新同步所有保單的已扣款支出嗎？', {
-      title: '同步所有支出',
-      okText: '同步',
-      okClass: 'btn-magenta',
-    });
-    if (!ok) return;
-    try {
-      const { syncAllPolicyExpenses } = await import('./sync.js');
-      await syncAllPolicyExpenses(_policies, _paymentsCache);
-      showToast('✅ 已同步所有保單支出', 'success');
-    } catch (err) {
-      showToast('同步失敗：' + err.message, 'error');
-    }
-  };
-  document.getElementById('sync-all-btn')?.addEventListener('click', _syncAllHandler);
+  // 🆕 v101.8.0：依 canInput 決定是否綁定按鈕
+  if (userCanInput) {
+    // 「同步所有支出」按鈕
+    _syncAllHandler = async () => {
+      const ok = await openConfirm('確定要重新同步所有保單的已扣款支出嗎？', {
+        title: '同步所有支出',
+        okText: '同步',
+        okClass: 'btn-magenta',
+      });
+      if (!ok) return;
+      try {
+        const { syncAllPolicyExpenses } = await import('./sync.js');
+        await syncAllPolicyExpenses(_policies, _paymentsCache);
+        showToast('✅ 已同步所有保單支出', 'success');
+      } catch (err) {
+        showToast('同步失敗：' + err.message, 'error');
+      }
+    };
+    document.getElementById('sync-all-btn')?.addEventListener('click', _syncAllHandler);
 
-  // 「新增保單」按鈕
-  _addPolicyHandler = () => {
-    openEntityModal({
-      entity: ENTITY_KEYS.POLICY,
-      mode: 'add',
-      allRows: _policies,
-    });
-  };
-  document.getElementById('add-policy-btn')?.addEventListener('click', _addPolicyHandler);
+    // 「新增保單」按鈕
+    _addPolicyHandler = () => {
+      openEntityModal({
+        entity: ENTITY_KEYS.POLICY,
+        mode: 'add',
+        allRows: _policies,
+      });
+    };
+    document.getElementById('add-policy-btn')?.addEventListener('click', _addPolicyHandler);
 
-  // 空狀態「新增第一張保單」
-  _addFirstPolicyHandler = () => {
-    openEntityModal({
-      entity: ENTITY_KEYS.POLICY,
-      mode: 'add',
-      allRows: _policies,
-    });
-  };
-  document.getElementById('add-first-policy-btn')?.addEventListener('click', _addFirstPolicyHandler);
+    // 空狀態「新增第一張保單」
+    _addFirstPolicyHandler = () => {
+      openEntityModal({
+        entity: ENTITY_KEYS.POLICY,
+        mode: 'add',
+        allRows: _policies,
+      });
+    };
+    document.getElementById('add-first-policy-btn')?.addEventListener('click', _addFirstPolicyHandler);
+  } else {
+    // 🆕 唯讀：隱藏所有操作按鈕
+    document.getElementById('sync-all-btn')?.style.setProperty('display', 'none');
+    document.getElementById('add-policy-btn')?.style.setProperty('display', 'none');
+    document.getElementById('add-first-policy-btn')?.style.setProperty('display', 'none');
+  }
 
   // 綁定全域事件（展開 / 收合 / 恢復供款）
   bindGlobalListeners({
@@ -126,8 +138,10 @@ export async function initInsurancePage() {
   // 訂閱年月變更
   listenerGroup.add(AppState.on('ym-change', () => _reloadAndRender()));
 
-  // 綁定卡片 / 表格的編輯 / 刪除事件
-  _bindListActions();
+  // 綁定卡片 / 表格的編輯 / 刪除事件（僅 canInput 時）
+  if (userCanInput) {
+    _bindListActions();
+  }
 
   // 初次載入
   await _reloadAndRender();
@@ -190,7 +204,14 @@ function _render() {
   if (!cardEl || !tableEl) return;
 
   if (_enriched.length === 0) {
-    if (emptyEl) emptyEl.style.display = 'block';
+    if (emptyEl) {
+      emptyEl.style.display = 'block';
+      // 🆕 v101.8.0：唯讀模式下隱藏「新增第一張保單」按鈕
+      const addFirstBtn = document.getElementById('add-first-policy-btn');
+      if (addFirstBtn && !AppState.getCanInput()) {
+        addFirstBtn.style.display = 'none';
+      }
+    }
     cardEl.style.display = 'none';
     tableEl.style.display = 'none';
     if (window.lucide) window.lucide.createIcons();
@@ -252,9 +273,7 @@ function _renderStats(year) {
     },
   ];
 
-  if (_statsApi) {
-    try { _statsApi.destroy(); } catch (e) { /* noop */ }
-  }
+  if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} }
 
   _statsApi = renderStatsCards({
     container: 'insurance-stats-root',
@@ -264,13 +283,15 @@ function _renderStats(year) {
 }
 
 /* ============================================
-   卡片 / 表格的編輯 / 刪除事件
+   卡片 / 表格的編輯 / 刪除事件（僅 canInput 時綁定）
    ============================================ */
 function _bindListActions() {
   const cardEl = document.getElementById('insurance-card-view');
   const tableEl = document.getElementById('insurance-table-view');
 
   const handler = async (e) => {
+    if (!AppState.getCanInput()) return;
+
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
 
@@ -305,7 +326,7 @@ async function _handleDeletePolicy(policy) {
   if (!ok) return;
 
   try {
-    // 🆕 v101.6.6：使用 policyHolderId（非 memberId），與 insurance-sync 寫入路徑一致
+    // v101.6.6：使用 policyHolderId（非 memberId）
     const effectiveMemberId = policy.policyHolderId || policy.memberId;
     await deleteEntity(ENTITY_KEYS.POLICY, policy.id, effectiveMemberId);
     showToast('✅ 保單與相關紀錄已徹底刪除', 'success');
@@ -322,14 +343,9 @@ function _destroy() {
   try { unbindGlobalListeners(); } catch (e) { /* noop */ }
   listenerGroup.destroy();
 
-  if (_viewToggle) {
-    try { _viewToggle.destroy(); } catch (e) { /* noop */ }
-    _viewToggle = null;
-  }
-  if (_statsApi) {
-    try { _statsApi.destroy(); } catch (e) { /* noop */ }
-    _statsApi = null;
-  }
+  if (_viewToggle) { try { _viewToggle.destroy(); } catch (e) {} _viewToggle = null; }
+  if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} _statsApi = null; }
+
   if (_syncAllHandler) {
     document.getElementById('sync-all-btn')?.removeEventListener('click', _syncAllHandler);
     _syncAllHandler = null;

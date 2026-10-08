@@ -1,15 +1,17 @@
 // ============================================
-// entity-list-page.js — 實體列表頁骨架（v101.6.6）
+// entity-list-page.js — 實體列表頁骨架（v101.8.0）
 // 位置：js/shared/entity-list-page.js
 // ============================================
-// v101.6.6 修正：
-//   ✅ [BUG-02] policy 刪除使用 policyHolderId（非 memberId）
-//
-// API 凍結：v101.6 發布後只加不改
+// v101.8.0 修正：
+//   ✅ 依 AppState.canInput 隱藏「新增」按鈕
+//   ✅ 依 AppState.canInput 隱藏「編輯 / 刪除」按鈕
+//   ✅ 唯讀模式下，表格 / 卡片為純檢視
+//   ✅ 保留 v101.6.6 的 policy 刪除 extraArgs 修正
 // ============================================
 
 import { getEntityDef, getEntityUi } from '../config/entity-definitions.js';
 import { escapeHtml } from '../core/utils.js';
+import { AppState } from '../core/state.js';
 import { renderDataTable } from './data-table.js';
 import { renderDataCard } from './data-card.js';
 import { openEntityModal } from './entity-modal.js';
@@ -47,11 +49,17 @@ export function initEntityListPage(options) {
 
   const ui = getEntityUi(entity) || {};
   const {
-    canCreate = true,
-    canEdit = true,
-    canDelete = true,
+    canCreate: rawCanCreate = true,
+    canEdit: rawCanEdit = true,
+    canDelete: rawCanDelete = true,
     deleteConfirmText,
   } = ui;
+
+  // 🆕 v101.8.0：依 canInput 決定實際權限
+  const userCanInput = AppState.getCanInput();
+  const canCreate = rawCanCreate && userCanInput;
+  const canEdit = rawCanEdit && userCanInput;
+  const canDelete = rawCanDelete && userCanInput;
 
   const {
     defaultView = 'table',
@@ -85,15 +93,16 @@ export function initEntityListPage(options) {
      內部：渲染骨架
      ============================================ */
   function _renderSkeleton() {
+    // 🆕 v101.8.0：若無新增權限，隱藏 header 的新增按鈕
     const headerHtml = showHeader ? `
       <div class="entity-list-header flex flex-between items-center flex-wrap gap-12 mb-16">
         <div class="text-muted" style="font-size:13px;">
-          ${escapeHtml(def.label)}管理
+          ${escapeHtml(def.label)}管理${!userCanInput ? '（唯讀模式）' : ''}
         </div>
         <div class="flex items-center gap-8 flex-wrap">
           ${showViewToggle ? `<div id="${containerId}-view-toggle"></div>` : ''}
           ${canCreate ? `
-            <button class="btn btn-primary" id="${containerId}-add-btn">
+            <button type="button" class="btn btn-primary" id="${containerId}-add-btn">
               <i data-lucide="plus"></i> 新增${escapeHtml(def.label)}
             </button>
           ` : ''}
@@ -153,6 +162,8 @@ export function initEntityListPage(options) {
     if (_tableApi) { try { _tableApi.destroy(); } catch (e) {} _tableApi = null; }
     if (_cardApi) { try { _cardApi.destroy(); } catch (e) {} _cardApi = null; }
 
+    // 🆕 v101.8.0：傳遞 canEdit / canDelete 給 data-table / data-card
+    // 透過 entity-definitions 的 ui 已控制，但這裡用 hooks 覆寫更保險
     if (_currentView === 'card') {
       _cardApi = renderDataCard({
         container: contentEl,
@@ -161,8 +172,8 @@ export function initEntityListPage(options) {
         options: extraOptions,
         hooks: {
           ...hooks,
-          onEdit: _handleEdit,
-          onDelete: _handleDelete,
+          onEdit: canEdit ? _handleEdit : undefined,
+          onDelete: canDelete ? _handleDelete : undefined,
         },
       });
     } else {
@@ -174,17 +185,46 @@ export function initEntityListPage(options) {
         options: extraOptions,
         hooks: {
           ...hooks,
-          onEdit: _handleEdit,
-          onDelete: _handleDelete,
+          onEdit: canEdit ? _handleEdit : undefined,
+          onDelete: canDelete ? _handleDelete : undefined,
         },
       });
     }
+
+    // 🆕 v101.8.0：若為唯讀，移除操作欄的按鈕
+    if (!canEdit && !canDelete) {
+      _hideActionButtons(contentEl);
+    }
+  }
+
+  /**
+   * 🆕 v101.8.0：唯讀模式下隱藏所有編輯 / 刪除按鈕
+   */
+  function _hideActionButtons(contentEl) {
+    // 表格：隱藏 __actions__ 欄
+    contentEl.querySelectorAll('th').forEach((th) => {
+      if (th.textContent.trim() === '操作') {
+        th.style.display = 'none';
+      }
+    });
+    contentEl.querySelectorAll('td[data-label="操作"]').forEach((td) => {
+      td.style.display = 'none';
+    });
+
+    // 卡片：隱藏 footer
+    contentEl.querySelectorAll('.data-card-footer').forEach((footer) => {
+      if (footer.children.length === 0) {
+        footer.style.display = 'none';
+      }
+    });
   }
 
   /* ============================================
      內部：新增
      ============================================ */
   function _handleAdd() {
+    if (!canCreate) return;
+
     if (typeof hooks.onBeforeAdd === 'function') {
       const result = hooks.onBeforeAdd();
       if (result === false) return;
@@ -210,6 +250,8 @@ export function initEntityListPage(options) {
      內部：編輯
      ============================================ */
   function _handleEdit(row) {
+    if (!canEdit) return;
+
     if (typeof hooks.onBeforeEdit === 'function') {
       const result = hooks.onBeforeEdit(row);
       if (result === false) return;
@@ -245,14 +287,10 @@ export function initEntityListPage(options) {
     });
     if (!ok) return;
 
-    // 🆕 v101.6.6：policy 需傳 policyHolderId（與 insurance-sync 寫入路徑一致）
+    // policy 需傳 policyHolderId（v101.6.6 修正）
     let extraArgs = [];
     if (entity === 'policy') {
       extraArgs = [row.policyHolderId || row.memberId];
-    } else if (entity === 'member') {
-      extraArgs = [];
-    } else if (entity === 'bank') {
-      extraArgs = [];
     }
 
     if (typeof hooks.getDeleteArgs === 'function') {
@@ -271,24 +309,18 @@ export function initEntityListPage(options) {
   }
 
   /* ============================================
-     內部：刷新
+     內部：刷新 / 切換 / 銷毀
      ============================================ */
   function _refresh() {
     _renderContent();
   }
 
-  /* ============================================
-     內部：切換視圖
-     ============================================ */
   function _setView(view) {
     _currentView = view;
     if (_viewToggle) _viewToggle.setView(view);
     _renderContent();
   }
 
-  /* ============================================
-     內部：銷毀
-     ============================================ */
   function _destroy() {
     listenerGroup.destroy();
 
@@ -303,7 +335,6 @@ export function initEntityListPage(options) {
 /* ============================================
    便利函式
    ============================================ */
-
 export function initEntityListPages(configs = []) {
   return configs.map((cfg) => initEntityListPage(cfg));
 }
