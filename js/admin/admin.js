@@ -1,11 +1,11 @@
 // ============================================
-// admin.js — 平台管理入口（v101.8.2）
+// admin.js — 平台管理入口（v101.8.4）
 // 位置：js/admin/admin.js
 // ============================================
-// v101.8.2 修正：
-//   ✅ 復原 Modal 的密碼欄位改為可編輯 input
-//   ✅ 支援顯示 / 隱藏密碼
-//   ✅ 使用 buildForm 統一表單邏輯
+// v101.8.4 新增：
+//   ✅ 第三個 Tab「帳號總覽」（跨家庭成員帳號彙總）
+//   ✅ initAccountsOverview / _loadAccountsOverview / _renderFamilyAccountsSection
+//   ✅ 點「管理」按鈕跳轉至該家庭的帳號 Modal
 // ============================================
 
 import { api } from '../core/api.js';
@@ -26,6 +26,7 @@ let _families = [];
 let _familyInputApi = null;
 let _tabPanel = null;
 let _defaultsInstance = null;
+let _accountsOverviewInstance = null;
 let _logoutHandler = null;
 let _familyListHandler = null;
 
@@ -67,6 +68,7 @@ export function initAdminPage() {
     containerId: 'admin-tabs',
     tabs: [
       { key: 'families', label: '家庭管理', icon: 'home',     panelId: 'admin-panel-families' },
+      { key: 'accounts', label: '帳號總覽', icon: 'users',    panelId: 'admin-panel-accounts' },
       { key: 'defaults', label: '預設資料庫', icon: 'database', panelId: 'admin-panel-defaults' },
     ],
     defaultKey: 'families',
@@ -85,6 +87,9 @@ export function initAdminPage() {
    Tab 切換
    ============================================ */
 function _onTabChange(key) {
+  if (key === 'accounts' && !_accountsOverviewInstance) {
+    _accountsOverviewInstance = initAccountsOverview();
+  }
   if (key === 'defaults' && !_defaultsInstance) {
     _defaultsInstance = initPlatformDefaults('admin-defaults-root');
   }
@@ -304,9 +309,175 @@ async function _handleDelete(uid, family) {
     await api.adminRemoveFamily(uid);
     showToast('✅ 已刪除家庭', 'success');
     await _loadFamilies();
+    // 若帳號總覽已載入，重新整理
+    if (_accountsOverviewInstance) {
+      _accountsOverviewInstance.refresh?.();
+    }
   } catch (err) {
     showToast('刪除失敗：' + err.message, 'error');
   }
+}
+
+/* ============================================
+   🆕 v101.8.4：帳號總覽 Tab
+   ============================================ */
+function initAccountsOverview() {
+  const panel = document.getElementById('admin-panel-accounts');
+  if (!panel) return null;
+
+  panel.innerHTML = `
+    <div class="banner mb-16">
+      ℹ️ 跨家庭成員帳號總覽。點擊「管理」可跳轉至該家庭的帳號管理。
+    </div>
+
+    <div id="admin-accounts-stats" class="mb-16"></div>
+    <div id="admin-accounts-list"></div>
+  `;
+
+  _loadAccountsOverview();
+
+  return {
+    refresh: () => _loadAccountsOverview(),
+    destroy: () => {
+      const panel = document.getElementById('admin-panel-accounts');
+      if (panel) panel.innerHTML = '';
+    },
+  };
+}
+
+async function _loadAccountsOverview() {
+  const listEl = document.getElementById('admin-accounts-list');
+  const statsEl = document.getElementById('admin-accounts-stats');
+  if (!listEl) return;
+
+  listEl.innerHTML = '<div class="empty-state">載入中…</div>';
+
+  try {
+    // 1. 取得所有家庭
+    const familiesData = await api.adminListFamilies();
+    const families = familiesData.families || [];
+
+    // 同步至 _families（供 _openAccountModal 使用）
+    _families = families;
+
+    if (families.length === 0) {
+      listEl.innerHTML = '<div class="empty-state">尚無家庭</div>';
+      if (statsEl) statsEl.innerHTML = '';
+      return;
+    }
+
+    // 2. 逐一取得各家庭帳號
+    const results = await Promise.all(
+      families.map(async (f) => {
+        try {
+          const r = await api.familyAccounts.list(f.uid);
+          return { family: f, accounts: r.accounts || [] };
+        } catch (err) {
+          console.warn(`載入家庭 ${f.uid} 帳號失敗：`, err);
+          return { family: f, accounts: [] };
+        }
+      })
+    );
+
+    const totalAccounts = results.reduce((s, r) => s + r.accounts.length, 0);
+
+    // 3. 統計
+    if (statsEl) {
+      statsEl.innerHTML = `
+        <div class="grid grid-2" style="gap:12px;">
+          <div class="glass-card">
+            <div class="glass-card-title">家庭總數</div>
+            <div class="glass-card-value cyan mono">${families.length}</div>
+          </div>
+          <div class="glass-card">
+            <div class="glass-card-title">帳號總數</div>
+            <div class="glass-card-value emerald mono">${totalAccounts}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    // 4. 渲染
+    listEl.innerHTML = results.map((r) => _renderFamilyAccountsSection(r)).join('');
+
+    // 5. 綁定「跳轉管理」事件
+    listEl.querySelectorAll('button[data-acc-jump]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const uid = btn.dataset.accJump;
+        const family = _families.find((f) => f.uid === uid);
+        if (family) _openAccountModal(uid, family.name || uid);
+      });
+    });
+
+    if (window.lucide) window.lucide.createIcons();
+  } catch (err) {
+    console.error('[admin] 載入帳號總覽失敗：', err);
+    listEl.innerHTML = `<div class="empty-state text-red">載入失敗：${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function _renderFamilyAccountsSection({ family, accounts }) {
+  if (accounts.length === 0) {
+    return `
+      <div class="glass-card mb-16">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div style="font-size:15px; font-weight:700; color:var(--neon-cyan);">
+            🏠 ${escapeHtml(family.name || family.uid)}
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span class="badge badge-muted">尚無帳號</span>
+            <button type="button" class="btn btn-sm btn-ghost" data-acc-jump="${escapeHtml(family.uid)}">
+              <i data-lucide="external-link" style="width:12px;height:12px;"></i> 管理
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="glass-card mb-16" style="padding:0;">
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 20px; border-bottom:1px solid rgba(255,255,255,0.05);">
+        <div style="font-size:15px; font-weight:700; color:var(--neon-cyan);">
+          🏠 ${escapeHtml(family.name || family.uid)}
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="text-muted" style="font-size:12px;">共 ${accounts.length} 個帳號</span>
+          <button type="button" class="btn btn-sm btn-ghost" data-acc-jump="${escapeHtml(family.uid)}">
+            <i data-lucide="external-link" style="width:12px;height:12px;"></i> 管理
+          </button>
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>顯示名稱</th>
+              <th>帳號</th>
+              <th>角色</th>
+              <th>可輸入</th>
+              <th>建立時間</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${accounts.map((a) => `
+              <tr>
+                <td style="font-weight:500;">${escapeHtml(a.displayName || '—')}</td>
+                <td class="mono" style="font-size:12px;">${escapeHtml(a.account || '—')}</td>
+                <td style="font-size:12px;">${a.role === 'owner' ? '👑 擁有者' : '一般成員'}</td>
+                <td>${a.canInput
+                  ? '<span class="badge badge-success">可輸入</span>'
+                  : '<span class="badge badge-muted">唯讀</span>'}</td>
+                <td style="font-size:11px; color:var(--text-muted);">
+                  ${a.createdAt > 0 ? new Date(a.createdAt).toLocaleDateString('zh-HK') : '—'}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 /* ============================================
@@ -443,6 +614,8 @@ async function _handleCreateAccount(data) {
     showToast(`✅ 已建立帳號「${account}」`, 'success');
     _accountModalFormApi?.reset();
     await _loadFamilyAccounts();
+    // 重新整理帳號總覽
+    if (_accountsOverviewInstance) _accountsOverviewInstance.refresh?.();
   } catch (err) {
     const isEmailExists =
       err.code === 'EMAIL_EXISTS' ||
@@ -452,7 +625,7 @@ async function _handleCreateAccount(data) {
     if (isEmailExists) {
       await _showRestoreModal({
         account,
-        defaultPassword: password,   // 作為預設值
+        defaultPassword: password,
         displayName,
         role,
         canInput,
@@ -464,7 +637,7 @@ async function _handleCreateAccount(data) {
 }
 
 /* ============================================
-   🆕 v101.8.2：復原 Modal（可編輯密碼）
+   復原 Modal（可編輯密碼）
    ============================================ */
 async function _showRestoreModal({ account, defaultPassword, displayName, role, canInput }) {
   document.getElementById(ACCOUNT_RESTORE_MODAL_ID)?.remove();
@@ -499,7 +672,6 @@ async function _showRestoreModal({ account, defaultPassword, displayName, role, 
     if (e.target === overlay) closeModal(ACCOUNT_RESTORE_MODAL_ID);
   });
 
-  // 建立可編輯的密碼表單
   _accountRestoreFormApi = buildForm({
     containerId: ACCOUNT_RESTORE_FORM_ROOT_ID,
     fields: [
@@ -550,6 +722,7 @@ async function _handleRestoreAccount({ account, password, displayName, role, can
     closeModal(ACCOUNT_RESTORE_MODAL_ID);
     _accountModalFormApi?.reset();
     await _loadFamilyAccounts();
+    if (_accountsOverviewInstance) _accountsOverviewInstance.refresh?.();
   } catch (err) {
     if (err.message.includes('舊密碼錯誤')) {
       showToast('❌ 舊密碼錯誤，請確認後重試', 'error', 4000);
@@ -742,6 +915,7 @@ async function _openEditAccountModal(uid) {
         showToast('✅ 已更新帳號', 'success');
         closeModal(ACCOUNT_EDIT_MODAL_ID);
         await _loadFamilyAccounts();
+        if (_accountsOverviewInstance) _accountsOverviewInstance.refresh?.();
       } catch (err) {
         showToast('更新失敗：' + err.message, 'error');
       }
@@ -767,6 +941,7 @@ async function _handleRemoveAccount(uid) {
     await api.familyAccounts.remove(_accountModalFamilyId, uid);
     showToast('✅ 已移除帳號', 'success');
     await _loadFamilyAccounts();
+    if (_accountsOverviewInstance) _accountsOverviewInstance.refresh?.();
   } catch (err) {
     showToast('移除失敗：' + err.message, 'error');
   }
@@ -779,6 +954,7 @@ function _destroy() {
   if (_tabPanel) { try { _tabPanel.destroy(); } catch (e) {} _tabPanel = null; }
   if (_familyInputApi) { try { _familyInputApi.destroy(); } catch (e) {} _familyInputApi = null; }
   if (_defaultsInstance) { try { _defaultsInstance.destroy?.(); } catch (e) {} _defaultsInstance = null; }
+  if (_accountsOverviewInstance) { try { _accountsOverviewInstance.destroy?.(); } catch (e) {} _accountsOverviewInstance = null; }
 
   if (_logoutHandler) {
     document.getElementById('admin-logout-btn')?.removeEventListener('click', _logoutHandler);

@@ -1,13 +1,10 @@
 // ============================================
-// family-accounts.js — 家庭成員帳號管理 API（v101.8.3）
+// family-accounts.js — 家庭成員帳號管理 API（v101.8.4）
 // 位置：functions/api/family-accounts.js
 // ============================================
-// v101.8.3 修正：
-//   ✅ [BUG] 所有 dbPut / dbDelete / dbGet 呼叫加上 token
-//       - 原本未傳 token → 匿名請求 → RTDB 規則拒絕
-//       - 導致 Firebase Auth 建立成功但 RTDB 寫入失敗
-//   ✅ onRequestGet / onRequestPost 傳遞 token 給內部函式
-//   ✅ 保留 v101.8.1 全部功能（restore / 錯誤處理）
+// v101.8.4 新增：
+//   ✅ GET 支援 needFamily 權限（家庭成員可讀自己家庭）
+//   ✅ superadmin 可讀任何家庭，成員只能讀自己家庭
 // ============================================
 
 import {
@@ -22,10 +19,18 @@ import {
   requireFields,
   successResponse,
   objToList,
+  verifyToken,
+  verifySuperAdmin,
+  verifyFamilyAccess,
+  extractToken,
 } from './_helpers.js';
 
 /* ============================================
    GET — 列出家庭帳號
+   -------------------------------------------------
+   v101.8.4：
+   - superadmin 可讀任何家庭
+   - 家庭成員只能讀自己家庭
    ============================================ */
 export async function onRequestGet({ request }) {
   try {
@@ -41,11 +46,27 @@ export async function onRequestGet({ request }) {
       return errorResponse('MISSING_FIELDS', '缺少 familyId');
     }
 
-    const auth = await authenticate(request, { needSuperAdmin: true });
-    if (auth instanceof Response) return auth;
-    const { token } = auth;   // 🆕 v101.8.3
+    const token = extractToken(request);
 
-    // 🆕 v101.8.3：加 token
+    // 🆕 v101.8.4：先嘗試 superadmin
+    const superUser = await verifySuperAdmin(token);
+    let authorized = false;
+
+    if (superUser) {
+      authorized = true;
+    } else {
+      // 🆕 v101.8.4：非 superadmin → 檢查是否為該家庭成員
+      const familyResult = await verifyFamilyAccess(token, familyId);
+      if (familyResult) {
+        authorized = true;
+      }
+    }
+
+    if (!authorized) {
+      return errorResponse('FORBIDDEN', '無權存取此家庭的帳號列表');
+    }
+
+    // 讀取帳號列表
     const accountsSnap = await dbGet(
       `platform/families/${familyId}/memberAccounts`,
       token
@@ -76,13 +97,12 @@ export async function onRequestPost({ request }) {
 
     const auth = await authenticate(request, { needSuperAdmin: true });
     if (auth instanceof Response) return auth;
-    const { token } = auth;   // 🆕 v101.8.3：取得 token
+    const { token } = auth;
 
     if (!familyId) {
       return errorResponse('MISSING_FIELDS', '缺少 familyId');
     }
 
-    // 🆕 v101.8.3：加 token
     const familySnap = await dbGet(`platform/families/${familyId}`, token);
     if (!familySnap) {
       return errorResponse('NOT_FOUND', `找不到家庭 ${familyId}`);
@@ -90,13 +110,13 @@ export async function onRequestPost({ request }) {
 
     switch (action) {
       case 'create':
-        return await _handleCreate(body, token);   // 🆕 傳 token
+        return await _handleCreate(body, token);
       case 'restore':
-        return await _handleRestore(body, token);  // 🆕
+        return await _handleRestore(body, token);
       case 'update':
-        return await _handleUpdate(body, token);   // 🆕
+        return await _handleUpdate(body, token);
       case 'remove':
-        return await _handleRemove(body, token);   // 🆕
+        return await _handleRemove(body, token);
       default:
         return errorResponse('BAD_REQUEST', `未知的 action：${action}`);
     }
@@ -114,31 +134,24 @@ async function _handleCreate(body, token) {
   const missing = requireFields(body, ['account', 'password', 'displayName']);
   if (missing) return errorResponse('MISSING_FIELDS', '缺少 account / password / displayName');
 
-  // 帳號格式驗證
   const accountStr = String(account).trim().toLowerCase();
   if (!/^[a-z0-9._-]+$/.test(accountStr)) {
     return errorResponse('BAD_REQUEST', '帳號只能包含小寫英數字、點、底線、連字號');
   }
 
-  // 密碼長度
   const pwdStr = String(password);
   if (pwdStr.length < 6) {
     return errorResponse('BAD_REQUEST', '密碼至少 6 位');
   }
 
-  // 角色驗證
   const roleStr = role === 'owner' ? 'owner' : 'member';
-
-  // Email 組裝
   const email = `${accountStr}@familyfin.local`;
 
-  // 🆕 v101.8.3：加 token
   const existing = await dbGet(`platform/email_index/${accountStr}`, token);
   if (existing) {
     return errorResponse('CONFLICT', `帳號 ${accountStr} 已存在於平台記錄`);
   }
 
-  // 建立 Firebase Auth 帳號
   const signUpResult = await dbSignUp(email, pwdStr);
   if (!signUpResult.ok) {
     if (signUpResult.error === 'EMAIL_EXISTS') {
@@ -161,7 +174,6 @@ async function _handleCreate(body, token) {
   const newUid = signUpResult.uid;
   const now = Date.now();
 
-  // 寫入 memberAccounts
   const accountData = {
     email,
     account: accountStr,
@@ -171,7 +183,6 @@ async function _handleCreate(body, token) {
     createdAt: now,
   };
 
-  // 🆕 v101.8.3：加 token
   const ok1 = await dbPut(
     `platform/families/${familyId}/memberAccounts/${newUid}`,
     accountData,
@@ -185,10 +196,8 @@ async function _handleCreate(body, token) {
     );
   }
 
-  // 🆕 v101.8.3：加 token
   const ok2 = await dbPut(`platform/uid_index/${newUid}`, familyId, token);
   if (!ok2) {
-    // 回滾 memberAccounts
     await dbDelete(`platform/families/${familyId}/memberAccounts/${newUid}`, token);
     return errorResponse(
       'INTERNAL',
@@ -197,13 +206,9 @@ async function _handleCreate(body, token) {
     );
   }
 
-  // 🆕 v101.8.3：加 token
   await dbPut(`platform/email_index/${accountStr}`, { uid: newUid, familyId }, token);
 
-  return successResponse({
-    uid: newUid,
-    account: accountData,
-  });
+  return successResponse({ uid: newUid, account: accountData });
 }
 
 /* ============================================
@@ -219,13 +224,11 @@ async function _handleRestore(body, token) {
   const pwdStr = String(password);
   const email = `${accountStr}@familyfin.local`;
 
-  // 🆕 v101.8.3：加 token
   const existingIndex = await dbGet(`platform/email_index/${accountStr}`, token);
   if (existingIndex) {
     return errorResponse('CONFLICT', `帳號 ${accountStr} 已在平台記錄中，不需復原`);
   }
 
-  // 驗證舊密碼
   const signInResult = await _signInWithPassword(email, pwdStr);
   if (!signInResult.ok) {
     if (signInResult.error === 'EMAIL_NOT_FOUND') {
@@ -245,7 +248,6 @@ async function _handleRestore(body, token) {
 
   const uid = signInResult.uid;
 
-  // 🆕 v101.8.3：加 token
   const uidIndex = await dbGet(`platform/uid_index/${uid}`, token);
   if (uidIndex) {
     return errorResponse('CONFLICT', `此帳號已屬於家庭 ${uidIndex}，無法重複復原`);
@@ -262,7 +264,6 @@ async function _handleRestore(body, token) {
     restoredAt: now,
   };
 
-  // 🆕 v101.8.3：加 token
   const ok1 = await dbPut(
     `platform/families/${familyId}/memberAccounts/${uid}`,
     accountData,
@@ -278,15 +279,11 @@ async function _handleRestore(body, token) {
 
   await dbPut(`platform/email_index/${accountStr}`, { uid, familyId }, token);
 
-  return successResponse({
-    restored: true,
-    uid,
-    account: accountData,
-  });
+  return successResponse({ restored: true, uid, account: accountData });
 }
 
 /* ============================================
-   UPDATE — 更新成員帳號
+   UPDATE
    ============================================ */
 async function _handleUpdate(body, token) {
   const { familyId, uid, displayName, role, canInput } = body;
@@ -294,7 +291,6 @@ async function _handleUpdate(body, token) {
   const missing = requireFields(body, ['uid']);
   if (missing) return errorResponse('MISSING_FIELDS', '缺少 uid');
 
-  // 🆕 v101.8.3：加 token
   const existing = await dbGet(`platform/families/${familyId}/memberAccounts/${uid}`, token);
   if (!existing) {
     return errorResponse('NOT_FOUND', '找不到此成員帳號');
@@ -328,22 +324,19 @@ async function _handleUpdate(body, token) {
 
   patch.updatedAt = Date.now();
 
-  // 🆕 v101.8.3：加 token
   const ok = await dbPut(
     `platform/families/${familyId}/memberAccounts/${uid}`,
     { ...existing, ...patch },
     token
   );
 
-  if (!ok) {
-    return errorResponse('INTERNAL', '更新失敗');
-  }
+  if (!ok) return errorResponse('INTERNAL', '更新失敗');
 
   return successResponse({ uid, patch });
 }
 
 /* ============================================
-   REMOVE — 移除成員帳號
+   REMOVE
    ============================================ */
 async function _handleRemove(body, token) {
   const { familyId, uid } = body;
@@ -351,7 +344,6 @@ async function _handleRemove(body, token) {
   const missing = requireFields(body, ['uid']);
   if (missing) return errorResponse('MISSING_FIELDS', '缺少 uid');
 
-  // 🆕 v101.8.3：加 token
   const existing = await dbGet(`platform/families/${familyId}/memberAccounts/${uid}`, token);
   if (!existing) {
     return errorResponse('NOT_FOUND', '找不到此成員帳號');
@@ -361,11 +353,8 @@ async function _handleRemove(body, token) {
     return errorResponse('FORBIDDEN', '不可移除此家庭的主帳號（owner）');
   }
 
-  // 🆕 v101.8.3：加 token
   const ok1 = await dbDelete(`platform/families/${familyId}/memberAccounts/${uid}`, token);
-  if (!ok1) {
-    return errorResponse('INTERNAL', '移除 memberAccounts 失敗');
-  }
+  if (!ok1) return errorResponse('INTERNAL', '移除 memberAccounts 失敗');
 
   await dbDelete(`platform/uid_index/${uid}`, token);
 
@@ -376,7 +365,7 @@ async function _handleRemove(body, token) {
   return successResponse({
     removedUid: uid,
     removedAccount: existing.account,
-    note: 'Firebase Auth 帳號仍保留，若需重建同名帳號，請使用「復原」或至 Firebase Console 手動刪除',
+    note: 'Firebase Auth 帳號仍保留',
   });
 }
 
@@ -389,11 +378,7 @@ async function _signInWithPassword(email, password) {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email,
-        password,
-        returnSecureToken: false,
-      }),
+      body: JSON.stringify({ email, password, returnSecureToken: false }),
     });
 
     const data = await res.json();
@@ -403,19 +388,12 @@ async function _signInWithPassword(email, password) {
       return { ok: false, error: errMsg };
     }
 
-    return {
-      ok: true,
-      uid: data.localId,
-      email: data.email,
-    };
+    return { ok: true, uid: data.localId, email: data.email };
   } catch (err) {
     return { ok: false, error: String(err?.message || err) };
   }
 }
 
-/* ============================================
-   OPTIONS
-   ============================================ */
 export async function onRequestOptions() {
   return handleOptions();
 }

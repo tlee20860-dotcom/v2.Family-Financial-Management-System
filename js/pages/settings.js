@@ -1,13 +1,10 @@
 // ============================================
-// settings.js — 系統設定（v101.7.5）
+// settings.js — 系統設定（v101.8.4）
 // 位置：js/pages/settings.js
 // ============================================
-// v101.7.5 修正：
-//   ✅ [廢除] 移除「側邊欄排序」功能
-//       - 移除 sidebar-order.js 相關 import
-//       - 移除 _renderPersonalPanel / _renderOrderList / _handleMove
-//       - 移除 _currentOrder / _unsubOrder
-//   ✅ 保留：平台設定 / 統計卡顯示模式 / 帳號資訊 / 登出
+// v101.8.4 新增：
+//   ✅ 「家庭成員」區塊（唯讀顯示當前家庭成員帳號）
+//   ✅ _renderFamilyMembers 函式
 // ============================================
 
 import { showToast } from '../shared/toast.js';
@@ -29,6 +26,7 @@ let _tabPanel = null;
 let _uiFormApi = null;
 let _logoutHandler = null;
 let _saveStatsModeHandler = null;
+let _familyMembersData = [];
 
 /* ============================================
    主入口
@@ -70,6 +68,7 @@ export function initSettingsPage() {
   }
 
   _renderStatsModePanel();
+  _renderFamilyMembers();
 
   registerPageCleanup(_destroy);
 
@@ -83,6 +82,10 @@ function _onTabChange(key) {
   if (key === 'platform' && AppState.isSuperAdmin) {
     _reloadUIConstants();
   }
+  if (key === 'personal') {
+    // 重新載入家庭成員（可能已變更）
+    _renderFamilyMembers();
+  }
 }
 
 /* ============================================
@@ -93,11 +96,19 @@ function _renderAccountInfo() {
   if (!user) return;
 
   const accountEl = document.getElementById('settings-account');
-  if (accountEl) accountEl.value = getDisplayName(user);
+  if (accountEl) {
+    // 優先顯示 displayName（如媽媽），否則顯示帳號
+    const displayName = AppState.getDisplayName();
+    accountEl.value = displayName || getDisplayName(user);
+  }
 
   const roleEl = document.getElementById('settings-role');
   if (roleEl) {
-    roleEl.value = AppState.isSuperAdmin ? '超級管理員' : '家庭成員';
+    const role = AppState.getRole();
+    if (role === 'superadmin') roleEl.value = '超級管理員';
+    else if (role === 'owner') roleEl.value = '家庭擁有者';
+    else if (role === 'member') roleEl.value = '家庭成員';
+    else roleEl.value = '家庭成員';
   }
 
   const familyEl = document.getElementById('settings-family');
@@ -191,7 +202,6 @@ function _renderStatsModePanel() {
   const optionsRoot = document.getElementById('stats-mode-options');
   if (!optionsRoot) return;
 
-  // 讀取當前模式
   let currentMode = 'auto';
   try {
     const saved = localStorage.getItem(STORAGE_KEYS.STATS_MODE);
@@ -200,25 +210,20 @@ function _renderStatsModePanel() {
     }
   } catch (e) { /* noop */ }
 
-  // 套用選中狀態
   optionsRoot.querySelectorAll('input[name="stats-mode"]').forEach((radio) => {
     radio.checked = (radio.value === currentMode);
   });
 
-  // 點擊整個 label 也能選中
   optionsRoot.querySelectorAll('.stats-mode-option').forEach((label) => {
     label.addEventListener('click', (e) => {
       const radio = label.querySelector('input[type="radio"]');
-      if (radio && e.target !== radio) {
-        radio.checked = true;
-      }
+      if (radio && e.target !== radio) radio.checked = true;
       _updateStatsModeSelection(optionsRoot);
     });
   });
 
   _updateStatsModeSelection(optionsRoot);
 
-  // 儲存按鈕
   _saveStatsModeHandler = async () => {
     const selected = optionsRoot.querySelector('input[name="stats-mode"]:checked');
     if (!selected) return;
@@ -279,12 +284,68 @@ function _showReloadPrompt() {
 
   overlay.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-action="reload"]');
-    if (btn) {
-      window.location.reload();
-    }
+    if (btn) window.location.reload();
   });
 
   if (window.lucide) window.lucide.createIcons();
+}
+
+/* ============================================
+   🆕 v101.8.4：家庭成員區塊
+   ============================================ */
+async function _renderFamilyMembers() {
+  const root = document.getElementById('family-members-root');
+  if (!root) return;
+
+  const familyId = AppState.getFamilyId();
+  if (!familyId) {
+    root.innerHTML = '<div class="empty-state">尚未選擇家庭</div>';
+    return;
+  }
+
+  root.innerHTML = '<div class="empty-state">載入中…</div>';
+
+  try {
+    const result = await api.familyAccounts.list(familyId);
+    _familyMembersData = result.accounts || [];
+
+    if (_familyMembersData.length === 0) {
+      root.innerHTML = '<div class="empty-state" style="padding:20px;">尚無成員帳號</div>';
+      return;
+    }
+
+    root.innerHTML = `
+      <div style="overflow-x:auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>顯示名稱</th>
+              <th>帳號</th>
+              <th>角色</th>
+              <th>可輸入</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${_familyMembersData.map((a) => `
+              <tr>
+                <td style="font-weight:500;">${escapeHtml(a.displayName || '—')}</td>
+                <td class="mono" style="font-size:12px;">${escapeHtml(a.account || '—')}</td>
+                <td style="font-size:12px;">${a.role === 'owner' ? '👑 擁有者' : '一般成員'}</td>
+                <td>${a.canInput
+                  ? '<span class="badge badge-success">可輸入</span>'
+                  : '<span class="badge badge-muted">唯讀</span>'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    if (window.lucide) window.lucide.createIcons();
+  } catch (err) {
+    console.error('[settings] 載入家庭成員失敗：', err);
+    root.innerHTML = `<div class="empty-state text-red">載入失敗：${escapeHtml(err.message)}</div>`;
+  }
 }
 
 /* ============================================
@@ -301,4 +362,5 @@ function _destroy() {
     document.getElementById('save-stats-mode-btn')?.removeEventListener('click', _saveStatsModeHandler);
     _saveStatsModeHandler = null;
   }
+  _familyMembersData = [];
 }

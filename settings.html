@@ -45,7 +45,6 @@
 
         <!-- 個人化 Panel -->
         <div id="settings-panel-personal" class="tab-panel" style="display:none;">
-          <!-- 🆕 v101.7.5：移除側欄排序，只保留帳號資訊 + 統計卡顯示模式 -->
           <div class="settings-personal-grid">
             <!-- 帳號資訊 -->
             <div class="glass-card">
@@ -126,6 +125,21 @@
                 </button>
               </div>
             </div>
+
+            <!-- 🆕 v101.8.4：家庭成員 -->
+            <div class="glass-card" style="grid-column: 1 / -1;">
+              <div class="glass-card-title" style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
+                <i data-lucide="users" style="width:16px;height:16px;color:var(--neon-cyan);"></i>
+                <span>家庭成員</span>
+              </div>
+
+              <p class="glass-card-hint mb-16">
+                此家庭的所有成員帳號（唯讀，如需管理請聯繫平台管理員）
+              </p>
+
+              <div id="family-members-root"></div>
+            </div>
+
           </div>
         </div>
       </main>
