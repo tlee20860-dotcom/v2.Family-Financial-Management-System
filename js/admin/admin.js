@@ -1,10 +1,11 @@
 // ============================================
-// admin.js — 平台管理入口（v101.8.1）
+// admin.js — 平台管理入口（v101.8.2）
 // 位置：js/admin/admin.js
 // ============================================
-// v101.8.1 修正：
-//   ✅ 建立帳號失敗（EMAIL_EXISTS）時顯示「復原舊帳號」Modal
-//   ✅ 新增 _handleRestoreAccount 呼叫 api.familyAccounts.restore
+// v101.8.2 修正：
+//   ✅ 復原 Modal 的密碼欄位改為可編輯 input
+//   ✅ 支援顯示 / 隱藏密碼
+//   ✅ 使用 buildForm 統一表單邏輯
 // ============================================
 
 import { api } from '../core/api.js';
@@ -32,6 +33,7 @@ let _accountModalFamilyId = '';
 let _accountModalFamilyName = '';
 let _accountModalFormApi = null;
 let _accountEditFormApi = null;
+let _accountRestoreFormApi = null;
 let _accountListHandler = null;
 
 const ACCOUNT_MODAL_ID = 'admin-account-modal';
@@ -39,6 +41,7 @@ const ACCOUNT_FORM_ROOT_ID = 'admin-account-form-root';
 const ACCOUNT_EDIT_MODAL_ID = 'admin-account-edit-modal';
 const ACCOUNT_EDIT_FORM_ROOT_ID = 'admin-account-edit-form-root';
 const ACCOUNT_RESTORE_MODAL_ID = 'admin-account-restore-modal';
+const ACCOUNT_RESTORE_FORM_ROOT_ID = 'admin-account-restore-form-root';
 
 /* ============================================
    主入口
@@ -423,7 +426,7 @@ function _validateAccountForm(data) {
 }
 
 /* ============================================
-   🆕 v101.8.1：建立帳號（EMAIL_EXISTS → 復原 Modal）
+   建立帳號（EMAIL_EXISTS → 復原 Modal）
    ============================================ */
 async function _handleCreateAccount(data) {
   const account = (data['acc-account'] || '').trim().toLowerCase();
@@ -441,7 +444,6 @@ async function _handleCreateAccount(data) {
     _accountModalFormApi?.reset();
     await _loadFamilyAccounts();
   } catch (err) {
-    // 🆕 v101.8.1：判斷是否為 EMAIL_EXISTS
     const isEmailExists =
       err.code === 'EMAIL_EXISTS' ||
       err.message.includes('已存在於 Firebase') ||
@@ -449,7 +451,11 @@ async function _handleCreateAccount(data) {
 
     if (isEmailExists) {
       await _showRestoreModal({
-        account, password, displayName, role, canInput,
+        account,
+        defaultPassword: password,   // 作為預設值
+        displayName,
+        role,
+        canInput,
       });
     } else {
       showToast('建立失敗：' + err.message, 'error');
@@ -458,9 +464,9 @@ async function _handleCreateAccount(data) {
 }
 
 /* ============================================
-   🆕 v101.8.1：復原 Modal
+   🆕 v101.8.2：復原 Modal（可編輯密碼）
    ============================================ */
-async function _showRestoreModal({ account, password, displayName, role, canInput }) {
+async function _showRestoreModal({ account, defaultPassword, displayName, role, canInput }) {
   document.getElementById(ACCOUNT_RESTORE_MODAL_ID)?.remove();
 
   const overlay = document.createElement('div');
@@ -481,42 +487,55 @@ async function _showRestoreModal({ account, password, displayName, role, canInpu
 
       <div style="font-size:13px; color:var(--text-secondary); line-height:1.6; margin-bottom:16px;">
         若您知道此帳號的<b>舊密碼</b>，可以嘗試「復原」，
-        系統會將此帳號重新綁定到當前家庭。<br><br>
-        ⚠️ 若舊密碼與剛才輸入的不同，請先修改為舊密碼後再復原。
+        系統會將此帳號重新綁定到當前家庭。
       </div>
 
-      <div style="font-size:12px; color:var(--text-muted); padding:10px 12px; background:rgba(0,240,255,0.03); border-radius:var(--radius-sm); margin-bottom:16px;">
-        <b>輸入的舊密碼：</b><span class="mono">${escapeHtml(password)}</span>
-      </div>
-
-      <div class="modal-actions" style="justify-content:space-between;">
-        <button type="button" class="btn btn-ghost" data-action="cancel">取消</button>
-        <button type="button" class="btn btn-primary" data-action="restore">
-          <i data-lucide="refresh-cw" style="width:14px;height:14px;"></i>
-          嘗試復原
-        </button>
-      </div>
+      <div id="${ACCOUNT_RESTORE_FORM_ROOT_ID}"></div>
     </div>
   `;
   document.body.appendChild(overlay);
 
-  overlay.addEventListener('click', async (e) => {
-    if (e.target === overlay) {
-      closeModal(ACCOUNT_RESTORE_MODAL_ID);
-      return;
-    }
-    const cancelBtn = e.target.closest('button[data-action="cancel"]');
-    if (cancelBtn) {
-      closeModal(ACCOUNT_RESTORE_MODAL_ID);
-      return;
-    }
-    const restoreBtn = e.target.closest('button[data-action="restore"]');
-    if (restoreBtn) {
-      restoreBtn.disabled = true;
-      restoreBtn.textContent = '復原中…';
-      await _handleRestoreAccount({ account, password, displayName, role, canInput });
-      closeModal(ACCOUNT_RESTORE_MODAL_ID);
-    }
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeModal(ACCOUNT_RESTORE_MODAL_ID);
+  });
+
+  // 建立可編輯的密碼表單
+  _accountRestoreFormApi = buildForm({
+    containerId: ACCOUNT_RESTORE_FORM_ROOT_ID,
+    fields: [
+      {
+        type: 'text',
+        id: 'restore-password',
+        label: '舊密碼',
+        required: true,
+        maxlength: 60,
+        placeholder: '請輸入此帳號的舊密碼',
+        hint: '若與剛才輸入的不同，請在此修改為舊密碼',
+      },
+    ],
+    submitText: '嘗試復原',
+    showCancel: true,
+    cancelText: '取消',
+    initialData: {
+      'restore-password': defaultPassword || '',
+    },
+    beforeSubmit: (data) => {
+      const pwd = (data['restore-password'] || '').trim();
+      if (!pwd) return { field: 'restore-password', message: '請輸入舊密碼' };
+      if (pwd.length < 6) return { field: 'restore-password', message: '密碼至少 6 位' };
+      return true;
+    },
+    onSubmit: async (data) => {
+      const pwd = data['restore-password'] || '';
+      await _handleRestoreAccount({
+        account,
+        password: pwd,
+        displayName,
+        role,
+        canInput,
+      });
+    },
+    onCancel: () => closeModal(ACCOUNT_RESTORE_MODAL_ID),
   });
 
   if (window.lucide) window.lucide.createIcons();
@@ -528,6 +547,7 @@ async function _handleRestoreAccount({ account, password, displayName, role, can
       account, password, displayName, role, canInput,
     });
     showToast(`✅ 已復原帳號「${account}」`, 'success');
+    closeModal(ACCOUNT_RESTORE_MODAL_ID);
     _accountModalFormApi?.reset();
     await _loadFamilyAccounts();
   } catch (err) {
@@ -744,7 +764,7 @@ async function _handleRemoveAccount(uid) {
   if (!ok) return;
 
   try {
-    const result = await api.familyAccounts.remove(_accountModalFamilyId, uid);
+    await api.familyAccounts.remove(_accountModalFamilyId, uid);
     showToast('✅ 已移除帳號', 'success');
     await _loadFamilyAccounts();
   } catch (err) {
@@ -774,6 +794,7 @@ function _destroy() {
   }
   if (_accountModalFormApi) { try { _accountModalFormApi.destroy(); } catch (e) {} _accountModalFormApi = null; }
   if (_accountEditFormApi) { try { _accountEditFormApi.destroy(); } catch (e) {} _accountEditFormApi = null; }
+  if (_accountRestoreFormApi) { try { _accountRestoreFormApi.destroy(); } catch (e) {} _accountRestoreFormApi = null; }
 
   document.getElementById(ACCOUNT_MODAL_ID)?.remove();
   document.getElementById(ACCOUNT_EDIT_MODAL_ID)?.remove();
