@@ -1,13 +1,10 @@
 // ============================================
-// index.js — 保險清單表入口（v101.6）
+// index.js — 保險清單表入口（v101.6.6）
 // 位置：js/pages/insurance/index.js
 // ============================================
-// v101.6 重寫：
-//   ✅ 新增「+ 新增保單」按鈕（openEntityModal）
-//   ✅ 保單卡片 / 表格加「編輯 / 刪除」按鈕
-//   ✅ 使用 stats-cards.js 統一統計卡
-//   ✅ 使用 listener-group 統一訂閱
-//   ✅ 保留「同步所有支出」功能
+// v101.6.6 修正：
+//   ✅ [BUG-02] 刪除保單時使用 policyHolderId（非 memberId）
+//   ✅ 保留所有 v101.6 功能
 // ============================================
 
 import {
@@ -223,7 +220,7 @@ function _render() {
 }
 
 /* ============================================
-   統計卡（使用 stats-cards.js）
+   統計卡
    ============================================ */
 function _renderStats(year) {
   const yearTotal = _enriched.reduce((s, p) => s + (p._currentAnnualPremium || 0), 0);
@@ -308,7 +305,9 @@ async function _handleDeletePolicy(policy) {
   if (!ok) return;
 
   try {
-    await deleteEntity(ENTITY_KEYS.POLICY, policy.id, policy.memberId);
+    // 🆕 v101.6.6：使用 policyHolderId（非 memberId），與 insurance-sync 寫入路徑一致
+    const effectiveMemberId = policy.policyHolderId || policy.memberId;
+    await deleteEntity(ENTITY_KEYS.POLICY, policy.id, effectiveMemberId);
     showToast('✅ 保單與相關紀錄已徹底刪除', 'success');
   } catch (err) {
     console.error('[insurance] 刪除失敗：', err);
