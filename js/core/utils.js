@@ -1,13 +1,10 @@
 // ============================================
-// utils.js — 通用工具函式（v101.6）
+// utils.js — 通用工具函式（v101.6.6）
 // 位置：js/core/utils.js
 // ============================================
-// v101.6 修正：
-//   ✅ 新增 setText（取代各頁面的 _setText）
-//   ✅ 新增 renderEmptyState（統一空狀態）
-//   ✅ 新增 safeParseInt / safeParseFloat
-//   ✅ 新增 formatPercent
-//   ✅ 保留所有 v101.5 函式
+// v101.6.6 修正：
+//   ✅ [BUG-11] 新增 formatCellValue（統一 data-table / data-card 的 cell 格式化）
+//   ✅ 保留所有 v101.6 函式
 // ============================================
 
 import { LIMITS, RESERVED_IDS } from '../config/constants.js';
@@ -40,13 +37,35 @@ export function clampAmount(value) {
   return n;
 }
 
-/**
- * 🆕 v101.6：格式化百分比
- */
 export function formatPercent(value, digits = 2) {
   const n = Number(value);
   if (isNaN(n)) return '0%';
   return `${n.toFixed(digits)}%`;
+}
+
+/* ============================================
+   🆕 v101.6.6：統一的 cell 值格式化（SSOT）
+   -------------------------------------------------
+   用於 data-table.js / data-card.js 等通用渲染層
+   @param {*} val - 原始值
+   @param {string} type - field type（number / number-plain / date / select / text）
+   @returns {string} HTML 字串（已 escape）
+   ============================================ */
+export function formatCellValue(val, type) {
+  if (val == null || val === '') return '<span class="text-muted">—</span>';
+
+  switch (type) {
+    case 'number':
+      return formatHKD(val);
+    case 'number-plain':
+      return formatNumber(val);
+    case 'date':
+      return escapeHtml(String(val));
+    case 'select':
+    case 'text':
+    default:
+      return escapeHtml(String(val));
+  }
 }
 
 /* ============================================
@@ -108,17 +127,11 @@ export function truncate(name, maxLen) {
   return s.slice(0, len) + '…';
 }
 
-/**
- * 🆕 v101.6：安全解析整數
- */
 export function safeParseInt(value, fallback = 0) {
   const n = parseInt(value, 10);
   return isNaN(n) ? fallback : n;
 }
 
-/**
- * 🆕 v101.6：安全解析浮點
- */
 export function safeParseFloat(value, fallback = 0) {
   const n = parseFloat(value);
   return isNaN(n) ? fallback : n;
@@ -136,24 +149,11 @@ export function qsa(sel, parent = document) {
   return [...parent.querySelectorAll(sel)];
 }
 
-/**
- * 🆕 v101.6：安全設定 textContent
- * @param {string|HTMLElement} target - ID 或元素
- * @param {string} text
- */
 export function setText(target, text) {
   const el = typeof target === 'string' ? document.getElementById(target) : target;
   if (el) el.textContent = text;
 }
 
-/**
- * 🆕 v101.6：渲染空狀態
- * @param {string|HTMLElement} container - ID 或元素
- * @param {string} message - 訊息
- * @param {Object} [options]
- * @param {string} [options.icon] - Lucide icon 名稱
- * @param {string} [options.actionHtml] - 額外動作按鈕 HTML
- */
 export function renderEmptyState(container, message, options = {}) {
   const el = typeof container === 'string' ? document.getElementById(container) : container;
   if (!el) return;
@@ -195,9 +195,6 @@ export function isSharedMember(memberId) {
   return memberId === RESERVED_IDS.SHARED_MEMBER;
 }
 
-/**
- * 🆕 v101.6：取得成員顯示名稱（含家庭共用）
- */
 export function getMemberDisplayName(memberId, members = []) {
   if (isExtraIncome(memberId)) return '額外收入';
   if (isSharedMember(memberId)) return '家庭共用';
@@ -249,9 +246,6 @@ export function arrayToMap(arr, keyField = 'id') {
   return map;
 }
 
-/**
- * 🆕 v101.6：排序比較函式產生器
- */
 export function makeSortFn(sortKey, order = 'asc') {
   const dir = order === 'desc' ? -1 : 1;
   return (a, b) => {

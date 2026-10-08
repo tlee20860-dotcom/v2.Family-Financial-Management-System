@@ -1,15 +1,13 @@
 // ============================================
-// dashboard.js — 總覽儀表板（v101.6）
+// dashboard.js — 總覽儀表板（v101.6.6）
 // 位置：js/pages/dashboard.js
 // ============================================
-// v101.6 重寫：
-//   ✅ 顯示「當前年度 + 前後 2 年 = 5 年」跨年度對比
-//   ✅ 上方橫排 4 卡（當前年度）
-//   ✅ 下方年度清單表格
-//   ✅ 廢除「全年模式 / 單月模式」切換
-//   ✅ 廢除「月度明細」與「快速摘要」
-//   ✅ 使用 stats-cards.js 統一渲染統計卡
-//   ✅ 使用 api.fetchAnnualSummary 統一取得年度資料
+// v101.6.6 修正：
+//   ✅ [BUG-08] 修復一次 60 次 API 呼叫問題
+//       - 當前年度優先載入 → 立即渲染
+//       - 其餘 4 年順序載入 → 漸進式更新表格
+//       - 峰值並行請求：12（單年度 12 月）
+//   ✅ 保留所有 v101.6 功能
 // ============================================
 
 import { api } from '../core/api.js';
@@ -21,7 +19,7 @@ import { registerPageCleanup } from '../core/app.js';
 /* ============================================
    Module 狀態
    ============================================ */
-let _annualData = {};      // { year: summary }
+let _annualData = {};
 let _statsCardsApi = null;
 let _errorEl = null;
 
@@ -31,14 +29,11 @@ let _errorEl = null;
 export async function initDashboardPage() {
   _errorEl = document.getElementById('dashboard-error');
 
-  // 取得當前年度
   const currentYear = Number(AppState.year) || new Date().getFullYear();
   const years = _getSurroundingYears(currentYear);
 
-  // 設定副標題
   setText('dashboard-subtitle', `${years[0]} ~ ${years[years.length - 1]} 年`);
 
-  // 載入所有年度
   await _loadAnnualData(years, currentYear);
 
   registerPageCleanup(_destroy);
@@ -58,34 +53,37 @@ function _getSurroundingYears(currentYear) {
 }
 
 /* ============================================
-   載入年度資料
+   載入年度資料（🆕 v101.6.6：兩階段載入）
    ============================================ */
 async function _loadAnnualData(years, currentYear) {
+  _annualData = {};
+
+  // 初始表格（全部顯示「載入中…」）
+  _renderAnnualTable(years, currentYear);
+
+  /* ---------- 階段 1：當前年度（優先） ---------- */
   try {
-    const results = await Promise.all(
-      years.map((y) =>
-        api.fetchAnnualSummary(y).catch((err) => {
-          console.warn(`[dashboard] 載入 ${y} 年度失敗：`, err);
-          return null;
-        })
-      )
-    );
-
-    _annualData = {};
-    years.forEach((y, i) => {
-      if (results[i]) {
-        _annualData[y] = results[i];
-      }
-    });
-
-    // 渲染統計卡（當前年度）
+    _annualData[currentYear] = await api.fetchAnnualSummary(currentYear);
     _renderStatsCards(currentYear);
-
-    // 渲染年度清單
     _renderAnnualTable(years, currentYear);
   } catch (err) {
-    console.error('[dashboard] 載入失敗：', err);
-    _showError('無法載入年度資料，請稍後再試。');
+    console.error(`[dashboard] 載入 ${currentYear} 年度失敗：`, err);
+    _showError(`無法載入 ${currentYear} 年度資料`);
+  }
+
+  /* ---------- 階段 2：其餘 4 年（順序載入，漸進式更新） ---------- */
+  for (const y of years) {
+    if (y === currentYear) continue;
+
+    try {
+      _annualData[y] = await api.fetchAnnualSummary(y);
+    } catch (err) {
+      console.warn(`[dashboard] 載入 ${y} 年度失敗：`, err);
+      // 保留為 null（表格會顯示「尚無資料」）
+    }
+
+    // 每完成一年，更新表格
+    _renderAnnualTable(years, currentYear);
   }
 }
 
@@ -94,12 +92,8 @@ async function _loadAnnualData(years, currentYear) {
    ============================================ */
 function _renderStatsCards(currentYear) {
   const data = _annualData[currentYear];
-  if (!data) {
-    _showError(`無法載入 ${currentYear} 年度資料`);
-    return;
-  }
+  if (!data) return;
 
-  // 每月平均支出 = 年度總支出 / 有資料的月份數
   const monthsWithData = (data.monthly || []).filter((m) => m.totalExpense > 0).length;
   const monthlyAvg = monthsWithData > 0
     ? Math.round(data.totalExpense / monthsWithData)

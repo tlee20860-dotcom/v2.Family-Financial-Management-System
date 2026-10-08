@@ -1,17 +1,15 @@
 // ============================================
-// data-table.js — 通用表格渲染（v101.6.1）
+// data-table.js — 通用表格渲染（v101.6.6）
 // 位置：js/shared/data-table.js
 // ============================================
-// v101.6.1 修正：
-//   ✅ 支援「非標準實體」+ 自訂欄位
-//     （entityKey 找不到 def 時，若有 options.columns 則繼續渲染）
-//   ✅ def 為 null 時，預設 canEdit / canDelete 為 false
+// v101.6.6 修正：
+//   ✅ [BUG-11] 移除本地 _formatCell，改用 utils.formatCellValue（SSOT）
 //
 // API 凍結：v101.6 發布後只加不改
 // ============================================
 
 import { getEntityDef, getEntityUi } from '../config/entity-definitions.js';
-import { escapeHtml, formatHKD, formatNumber } from '../core/utils.js';
+import { escapeHtml, formatCellValue } from '../core/utils.js';
 import { initColumnSettings } from './column-settings.js';
 
 /* ============================================
@@ -21,14 +19,6 @@ import { initColumnSettings } from './column-settings.js';
 /**
  * 渲染資料表格
  * @param {Object} options
- * @param {HTMLElement|string} options.container - 容器
- * @param {string} options.entityKey - 實體 key
- * @param {Array} options.rows - 資料陣列
- * @param {string} [options.tableId] - 表格 ID（用於欄位設定持久化，預設 = entityKey）
- * @param {Object} [options.options] - 選項
- * @param {Object} [options.options.resolvers] - 欄位解析器 { [colId]: (val, row) => string }
- * @param {Array} [options.options.columns] - 自訂欄位（若未提供，從 entity-definitions 讀）
- * @param {Object} [options.hooks] - Hook
  * @returns {Object} { container, table, refresh, destroy }
  */
 export function renderDataTable(options) {
@@ -51,13 +41,11 @@ export function renderDataTable(options) {
   const customColumns = extraOptions.columns;
   const hasCustomColumns = Array.isArray(customColumns) && customColumns.length > 0;
 
-  // 🆕 v101.6.1：允許「非標準實體」+ 自訂欄位
   if (!def && !hasCustomColumns) {
     console.warn(`⚠️ renderDataTable: 找不到實體 ${entityKey}，且未提供自訂欄位`);
     return null;
   }
 
-  // 🆕 v101.6.1：def 為 null 時，用空物件 + 預設 UI 配置
   const effectiveDef = def || { fields: [] };
   const effectiveUi = def
     ? (getEntityUi(entityKey) || {})
@@ -72,7 +60,6 @@ export function renderDataTable(options) {
   const fieldMap = {};
   (effectiveDef.fields || []).forEach((f) => { fieldMap[f.id] = f; });
 
-  // 決定欄位清單
   let allColumns;
   if (hasCustomColumns) {
     allColumns = customColumns;
@@ -89,7 +76,6 @@ export function renderDataTable(options) {
     });
   }
 
-  // 加入操作欄位
   const hasActions = (effectiveUi.canEdit !== false) || (effectiveUi.canDelete !== false);
   if (hasActions && !allColumns.some((c) => c.id === '__actions__')) {
     allColumns.push({
@@ -178,12 +164,10 @@ export function renderDataTable(options) {
   }
 
   function _renderTd(col, row, isFirst) {
-    // 操作欄位
     if (col.id === '__actions__') {
       return `<td data-label="操作">${_renderActions(col, row)}</td>`;
     }
 
-    // 自訂 cell
     if (typeof hooks.customCellRender === 'function') {
       const custom = hooks.customCellRender(col, row);
       if (custom !== null && custom !== undefined) {
@@ -191,12 +175,12 @@ export function renderDataTable(options) {
       }
     }
 
-    // 解析值
     const val = row[col.id];
     const resolver = resolvers[col.id];
+    // 🆕 v101.6.6：使用 utils.formatCellValue（SSOT）
     const content = resolver
       ? resolver(val, row)
-      : _formatCell(val, col.type);
+      : formatCellValue(val, col.type);
 
     const cls = col.type === 'number' ? 'num' : '';
     const dataLabel = isFirst ? 'data-primary="1"' : `data-label="${escapeHtml(col.label)}"`;
@@ -207,7 +191,6 @@ export function renderDataTable(options) {
   function _renderActions(col, row) {
     let actionsHtml = '';
 
-    // 自訂 actions
     if (typeof hooks.customActions === 'function') {
       const customActions = hooks.customActions(row) || [];
       actionsHtml += customActions.map((a) => `
@@ -219,7 +202,6 @@ export function renderDataTable(options) {
       `).join('');
     }
 
-    // 內建編輯 / 刪除
     const ui = effectiveUi;
     if (ui.canEdit !== false) {
       actionsHtml += `<button class="btn btn-sm btn-ghost" data-action="edit">
@@ -246,7 +228,6 @@ export function renderDataTable(options) {
     }
 
     _listener = (e) => {
-      // 欄位設定按鈕
       const settingsBtn = e.target.closest('button[data-action="column-settings"]');
       if (settingsBtn) {
         colSettings.openPanel({
@@ -255,7 +236,6 @@ export function renderDataTable(options) {
         return;
       }
 
-      // 操作按鈕
       const actionBtn = e.target.closest('button[data-action]');
       if (actionBtn) {
         const action = actionBtn.dataset.action;
@@ -266,7 +246,6 @@ export function renderDataTable(options) {
         const row = _beforeRows[index];
         if (!row) return;
 
-        // 自訂 action 優先
         if (typeof hooks.customActions === 'function') {
           const customActions = hooks.customActions(row) || [];
           const matched = customActions.find((a) => (a.action || 'custom') === action);
@@ -290,7 +269,6 @@ export function renderDataTable(options) {
         return;
       }
 
-      // 點擊 row
       const tr = e.target.closest('tr[data-row-index]');
       if (tr && typeof hooks.onRowClick === 'function') {
         const index = Number(tr.dataset.rowIndex);
@@ -337,21 +315,4 @@ function _renderEmpty(root) {
       <div class="empty-state">尚無資料</div>
     </div>
   `;
-}
-
-function _formatCell(val, type) {
-  if (val == null || val === '') return '<span class="text-muted">—</span>';
-
-  switch (type) {
-    case 'number':
-      return formatHKD(val);
-    case 'number-plain':
-      return formatNumber(val);
-    case 'date':
-      return escapeHtml(String(val));
-    case 'select':
-    case 'text':
-    default:
-      return escapeHtml(String(val));
-  }
 }

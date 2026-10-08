@@ -1,17 +1,15 @@
 // ============================================
-// data-card.js — 通用卡片渲染（v101.6.1）
+// data-card.js — 通用卡片渲染（v101.6.6）
 // 位置：js/shared/data-card.js
 // ============================================
-// v101.6.1 修正：
-//   ✅ 支援「非標準實體」+ 自訂欄位
-//     （entityKey 找不到 def 時，若有 options.fields 則繼續渲染）
-//   ✅ def 為 null 時，預設 canEdit / canDelete 為 false
+// v101.6.6 修正：
+//   ✅ [BUG-11] 移除本地 _formatCell，改用 utils.formatCellValue（SSOT）
 //
 // API 凍結：v101.6 發布後只加不改
 // ============================================
 
 import { getEntityDef, getEntityUi } from '../config/entity-definitions.js';
-import { escapeHtml, formatHKD, formatNumber } from '../core/utils.js';
+import { escapeHtml, formatCellValue } from '../core/utils.js';
 
 /* ============================================
    主函式
@@ -39,13 +37,11 @@ export function renderDataCard(options) {
   const customFields = extraOptions.fields;
   const hasCustomFields = Array.isArray(customFields) && customFields.length > 0;
 
-  // 🆕 v101.6.1：允許「非標準實體」+ 自訂欄位
   if (!def && !hasCustomFields) {
     console.warn(`⚠️ renderDataCard: 找不到實體 ${entityKey}，且未提供自訂欄位`);
     return null;
   }
 
-  // 🆕 v101.6.1：def 為 null 時，用空物件 + 預設 UI 配置
   const effectiveDef = def || { fields: [] };
   const effectiveUi = def
     ? (getEntityUi(entityKey) || {})
@@ -138,9 +134,10 @@ export function renderDataCard(options) {
           if (!field) return '';
           const val = row[id];
           const resolver = resolvers[id];
+          // 🆕 v101.6.6：使用 utils.formatCellValue（SSOT）
           const content = resolver
             ? resolver(val, row)
-            : _formatCell(val, field.type);
+            : formatCellValue(val, field.type);
           return `
             <div class="data-card-field" style="display:flex; justify-content:space-between; gap:12px;">
               <span class="data-card-label" style="color:var(--text-muted); font-size:11px; flex-shrink:0;">
@@ -279,20 +276,4 @@ function _renderEmpty(root) {
       <div class="empty-state">尚無資料</div>
     </div>
   `;
-}
-
-function _formatCell(val, type) {
-  if (val == null || val === '') return '<span class="text-muted">—</span>';
-
-  switch (type) {
-    case 'number':
-      return formatHKD(val);
-    case 'number-plain':
-      return formatNumber(val);
-    case 'date':
-    case 'select':
-    case 'text':
-    default:
-      return escapeHtml(String(val));
-  }
 }

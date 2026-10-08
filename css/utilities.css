@@ -1,17 +1,20 @@
 /* ============================================
-   utilities.css — 全站工具類樣式
+   utilities.css — 全站工具類樣式（v101.6.6）
    -------------------------------------------------
+   v101.6.6 修正：
+     ✅ [BUG-09] 移除 .tab-bar 相關樣式（改由 components.css 統一）
+     ✅ [BUG-10] 移除底部重複的 .data-card 樣式（已於 components.css 定義）
+
    內容：
      1. 名稱截斷
      2. 手機卡片化表格
-     3. Tab 切換
-     4. 間距工具
-     5. Flex / 對齊
-     6. 文字
-     7. 顯示
-     8. 分隔線
-     9. 快速摘要卡
-    10. 內容區最小高度
+     3. 間距工具
+     4. Flex / 對齊
+     5. 文字
+     6. 顯示
+     7. 分隔線
+     8. 快速摘要卡
+     9. 內容區最小高度
    ============================================ */
 
 /* ============================================
@@ -32,7 +35,6 @@
   }
 }
 
-/* 可展開版本（點擊展開全名） */
 .truncate-expandable {
   cursor: pointer;
   border-bottom: 1px dashed rgba(0, 240, 255, 0.35);
@@ -53,10 +55,6 @@
 
 /* ============================================
    2. 手機卡片化表格（.data-table.mobile-cards）
-   -------------------------------------------------
-   用法：HTML 表格加 class="data-table mobile-cards"
-         每個 <td> 加 data-label="欄位名"
-         主欄位加 data-primary（不顯示 label）
    ============================================ */
 @media (max-width: 640px) {
   .data-table.mobile-cards {
@@ -107,13 +105,11 @@
     margin-right: 8px;
   }
 
-  /* 隱藏欄位（行動版不需顯示） */
   .data-table.mobile-cards td.hide-mobile,
   .data-table.mobile-cards th.hide-mobile {
     display: none !important;
   }
 
-  /* 主要欄位（成員 + 項目名）放大 */
   .data-table.mobile-cards td[data-primary] {
     font-size: 14px;
     font-weight: 600;
@@ -125,7 +121,6 @@
     display: none;
   }
 
-  /* 金額欄位右對齊 */
   .data-table.mobile-cards td[data-label="金額"],
   .data-table.mobile-cards td.num {
     text-align: right;
@@ -133,7 +128,6 @@
     font-weight: 700;
   }
 
-  /* 操作按鈕群組 */
   .data-table.mobile-cards td[data-label="操作"] {
     display: flex;
     gap: 8px;
@@ -146,7 +140,6 @@
     display: none;
   }
 
-  /* 狀態 badge 放行 */
   .data-table.mobile-cards td[data-label="狀態"] {
     display: flex;
     align-items: center;
@@ -155,83 +148,7 @@
 }
 
 /* ============================================
-   3. Tab 切換
-   ============================================ */
-.tab-bar {
-  display: flex;
-  gap: 4px;
-  padding: 4px;
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-sm);
-  overflow-x: auto;
-  margin-bottom: 16px;
-  scrollbar-width: thin;
-}
-
-.tab-bar .tab-btn {
-  flex: 1;
-  min-width: 100px;
-  padding: 8px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  border-radius: var(--radius-sm);
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all var(--transition);
-  font-family: inherit;
-}
-
-.tab-bar .tab-btn:hover {
-  color: var(--neon-cyan);
-}
-
-.tab-bar .tab-btn.active {
-  background: rgba(0, 240, 255, 0.15);
-  color: var(--neon-cyan);
-  font-weight: 700;
-}
-
-.tab-panel {
-  display: none;
-}
-
-.tab-panel.active {
-  display: block;
-}
-
-/* 多行 Tab（8 Tab 用） */
-.tab-bar.tab-bar-wrap {
-  flex-wrap: wrap;
-}
-
-.tab-bar.tab-bar-wrap .tab-btn {
-  flex: 0 0 auto;
-  min-width: auto;
-}
-
-@media (max-width: 640px) {
-  .tab-bar {
-    gap: 2px;
-    padding: 3px;
-  }
-  .tab-bar .tab-btn {
-    padding: 7px 10px;
-    font-size: 12px;
-    min-width: 80px;
-  }
-  .tab-bar.tab-bar-wrap .tab-btn {
-    min-width: auto;
-    font-size: 11px;
-    padding: 6px 8px;
-  }
-}
-
-/* ============================================
-   4. 間距工具
+   3. 間距工具
    ============================================ */
 .mt-0  { margin-top: 0 !important; }
 .mt-4  { margin-top: 4px !important; }
@@ -269,7 +186,7 @@
 .gap-20 { gap: 20px !important; }
 
 /* ============================================
-   5. Flex / 對齊
+   4. Flex / 對齊
    ============================================ */
 .flex          { display: flex; }
 .flex-col      { display: flex; flex-direction: column; }
@@ -286,7 +203,7 @@
 .flex-shrink-0 { flex-shrink: 0; }
 
 /* ============================================
-   6. 文字
+   5. 文字
    ============================================ */
 .text-center { text-align: center; }
 .text-right  { text-align: right; }
@@ -306,14 +223,14 @@
 }
 
 /* ============================================
-   7. 顯示
+   6. 顯示
    ============================================ */
 .hidden       { display: none !important; }
 .block        { display: block !important; }
 .inline-block { display: inline-block !important; }
 
 /* ============================================
-   8. 分隔線
+   7. 分隔線
    ============================================ */
 .divider {
   height: 1px;
@@ -328,7 +245,7 @@
 }
 
 /* ============================================
-   9. 快速摘要卡
+   8. 快速摘要卡
    ============================================ */
 .quick-summary-card {
   background: var(--glass-bg);
@@ -381,7 +298,7 @@
 }
 
 /* ============================================
-   10. 內容區最小高度（填補底部空白）
+   9. 內容區最小高度（填補底部空白）
    ============================================ */
 .content-min-height {
   min-height: calc(100vh - 64px - 48px);
@@ -391,43 +308,4 @@
   .content-min-height {
     min-height: calc(100vh - 64px - 32px);
   }
-}
-/* data-card 卡片樣式（若尚未加入 utilities.css） */
-.data-card { padding: 16px; }
-.data-card-primary {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--neon-cyan);
-  margin-bottom: 10px;
-  line-height: 1.35;
-}
-.data-card-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 13px;
-}
-.data-card-field {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-}
-.data-card-label {
-  color: var(--text-muted);
-  font-size: 11px;
-  flex-shrink: 0;
-}
-.data-card-value {
-  text-align: right;
-  word-break: break-word;
-}
-.data-card-footer {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px dashed rgba(255, 255, 255, 0.08);
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  flex-wrap: wrap;
 }

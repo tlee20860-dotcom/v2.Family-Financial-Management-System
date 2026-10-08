@@ -1,28 +1,10 @@
 // ============================================
-// view-toggle.js — 卡片 / 表格檢視切換（v101）
+// view-toggle.js — 卡片 / 表格檢視切換（v101.6.6）
 // 位置：js/shared/view-toggle.js
 // ============================================
-// 用途：
-//   全站列表頁支援「卡片模式 / 表格模式」切換
-//   狀態存 localStorage，跨頁一致
-//
-// 用法：
-//   const toggle = initViewToggle({
-//     containerId: 'view-toggle-root',   // 或自訂容器
-//     storageKey: 'personal-expenses-view',
-//     defaultView: 'card',                // 'card' | 'table'
-//     onChange: (view) => { ... },
-//   });
-//   toggle.getView();
-//   toggle.setView('table');
-//   toggle.destroy();
-//
-// 或者直接呼叫 buildToggleHTML() 產出按鈕 HTML，
-//   再自己綁定事件：
-//   <div class="view-toggle-group" id="xxx-toggle">
-//     <button class="btn btn-sm btn-primary" data-view="card">卡片模式</button>
-//     <button class="btn btn-sm btn-ghost" data-view="table">表格模式</button>
-//   </div>
+// v101.6.6 修正：
+//   ✅ [BUG-07] 內部 _applyView 改為呼叫 applyViewToDom（消除重複）
+//   ✅ 保留所有 v101 功能
 // ============================================
 
 import { escapeHtml } from '../core/utils.js';
@@ -74,7 +56,7 @@ export function initViewToggle(options) {
   `;
 
   // 套用初始顯示
-  if (autoApply) _applyView(_currentView);
+  if (autoApply) applyViewToDom(_currentView);
 
   // 綁定點擊
   const clickHandler = (e) => {
@@ -105,8 +87,8 @@ export function initViewToggle(options) {
     // 儲存
     try { localStorage.setItem(storageFullKey, view); } catch (e) { /* noop */ }
 
-    // 套用顯示
-    if (autoApply) _applyView(view);
+    // 🆕 v101.6.6：直接呼叫導出的 applyViewToDom（BUG-07 修正）
+    if (autoApply) applyViewToDom(view);
 
     // 回呼
     if (typeof onChange === 'function') {
@@ -114,34 +96,14 @@ export function initViewToggle(options) {
     }
   }
 
-  function _applyView(view) {
-    // 全域套用：切換 <body> 的 class，讓 CSS 控制顯示
-    document.body.classList.toggle('view-card-mode', view === 'card');
-    document.body.classList.toggle('view-table-mode', view === 'table');
-
-    // 個別套用：只切換容器內 .view-card-only / .view-table-only
-    document.querySelectorAll('[data-view-card-only]').forEach((el) => {
-      el.style.display = view === 'card' ? '' : 'none';
-    });
-    document.querySelectorAll('[data-view-table-only]').forEach((el) => {
-      el.style.display = view === 'table' ? '' : 'none';
-    });
-  }
-
   return {
     root,
     getView: () => _currentView,
     setView,
-    /**
-     * 重新觸發 onChange（用於資料更新後重繪）
-     */
     refresh: () => {
-      if (autoApply) _applyView(_currentView);
+      if (autoApply) applyViewToDom(_currentView);
       if (typeof onChange === 'function') onChange(_currentView);
     },
-    /**
-     * 銷毀
-     */
     destroy: () => {
       root.removeEventListener('click', clickHandler);
     },
@@ -152,11 +114,6 @@ export function initViewToggle(options) {
    工具函式（可獨立使用）
    ============================================ */
 
-/**
- * 產生 toggle 按鈕的 HTML（若不想用 initViewToggle 的自動注入）
- * @param {Object} config
- * @returns {string}
- */
 export function buildToggleHTML(config = {}) {
   const {
     cardText = '卡片模式',
@@ -172,27 +129,16 @@ export function buildToggleHTML(config = {}) {
   `;
 }
 
-/**
- * 讀取已儲存的檢視（供外部查詢）
- * @param {string} storageKey
- * @param {'card'|'table'} [defaultView='card']
- * @returns {'card'|'table'}
- */
 export function getSavedView(storageKey, defaultView = 'card') {
   return _loadView(_fullKey(storageKey), defaultView);
 }
 
-/**
- * 儲存檢視
- * @param {string} storageKey
- * @param {'card'|'table'} view
- */
 export function saveView(storageKey, view) {
   try { localStorage.setItem(_fullKey(storageKey), view); } catch (e) { /* noop */ }
 }
 
 /**
- * 套用檢視到 DOM（若不想用 initViewToggle）
+ * 套用檢視到 DOM（SSOT：唯一的 DOM 套用邏輯）
  * @param {'card'|'table'} view
  */
 export function applyViewToDom(view) {

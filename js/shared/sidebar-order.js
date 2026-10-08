@@ -1,31 +1,38 @@
 // ============================================
-// sidebar-order.js — 側邊欄排序管理（v101.6）
+// sidebar-order.js — 側邊欄排序管理（v101.6.6）
 // 位置：js/shared/sidebar-order.js
 // ============================================
-// v101.6 修正：
-//   ✅ ALL_MENU_ITEMS 從 sidebar-groups.js 動態取得（不再重複定義）
+// v101.6.6 修正：
+//   ✅ [BUG-15] ALL_MENU_ITEMS / DEFAULT_ORDER 由 module 常數改為動態 getter
+//       - 移除 export const，避免 module 載入時快照
+//       - 新增 getAllMenuItems() / getDefaultOrder()
 //   ✅ 保留排序邏輯（sortByOrder / moveOrderItem / watchSidebarOrder）
 //   ✅ 補齊新選單自動加入機制
-//   ✅ 移除「成員子群組」相關邏輯（已廢除）
 // ============================================
 
 import { listenSidebarOrder, saveSidebarOrder } from '../core/db.js';
 import { flattenAllItems, flattenAllHrefs } from './sidebar-groups.js';
 
 /* ============================================
-   常數（從 sidebar-groups.js 動態產生）
+   🆕 v101.6.6：動態 getter（取代舊 export const）
    ============================================ */
 
 /**
- * 所有可排序的側邊欄選單（攤平自 SIDEBAR_GROUPS）
+ * 取得所有可排序的側邊欄選單（攤平自 SIDEBAR_GROUPS）
  * 格式：[{ icon, label, href, groupKey }, ...]
+ * @returns {Array}
  */
-export const ALL_MENU_ITEMS = flattenAllItems();
+export function getAllMenuItems() {
+  return flattenAllItems();
+}
 
 /**
- * 預設順序（href 陣列）
+ * 取得預設順序（href 陣列）
+ * @returns {string[]}
  */
-export const DEFAULT_ORDER = flattenAllHrefs();
+export function getDefaultOrder() {
+  return flattenAllHrefs();
+}
 
 /* ============================================
    排序工具
@@ -82,19 +89,22 @@ export function moveOrderItem(order, href, direction) {
  */
 export function watchSidebarOrder(callback) {
   return listenSidebarOrder((order) => {
+    // 🆕 v101.6.6：動態取得預設順序
+    const defaultOrder = getDefaultOrder();
+
     if (!order || !Array.isArray(order) || order.length === 0) {
-      callback([...DEFAULT_ORDER]);
+      callback([...defaultOrder]);
       return;
     }
 
     // 補齊未包含的項目
     const merged = [...order];
-    DEFAULT_ORDER.forEach((href) => {
+    defaultOrder.forEach((href) => {
       if (!merged.includes(href)) merged.push(href);
     });
 
     // 過濾掉已不存在的項目（選單被移除時）
-    const valid = merged.filter((href) => DEFAULT_ORDER.includes(href));
+    const valid = merged.filter((href) => defaultOrder.includes(href));
 
     callback(valid);
   });
@@ -112,7 +122,7 @@ export async function persistSidebarOrder(order) {
  * 重置為預設順序
  */
 export async function resetSidebarOrder() {
-  await saveSidebarOrder([...DEFAULT_ORDER]);
+  await saveSidebarOrder([...getDefaultOrder()]);
 }
 
 /* ============================================
@@ -125,19 +135,5 @@ export async function resetSidebarOrder() {
  * @returns {Object|null}
  */
 export function getMenuItemByHref(href) {
-  return ALL_MENU_ITEMS.find((it) => it.href === href) || null;
-}
-
-/**
- * 取得預設順序
- */
-export function getDefaultOrder() {
-  return [...DEFAULT_ORDER];
-}
-
-/**
- * 取得所有項目
- */
-export function getAllMenuItems() {
-  return [...ALL_MENU_ITEMS];
+  return getAllMenuItems().find((it) => it.href === href) || null;
 }

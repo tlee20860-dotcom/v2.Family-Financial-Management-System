@@ -1,11 +1,12 @@
 // ============================================
-// db.js — Firebase RTDB 讀寫封裝（v101.6）
+// db.js — Firebase RTDB 讀寫封裝（v101.6.6）
 // 位置：js/core/db.js
 // ============================================
-// v101.6 修正：
-//   ✅ 移除所有 fixedTemplate / fixedExpense 相關函式
-//   ✅ 保留 updateEntityStatus（跨來源改狀態）
-//   ✅ 保留所有其他 CRUD
+// v101.6.6 修正：
+//   ✅ [BUG-16] deleteInsurancePolicyAndData 增加 memberId fallback
+//       - 若未傳 memberId，自動讀取 policy 的 policyHolderId
+//       - 若仍找不到，只清除 payments 與 policy 本身（保留孤兒資料為孤兒）
+//   ✅ 保留所有 v101.6 功能
 // ============================================
 
 import { db } from '../config/firebase-config.js';
@@ -748,20 +749,46 @@ export async function removeInsurancePolicy(id) {
   await remove(familyRef(`insurance_policies/${id}`));
 }
 
+/**
+ * 刪除保單與所有相關資料
+ * @param {string} policyId
+ * @param {string} [memberId] - 可選，若未提供會自動從 policy 讀取 policyHolderId
+ */
 export async function deleteInsurancePolicyAndData(policyId, memberId) {
   const familyId = AppState.getFamilyId();
   if (!familyId) throw new Error('尚未選擇家庭');
+
+  // 🆕 v101.6.6：memberId fallback（BUG-16 修正）
+  let effectiveMemberId = memberId;
+  if (!effectiveMemberId) {
+    try {
+      const policySnap = await get(ref(db, `families/${familyId}/insurance_policies/${policyId}`));
+      const policy = policySnap.val();
+      if (policy) {
+        effectiveMemberId = policy.policyHolderId || policy.memberId || '';
+      }
+    } catch (e) {
+      console.warn(`[db] deleteInsurancePolicyAndData: 讀取 policy 失敗`, e);
+    }
+  }
+
   const paymentsSnap = await get(ref(db, `families/${familyId}/insurance_payments/${policyId}`));
   const payments = paymentsSnap.val() || {};
   const updates = {};
 
   const linkedKey = buildLinkedKey(policyId);
-  for (const [year, months] of Object.entries(payments)) {
-    for (const [month] of Object.entries(months)) {
-      updates[
-        `families/${familyId}/expenses/${year}/${month}/member_expenses/${memberId}/${linkedKey}`
-      ] = null;
+
+  // 只有當 effectiveMemberId 存在時，才清除連結支出（避免產出 undefined 路徑）
+  if (effectiveMemberId) {
+    for (const [year, months] of Object.entries(payments)) {
+      for (const [month] of Object.entries(months)) {
+        updates[
+          `families/${familyId}/expenses/${year}/${month}/member_expenses/${effectiveMemberId}/${linkedKey}`
+        ] = null;
+      }
     }
+  } else {
+    console.warn(`[db] deleteInsurancePolicyAndData: 保單 ${policyId} 找不到 policyHolderId / memberId，將略過連結支出清理`);
   }
 
   updates[`families/${familyId}/insurance_payments/${policyId}`] = null;
@@ -917,7 +944,6 @@ export async function updateEntityStatus(source, row, newStatus, isDone) {
       return;
     }
     case 'fixed': {
-      // 🆕 v101.6：固定支出廢除，但保留相容性
       const { id } = row._ref;
       await updateFixedExpenseCompat(row.year, row.month, id, {
         status: newStatus,
@@ -934,8 +960,7 @@ export async function updateEntityStatus(source, row, newStatus, isDone) {
 }
 
 /**
- * 🆕 v101.6：固定支出相容函式（僅供 updateEntityStatus 使用）
- * 主 UI 已廢除固定支出，但為避免舊資料操作錯誤，保留此函式
+ * 固定支出相容函式（僅供 updateEntityStatus 使用）
  */
 async function updateFixedExpenseCompat(year, month, id, patch) {
   const clean = { ...patch };

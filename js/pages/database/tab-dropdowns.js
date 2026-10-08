@@ -1,12 +1,10 @@
 // ============================================
-// tab-dropdowns.js — 基礎資料庫：下拉選項 Tab（v101.6）
+// tab-dropdowns.js — 基礎資料庫：下拉選項 Tab（v101.6.6）
 // 位置：js/pages/database/tab-dropdowns.js
 // ============================================
-// v101.6 修正：
-//   ✅ 移除「cycles」（付款週期）群組（固定支出廢除）
-//   ✅ 保留 memberRoles / policyTypes / insurancePaymentTypes / categoryOrder
-//   ✅ 選項結構特殊（非 entity），保留專屬 Modal
-//   ✅ 使用 _container.querySelector + 完整清理
+// v101.6.6 修正：
+//   ✅ [BUG-13] GROUPS 補註解說明「保險付款類型」為 v101.6 保留項目
+//   ✅ 保留所有 v101.6 功能
 // ============================================
 
 import { listenFamilyOptions, saveFamilyOptions } from '../../core/db.js';
@@ -29,7 +27,15 @@ const listenerGroup = createListenerGroup();
 const EDIT_MODAL_ID = 'db-dropdown-edit-modal';
 
 /* ============================================
-   選項群組定義（v101.6：移除 cycles）
+   選項群組定義
+   -------------------------------------------------
+   v101.6 說明：
+   - ✅ memberRoles          成員角色
+   - ✅ policyTypes          保單類型（normal / fund_insurance）
+   - ✅ insurancePaymentTypes 保險付款類型（年繳 / 月繳 / 一次付款）
+        └─ 雖與固定支出無關，但為「保單」實體的必要欄位選項，v101.6 保留
+   - ✅ categoryOrder        類別順序（年度報表用）
+   - ❌ cycles               付款週期（固定支出廢除，v101.6 已移除）
    ============================================ */
 const GROUPS = [
   {
@@ -44,14 +50,14 @@ const GROUPS = [
     label: '保單類型',
     icon: 'shield',
     type: 'value-label',
-    hint: '保險保單的類型',
+    hint: '保險保單的類型（普通保險 / 基金保險）',
   },
   {
     key: 'insurancePaymentTypes',
     label: '保險付款類型',
     icon: 'credit-card',
     type: 'value-label',
-    hint: '保單的付款方式（年繳 / 月繳 / 一次付款）',
+    hint: '保單的付款方式（年繳 / 月繳 / 一次付款）— v101.6 保留項目',
   },
   {
     key: 'categoryOrder',

@@ -1,14 +1,15 @@
 // ============================================
-// settings.js — 系統設定（v101.5）
+// settings.js — 系統設定（v101.6.6）
 // 位置：js/pages/settings.js
 // ============================================
-// v101.5 修正：
-//   ✅ 平台設定驗證改用 beforeSubmit（原本在 onSubmit 內 return 無效）
-//   ✅ 使用 registerPageCleanup 註冊清理
+// v101.6.6 修正：
+//   ✅ [BUG-14] logout-btn → settings-logout-btn（避免與 admin 頁 ID 重複）
+//   ✅ [BUG-15] ALL_MENU_ITEMS → getAllMenuItems()（動態 getter）
+//   ✅ 保留所有 v101.5 功能
 // ============================================
 
 import {
-  ALL_MENU_ITEMS,
+  getAllMenuItems,
   watchSidebarOrder,
   persistSidebarOrder,
   resetSidebarOrder,
@@ -33,6 +34,7 @@ let _tabPanel = null;
 let _uiFormApi = null;
 let _currentOrder = [];
 let _unsubOrder = null;
+let _logoutHandler = null;
 
 /* ============================================
    主入口
@@ -111,14 +113,16 @@ function _renderAccountInfo() {
     familyEl.value = AppState.getFamilyName() || '—';
   }
 
-  document.getElementById('logout-btn')?.addEventListener('click', async () => {
+  // 🆕 v101.6.6：改用 settings-logout-btn
+  _logoutHandler = async () => {
     const ok = await openConfirm('確定要登出嗎？', {
       title: '登出',
       okText: '登出',
       okClass: 'btn-danger',
     });
     if (ok) logout();
-  });
+  };
+  document.getElementById('settings-logout-btn')?.addEventListener('click', _logoutHandler);
 }
 
 /* ============================================
@@ -166,7 +170,6 @@ function _renderPlatformPanel() {
     submitText: '儲存平台設定',
     showCancel: false,
     showReset: false,
-    // 🆕 v101.5：驗證改用 beforeSubmit
     beforeSubmit: _validatePlatformSettings,
     onSubmit: _handlePlatformSave,
   });
@@ -254,7 +257,8 @@ function _renderOrderList() {
   const listEl = document.getElementById('sidebar-order-list');
   if (!listEl) return;
 
-  const sorted = sortByOrder(ALL_MENU_ITEMS, _currentOrder);
+  // 🆕 v101.6.6：使用動態 getter（BUG-15 修正）
+  const sorted = sortByOrder(getAllMenuItems(), _currentOrder);
 
   listEl.innerHTML = `
     <div style="border:1px solid var(--glass-border); border-radius:var(--radius-md); overflow:hidden;">
@@ -325,5 +329,10 @@ function _destroy() {
   if (_unsubOrder) {
     try { _unsubOrder(); } catch (e) { /* noop */ }
     _unsubOrder = null;
+  }
+  // 🆕 v101.6.6：清理 logout handler
+  if (_logoutHandler) {
+    document.getElementById('settings-logout-btn')?.removeEventListener('click', _logoutHandler);
+    _logoutHandler = null;
   }
 }

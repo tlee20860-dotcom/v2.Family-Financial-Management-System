@@ -1,14 +1,10 @@
 // ============================================
-// sidebar.js — 左側導覽選單（v101.6）
+// sidebar.js — 左側導覽選單（v101.6.6）
 // 位置：js/shared/sidebar.js
 // ============================================
-// v101.6 修正：
-//   ✅ 移除 getMembersGroup import（v101.6 已廢除「成員與收入」群組）
-//   ✅ 移除所有「成員子群組」相關邏輯
-//   ✅ 移除 _isMembersGroupOpen / MEMBERS_GROUP_OPEN
-//   ✅ 移除 hasMembersSub 判斷
-//   ✅ 移除 data-members-toggle 事件處理
-//   ✅ 保留群組展開 / 收合功能
+// v101.6.6 修正：
+//   ✅ [BUG-15] 改用 getDefaultOrder()（取代移除的 DEFAULT_ORDER 常數）
+//   ✅ 保留所有 v101.6 功能
 // ============================================
 
 import { escapeHtml } from '../core/utils.js';
@@ -20,12 +16,12 @@ import {
   saveOpenGroupSet,
   ensureGroupOpenFor,
 } from './sidebar-groups.js';
-import { sortByOrder, watchSidebarOrder, DEFAULT_ORDER } from './sidebar-order.js';
+import { sortByOrder, watchSidebarOrder, getDefaultOrder } from './sidebar-order.js';
 
 /* ============================================
    Module 狀態
    ============================================ */
-let _currentOrder = [...DEFAULT_ORDER];
+let _currentOrder = [];
 let _currentGroups = [];
 let _activeHref = '';
 let _unsubscribers = [];
@@ -44,6 +40,10 @@ export async function renderSidebar(containerId = 'sidebar-root', activeHref = '
   if (!root) return;
 
   _activeHref = activeHref;
+
+  // 🆕 v101.6.6：動態取得預設順序（BUG-15 修正）
+  _currentOrder = [...getDefaultOrder()];
+
   root.classList.add('sidebar');
 
   root.innerHTML = `
@@ -55,7 +55,6 @@ export async function renderSidebar(containerId = 'sidebar-root', activeHref = '
 
   _navEl = root.querySelector('#sidebar-nav-inner');
 
-  // 讀取群組展開狀態
   _currentGroups = getAllGroups().map((g) => ({
     ...g,
     isOpen: false,
@@ -67,20 +66,16 @@ export async function renderSidebar(containerId = 'sidebar-root', activeHref = '
   });
   saveOpenGroupSet(openSet);
 
-  // 綁定全域事件（只綁一次）
   _bindGlobalEvents();
 
-  // 監聽側邊欄排序
   const unsubOrder = watchSidebarOrder((order) => {
     _currentOrder = order;
     _renderNav();
   });
   _unsubscribers.push(unsubOrder);
 
-  // 初次渲染
   _renderNav();
 
-  // 桌面版摺疊狀態
   try {
     const collapsed = localStorage.getItem(STORAGE_KEYS.SIDEBAR_COLLAPSED) === 'true';
     if (collapsed && window.innerWidth >= 640) root.classList.add('collapsed');

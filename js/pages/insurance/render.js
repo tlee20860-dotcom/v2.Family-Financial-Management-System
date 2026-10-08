@@ -1,11 +1,11 @@
 // ============================================
-// render.js — 保險渲染模組（v101.6）
+// render.js — 保險渲染模組（v101.6.6）
 // 位置：js/pages/insurance/render.js
 // ============================================
-// v101.6 修正：
-//   ✅ 卡片 / 表格新增「編輯 / 刪除」按鈕（data-action）
-//   ✅ 移除「更新扣款」按鈕（改為結算清單編輯）
-//   ✅ 保留「恢復供款」按鈕（data-action="restore"）
+// v101.6.6 修正：
+//   ✅ [BUG-04] 移除硬編碼「已扣款」→ 改用 isDoneStatus()
+//   ✅ 明細顯示實際狀態名稱（支援家庭自訂）
+//   ✅ 保留所有 v101.6 功能
 // ============================================
 
 import { escapeHtml, formatHKD } from '../../core/utils.js';
@@ -14,6 +14,7 @@ import {
   calcProgress,
   getPolicyHolderId,
 } from '../../shared/insurance-calc.js';
+import { isDoneStatus } from '../../shared/entity-helpers.js';
 
 /* ============================================
    全域展開狀態
@@ -34,11 +35,10 @@ export function clearExpanded() {
 }
 
 /* ============================================
-   1. 統計卡（已由 index.js 使用 stats-cards 處理，此函式保留相容）
+   1. 統計卡（保留相容）
    ============================================ */
 export function renderStats() {
   // v101.6：已由 index.js 的 _renderStats 使用 stats-cards.js
-  // 保留空函式供相容
 }
 
 /* ============================================
@@ -355,7 +355,7 @@ function _renderTableRow(p, members) {
 }
 
 /* ============================================
-   5. 保單明細（每月扣款狀態，唯讀）
+   5. 保單明細（v101.6.6：狀態判定改用 isDoneStatus）
    ============================================ */
 function _renderPolicyDetail(policy, payments) {
   const totalYears = policy.totalPolicyYears || 1;
@@ -380,7 +380,13 @@ function _renderPolicyDetail(policy, payments) {
         (policy.periods?.[String(i)]?.monthlyAverage) || policy.monthlyAverage || 0
       );
       const amount = payment.amount ? Math.round(payment.amount) : defaultAmount;
-      const isPaid = payment.status === '已扣款';
+
+      // 🆕 v101.6.6：改用 isDoneStatus（支援家庭自訂狀態名稱）
+      const isPaid = isDoneStatus(payment.status, 'insurance');
+      // 顯示實際狀態名稱；若無則顯示預設
+      const statusText = payment.status
+        || (isPaid ? '已扣款' : '未扣款');
+
       if (isPaid) totalPaid += amount;
 
       months.push(`
@@ -389,8 +395,8 @@ function _renderPolicyDetail(policy, payments) {
           <div style="flex:1; text-align:right;" class="mono">${formatHKD(amount)}</div>
           <div style="flex-shrink:0; min-width:70px; text-align:right;">
             ${isPaid
-              ? '<span class="badge badge-success">已扣款</span>'
-              : '<span class="badge badge-pending">未扣款</span>'}
+              ? `<span class="badge badge-success">${escapeHtml(statusText)}</span>`
+              : `<span class="badge badge-pending">${escapeHtml(statusText)}</span>`}
           </div>
         </div>
       `);

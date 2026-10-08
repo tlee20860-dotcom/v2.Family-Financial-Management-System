@@ -1,19 +1,14 @@
 // ============================================
-// sw.js — Service Worker（v101.6）
+// sw.js — Service Worker（v101.6.6）
 // ============================================
-// v101.6 更新：
-//   ✅ CACHE_NAME = family-fin-v106
-//   ✅ 移除已刪除的檔案（income / banks / members / member-detail
-//      / personal-expenses / fixed-expenses / tab-policies / tab-funds
-//      / tab-expenses / tab-fixed / tab-insurance / tab-income
-//      / tab-banks / tab-funds）
-//   ✅ 新增 v101.6 新檔案（column-settings / data-table / stats-cards
-//      / listener-group / form-handler / entity-list-page
-//      / finance-overview / member-report
-//      / input-center/recent-list / input-center/holdings-list）
+// v101.6.6 更新：
+//   ✅ CACHE_NAME = family-fin-v107（v106 → v107）
+//   ✅ 對應 v101.6.6 修正：settlements / insurance / member-report
+//      / dashboard / tab-banks / view-toggle / data-table / data-card
+//      / utils / constants / sidebar / sidebar-order / db / admin / settings
 // ============================================
 
-const CACHE_NAME = 'family-fin-v106';
+const CACHE_NAME = 'family-fin-v107';
 
 const STATIC_ASSETS = [
   // ================= CSS =================
@@ -60,25 +55,25 @@ const STATIC_ASSETS = [
   './js/shared/insurance-calc.js',
   './js/shared/entity-modal.js',
   './js/shared/entity-helpers.js',
-  './js/shared/column-settings.js',      // 🆕 v101.6
-  './js/shared/data-table.js',           // 🆕 v101.6
-  './js/shared/stats-cards.js',          // 🆕 v101.6
-  './js/shared/entity-list-page.js',     // 🆕 v101.6
-  './js/shared/form-handler.js',         // 🆕 v101.6
-  './js/shared/listener-group.js',       // 🆕 v101.6
+  './js/shared/column-settings.js',
+  './js/shared/data-table.js',
+  './js/shared/stats-cards.js',
+  './js/shared/entity-list-page.js',
+  './js/shared/form-handler.js',
+  './js/shared/listener-group.js',
 
   // ================= JS — pages (根目錄) =================
   './js/pages/dashboard.js',
   './js/pages/portfolio.js',
   './js/pages/annual-report.js',
   './js/pages/settings.js',
-  './js/pages/finance-overview.js',      // 🆕 v101.6
-  './js/pages/member-report.js',         // 🆕 v101.6
+  './js/pages/finance-overview.js',
+  './js/pages/member-report.js',
 
   // ================= JS — pages/input-center =================
   './js/pages/input-center/index.js',
-  './js/pages/input-center/recent-list.js',    // 🆕 v101.6
-  './js/pages/input-center/holdings-list.js',  // 🆕 v101.6
+  './js/pages/input-center/recent-list.js',
+  './js/pages/input-center/holdings-list.js',
 
   // ================= JS — pages/database =================
   './js/pages/database/index.js',

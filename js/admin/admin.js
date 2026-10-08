@@ -1,10 +1,10 @@
 // ============================================
-// admin.js — 平台管理入口（v101.5）
+// admin.js — 平台管理入口（v101.6.6）
 // 位置：js/admin/admin.js
 // ============================================
-// v101.5 修正：
-//   ✅ 使用 registerPageCleanup 註冊清理
-//   ✅ initPlatformDefaults 實例有完整 destroy
+// v101.6.6 修正：
+//   ✅ [BUG-14] logout-btn → admin-logout-btn（避免與 settings 頁 ID 重複）
+//   ✅ 保留所有 v101.5 功能
 // ============================================
 
 import { api } from '../core/api.js';
@@ -46,7 +46,8 @@ export function initAdminPage() {
     });
     if (ok) logout();
   };
-  document.getElementById('logout-btn')?.addEventListener('click', _logoutHandler);
+  // 🆕 v101.6.6：改用 admin-logout-btn
+  document.getElementById('admin-logout-btn')?.addEventListener('click', _logoutHandler);
 
   _tabPanel = initTabPanel({
     containerId: 'admin-tabs',
@@ -337,7 +338,8 @@ function _destroy() {
     _defaultsInstance = null;
   }
   if (_logoutHandler) {
-    document.getElementById('logout-btn')?.removeEventListener('click', _logoutHandler);
+    // 🆕 v101.6.6：改用 admin-logout-btn
+    document.getElementById('admin-logout-btn')?.removeEventListener('click', _logoutHandler);
     _logoutHandler = null;
   }
   if (_familyListHandler) {
