@@ -1,11 +1,11 @@
 // ============================================
-// member-report.js — 成員與家庭收入與支出明細（v101.7.0）
+// member-report.js — 成員與家庭收入與支出明細（v101.9.0）
 // 位置：js/pages/member-report.js
 // ============================================
-// v101.7.0 新增：
-//   ✅ 雙模式切換（卡片 / 表格）
-//   ✅ 表格可摺疊 + 每列展開每月明細
-//   ✅ 卡片模式：每位成員一張卡
+// v101.9.0 修正：
+//   ✅ 完全移除 page-filter（Q6：年份由 Navbar 控制）
+//   ✅ 監聽 ym-change 更新 _currentYear
+//   ✅ 保留「家庭共用」為獨立項目（Q6 確認）
 // ============================================
 
 import { AppState } from '../core/state.js';
@@ -17,7 +17,6 @@ import {
 import {
   escapeHtml, formatHKD, sortMembers, setText,
 } from '../core/utils.js';
-import { renderPageFilter } from '../shared/page-filter.js';
 import { renderStatsCards } from '../shared/stats-cards.js';
 import { renderDataTable } from '../shared/data-table.js';
 import { initViewToggle } from '../shared/view-toggle.js';
@@ -25,6 +24,9 @@ import { createListenerGroup } from '../shared/listener-group.js';
 import { RESERVED_IDS } from '../config/constants.js';
 import { registerPageCleanup } from '../core/app.js';
 
+/* ============================================
+   Module 狀態
+   ============================================ */
 let _members = [];
 let _allIncome = [];
 let _allExpenses = [];
@@ -32,7 +34,6 @@ let _selectedMemberId = null;
 let _currentYear = '';
 let _memberRows = [];
 
-let _filterInstance = null;
 let _viewToggle = null;
 let _statsApi = null;
 let _memberTableApi = null;
@@ -45,6 +46,7 @@ const listenerGroup = createListenerGroup();
    主入口
    ============================================ */
 export async function initMemberReportPage() {
+  // 🆕 v101.9.0：初始年份從 AppState
   _currentYear = AppState.year || String(new Date().getFullYear());
 
   _viewToggle = initViewToggle({
@@ -57,14 +59,7 @@ export async function initMemberReportPage() {
     onChange: () => _render(),
   });
 
-  _filterInstance = renderPageFilter({
-    containerId: 'page-filter-root',
-    fields: ['year'],
-    onChange: (f) => {
-      _currentYear = f.year || _currentYear;
-      _render();
-    },
-  });
+  // 🆕 v101.9.0：移除 renderPageFilter，改由 Navbar 控制
 
   listenerGroup.add(listenMembers((list) => {
     _members = sortMembers(list);
@@ -76,6 +71,12 @@ export async function initMemberReportPage() {
   }));
   listenerGroup.add(listenAllExpenses((list) => {
     _allExpenses = list || [];
+    _render();
+  }));
+
+  // 🆕 v101.9.0：監聽年月變更
+  listenerGroup.add(AppState.on('ym-change', () => {
+    _currentYear = AppState.year || _currentYear;
     _render();
   }));
 
@@ -256,7 +257,6 @@ function _renderTable() {
 }
 
 function _renderMemberRowDetail(row) {
-  // 顯示該成員 12 個月的簡表
   const months = [];
   for (let m = 1; m <= 12; m++) {
     const mm = String(m).padStart(2, '0');
@@ -477,7 +477,6 @@ function _renderMonthDetails(m, member, isShared) {
    ============================================ */
 function _destroy() {
   listenerGroup.destroy();
-  if (_filterInstance) { try { _filterInstance.destroy(); } catch (e) {} _filterInstance = null; }
   if (_viewToggle) { try { _viewToggle.destroy(); } catch (e) {} _viewToggle = null; }
   if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} _statsApi = null; }
   if (_memberTableApi) { try { _memberTableApi.destroy(); } catch (e) {} _memberTableApi = null; }

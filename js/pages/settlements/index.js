@@ -1,11 +1,12 @@
 // ============================================
-// index.js — 結算清單入口（v101.8.0）
+// index.js — 結算清單入口（v101.9.0）
 // 位置：js/pages/settlements/index.js
 // ============================================
-// v101.8.0 修正：
-//   ✅ 依 AppState.canInput 隱藏編輯 / 刪除按鈕
-//   ✅ 唯讀模式下，狀態欄改為純 badge（不顯示下拉）
-//   ✅ 保留 v101.7.6 全部功能（雙模式 + 可摺疊）
+// v101.9.0 修正：
+//   ✅ page-filter 移除 year / month（改由 Navbar 控制）
+//   ✅ 保留 source / status / member 篩選（Q4 保留原位置）
+//   ✅ _filters.year / month 從 AppState 讀取
+//   ✅ 監聽 ym-change 同步 _filters
 // ============================================
 
 import { AppState } from '../../core/state.js';
@@ -83,9 +84,21 @@ const TABLE_COLUMNS = [
 ];
 
 /* ============================================
+   🆕 v101.9.0：從 AppState 同步年月至 _filters
+   ============================================ */
+function _syncYearMonthFromAppState() {
+  const { year, month } = AppState.getYearMonth();
+  _filters.year = year || '';
+  _filters.month = month === 'all' ? '' : (month || '');
+}
+
+/* ============================================
    主入口
    ============================================ */
 export async function initSettlementsPage() {
+  // 🆕 v101.9.0：初始同步
+  _syncYearMonthFromAppState();
+
   _viewToggle = initViewToggle({
     containerId: 'settlement-view-toggle-root',
     storageKey: 'settlements-view',
@@ -96,9 +109,10 @@ export async function initSettlementsPage() {
     onChange: () => _render(),
   });
 
+  // 🆕 v101.9.0：page-filter 只保留 source / status / member
   _filterInstance = renderPageFilter({
     containerId: 'page-filter-root',
-    fields: ['year', 'month'],
+    fields: [],   // 🆕 不渲染 year / month（由 Navbar 控制）
     renderExtra: () => `
       <div class="filter-group">
         <label class="field-label">來源</label>
@@ -122,13 +136,10 @@ export async function initSettlementsPage() {
       </div>
     `,
     onChange: (f) => {
-      _filters = {
-        year: f.year || '',
-        month: f.month === 'all' ? '' : (f.month || ''),
-        source: f.source || '',
-        status: f.status || '',
-        member: f.member || '',
-      };
+      // 🆕 v101.9.0：只更新 source / status / member
+      _filters.source = f.source || '';
+      _filters.status = f.status || '';
+      _filters.member = f.member || '';
       _render();
     },
   });
@@ -146,7 +157,11 @@ export async function initSettlementsPage() {
     })
   );
 
-  listenerGroup.add(AppState.on('ym-change', () => _reload()));
+  // 🆕 v101.9.0：監聽年月變更（由 Navbar 觸發）
+  listenerGroup.add(AppState.on('ym-change', () => {
+    _syncYearMonthFromAppState();
+    _reload();
+  }));
 
   _bindStatusChange();
   _loadOptionsCache();
@@ -177,14 +192,13 @@ async function _loadOptionsCache() {
 }
 
 /* ============================================
-   狀態變更事件委派（僅 canInput 時可觸發）
+   狀態變更事件委派
    ============================================ */
 function _bindStatusChange() {
   const root = document.getElementById('settlement-table-root');
   if (!root) return;
 
   _statusChangeHandler = async (e) => {
-    // 🆕 v101.8.0：唯讀模式不處理
     if (!AppState.getCanInput()) return;
 
     const sel = e.target.closest('.settlement-status-select');
@@ -439,7 +453,6 @@ function _renderTable() {
 
   if (_tableApi) { try { _tableApi.destroy(); } catch (e) {} _tableApi = null; }
 
-  // 🆕 v101.8.0：依 canInput 決定
   const userCanInput = AppState.getCanInput();
 
   const actionFactory = userCanInput
@@ -459,7 +472,7 @@ function _renderTable() {
           onClick: (r) => handleSettlementDelete(r, _reload),
         },
       ]
-    : () => [];   // 🆕 唯讀回傳空陣列
+    : () => [];
 
   _tableApi = renderDataTable({
     container: root,
@@ -486,7 +499,6 @@ function _renderTable() {
     hooks: {
       customCellRender: (col, row) => {
         if (col.id === 'status') {
-          // 🆕 v101.8.0：唯讀時顯示純 badge（不顯示下拉）
           if (!userCanInput) {
             return _renderStatusBadge(row);
           }
@@ -501,9 +513,6 @@ function _renderTable() {
   if (window.lucide) window.lucide.createIcons();
 }
 
-/**
- * 🆕 v101.8.0：唯讀模式的狀態 badge
- */
 function _renderStatusBadge(row) {
   const cls = row.isDone ? 'badge-success' : 'badge-pending';
   const status = row.status || '未處理';
@@ -575,7 +584,6 @@ function _renderCard(row) {
     ? `<span class="badge badge-success">${escapeHtml(row.status)}</span>`
     : `<span class="badge badge-pending">${escapeHtml(row.status)}</span>`;
 
-  // 🆕 v101.8.0：依 canInput 顯示操作按鈕
   const userCanInput = AppState.getCanInput();
   const actionsHtml = userCanInput ? `
     <div class="data-card-footer" style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.08); display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">

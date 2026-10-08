@@ -1581,3 +1581,106 @@
   gap: 16px;
   align-items: start;
 }
+/* ============================================
+   🆕 v101.9.0：Navbar 年月選擇器
+   -------------------------------------------------
+   桌面：顯示完整「2024 年」「9 月」
+   手機：精簡「2024」「9」（隱藏標題）
+   ============================================ */
+
+.navbar-year-month {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.navbar-ym-select {
+  padding: 5px 10px;
+  background: rgba(8, 11, 17, 0.6);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition);
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 24px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2300F0FF' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+}
+
+.navbar-ym-select:hover {
+  border-color: var(--glass-border-hover);
+}
+
+.navbar-ym-select:focus {
+  outline: none;
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.1);
+}
+
+.navbar-ym-year {
+  min-width: 90px;
+}
+
+.navbar-ym-month {
+  min-width: 80px;
+}
+
+/* ============================================
+   🆕 v101.9.0：響應式
+   ============================================ */
+
+/* 平板（≤ 1024px） */
+@media (max-width: 1024px) {
+  .navbar-ym-year { min-width: 80px; }
+  .navbar-ym-month { min-width: 70px; }
+}
+
+/* 手機（≤ 640px） */
+@media (max-width: 640px) {
+  /* 精簡：隱藏標題，年月選擇器仍顯示 */
+  .navbar-title {
+    display: none !important;
+  }
+
+  .navbar-year-month {
+    gap: 4px;
+    margin-left: 4px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .navbar-ym-select {
+    padding: 5px 6px;
+    font-size: 11px;
+    padding-right: 20px;
+    background-position: right 4px center;
+  }
+
+  .navbar-ym-year {
+    min-width: 0;
+    flex: 1;
+    max-width: 80px;
+  }
+
+  .navbar-ym-month {
+    min-width: 0;
+    flex: 1;
+    max-width: 70px;
+  }
+
+  /* 使用者資訊縮小 */
+  .navbar-user-text {
+    font-size: 11px !important;
+    margin-right: 4px !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100px;
+  }
+}

@@ -1,11 +1,9 @@
 // ============================================
-// app.js — 每個頁面共用的初始化（v101.5）
+// app.js — 每個頁面共用的初始化（v101.9.0）
 // 位置：js/core/app.js
 // ============================================
-// v101.5 修正：
-//   ✅ destroyApp 補呼叫 disposeAppConfig / destroySidebar / destroyNavbar
-//   ✅ 新增 destroy 註冊機制（供頁面自行註冊清理函式）
-//   ✅ 強化錯誤處理（避免 app-config 載入失敗中斷頁面）
+// v101.9.0 修正：
+//   ✅ renderNavbar 傳入 activeHref（供年月選擇器判斷）
 // ============================================
 
 import { renderSidebar, destroySidebar } from '../shared/sidebar.js';
@@ -29,12 +27,6 @@ let _initialized = false;
 /* ============================================
    主入口
    ============================================ */
-
-/**
- * 頁面初始化
- * @param {Object} options
- * @returns {Promise<Object|null>} user 物件或 null
- */
 export async function initApp({
   activeHref = '',
   title = '',
@@ -90,9 +82,9 @@ export async function initApp({
     }
   }
 
-  // 6. Navbar 渲染
+  // 6. Navbar 渲染（🆕 v101.9.0：傳 activeHref）
   try {
-    renderNavbar('navbar-root', title);
+    renderNavbar('navbar-root', title, activeHref);
   } catch (err) {
     console.error('[app] Navbar 渲染失敗：', err);
   }
@@ -106,39 +98,24 @@ export async function initApp({
 }
 
 /* ============================================
-   🆕 v101.5：頁面清理註冊
+   頁面清理註冊
    ============================================ */
-
-/**
- * 註冊頁面清理函式
- * @param {Function} fn
- */
 export function registerPageCleanup(fn) {
   if (typeof fn === 'function') {
     _pageCleanups.push(fn);
   }
 }
 
-/**
- * 頁面卸載清理
- */
 export function destroyApp() {
-  // 清理頁面註冊的清理函式
   _pageCleanups.forEach((fn) => {
     try { fn(); } catch (e) { console.error('[app] cleanup error:', e); }
   });
   _pageCleanups = [];
 
-  // 清理側邊欄
   try { destroySidebar(); } catch (e) { /* noop */ }
-
-  // 清理 Navbar
   try { destroyNavbar(); } catch (e) { /* noop */ }
-
-  // 清理 app-config 監聽
   try { disposeAppConfig(); } catch (e) { /* noop */ }
 
-  // 清理 AppState
   AppState.destroy();
 
   _initialized = false;
