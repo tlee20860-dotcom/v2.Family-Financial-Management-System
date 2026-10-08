@@ -7,7 +7,7 @@
 //      - js/admin/admin.js（復原 Modal 密碼可編輯）
 // ============================================
 
-const CACHE_NAME = 'family-fin-v125';
+const CACHE_NAME = 'family-fin-v126';
 
 const STATIC_ASSETS = [
   './css/theme.css',
