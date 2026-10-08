@@ -1,15 +1,13 @@
 // ============================================
-// sw.js — Service Worker（v101.7.5）
+// sw.js — Service Worker（v101.7.6）
 // ============================================
-// v101.7.5 更新：
-//   ✅ CACHE_NAME = family-fin-v119（v118 → v119）
-//   ✅ 對應 v101.7.5 修正：
-//      - 廢除側欄排序功能
-//      - 刪除 js/shared/sidebar-order.js
-//      - sidebar.js / settings.js / settings.html 移除相關邏輯
+// v101.7.6 更新：
+//   ✅ CACHE_NAME = family-fin-v120（v119 → v120）
+//   ✅ 對應 v101.7.6 修正：
+//      - dashboard.js（columns id 改用 totalIncome / totalExpense）
 // ============================================
 
-const CACHE_NAME = 'family-fin-v119';
+const CACHE_NAME = 'family-fin-v120';
 
 const STATIC_ASSETS = [
   // ================= CSS =================
@@ -46,7 +44,6 @@ const STATIC_ASSETS = [
   './js/shared/date-helpers.js',
   './js/shared/navbar.js',
   './js/shared/sidebar.js',
-  // 🗑 v101.7.5：移除 './js/shared/sidebar-order.js'
   './js/shared/sidebar-groups.js',
   './js/shared/tab-panel.js',
   './js/shared/view-toggle.js',

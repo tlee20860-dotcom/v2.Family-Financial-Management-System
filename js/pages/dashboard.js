@@ -1,10 +1,13 @@
 // ============================================
-// dashboard.js — 總覽儀表板（v101.7.0）
+// dashboard.js — 總覽儀表板（v101.7.6）
 // 位置：js/pages/dashboard.js
 // ============================================
-// v101.7.0 新增：
-//   ✅ 雙模式切換（卡片 / 表格）
-//   ✅ 年度總覽：可摺疊 + 每列展開
+// v101.7.6 修正：
+//   ✅ [BUG] 年度總覽表格 columns id 與資料欄位名不一致
+//       - columns: income → totalIncome
+//       - columns: expense → totalExpense
+//       - resolvers: 同步更新 key
+//   ✅ 保留所有 v101.7.0 功能（雙模式 + 可摺疊）
 // ============================================
 
 import { api } from '../core/api.js';
@@ -62,7 +65,6 @@ function _getSurroundingYears(currentYear) {
 async function _loadAnnualData() {
   _annualData = {};
 
-  // 初始渲染
   _renderStatsCards();
   _renderAnnual();
 
@@ -102,14 +104,42 @@ function _renderStatsCards() {
   const monthlyAvg = monthsWithData > 0 ? Math.round(data.totalExpense / monthsWithData) : 0;
 
   const cards = [
-    { title: `${_currentYear} 年度總收入`, value: formatHKD(data.totalIncome), valueClass: 'emerald', hint: '所有成員收入加總', icon: 'trending-up' },
-    { title: `${_currentYear} 年度總支出`, value: formatHKD(data.totalExpense), valueClass: 'red', hint: '含保險平攤', icon: 'trending-down' },
-    { title: `${_currentYear} 年度淨餘額`, value: formatHKD(data.netBalance), valueClass: data.netBalance >= 0 ? 'emerald' : 'red', hint: '收入 − 支出', icon: 'wallet' },
-    { title: `${_currentYear} 每月平均支出`, value: formatHKD(monthlyAvg), valueClass: 'magenta', hint: monthsWithData > 0 ? `依 ${monthsWithData} 個月計算` : '尚無支出', icon: 'calculator' },
+    {
+      title: `${_currentYear} 年度總收入`,
+      value: formatHKD(data.totalIncome),
+      valueClass: 'emerald',
+      hint: '所有成員收入加總',
+      icon: 'trending-up',
+    },
+    {
+      title: `${_currentYear} 年度總支出`,
+      value: formatHKD(data.totalExpense),
+      valueClass: 'red',
+      hint: '含保險平攤',
+      icon: 'trending-down',
+    },
+    {
+      title: `${_currentYear} 年度淨餘額`,
+      value: formatHKD(data.netBalance),
+      valueClass: data.netBalance >= 0 ? 'emerald' : 'red',
+      hint: '收入 − 支出',
+      icon: 'wallet',
+    },
+    {
+      title: `${_currentYear} 每月平均支出`,
+      value: formatHKD(monthlyAvg),
+      valueClass: 'magenta',
+      hint: monthsWithData > 0 ? `依 ${monthsWithData} 個月計算` : '尚無支出',
+      icon: 'calculator',
+    },
   ];
 
   if (_statsCardsApi) { try { _statsCardsApi.destroy(); } catch (e) {} }
-  _statsCardsApi = renderStatsCards({ container: 'stats-cards-root', cards, columns: 4 });
+  _statsCardsApi = renderStatsCards({
+    container: 'stats-cards-root',
+    cards,
+    columns: 4,
+  });
 }
 
 /* ============================================
@@ -119,13 +149,18 @@ function _getAnnualRows() {
   return _years.map((year) => {
     const data = _annualData[year];
     const isCurrent = year === _currentYear;
+
     if (!data) {
       return { year, isCurrent, hasData: false };
     }
+
     const monthsWithData = (data.monthly || []).filter((m) => m.totalExpense > 0).length;
     const avg = monthsWithData > 0 ? Math.round(data.totalExpense / monthsWithData) : 0;
+
     return {
-      year, isCurrent, hasData: true,
+      year,
+      isCurrent,
+      hasData: true,
       totalIncome: data.totalIncome,
       totalExpense: data.totalExpense,
       insurance: data.yearlyInsuranceTotal,
@@ -155,6 +190,9 @@ function _renderAnnual() {
 
 /* ============================================
    年度表格
+   -------------------------------------------------
+   ✅ v101.7.6：columns id 改用 totalIncome / totalExpense
+               （與 _getAnnualRows 返回的欄位名一致）
    ============================================ */
 function _renderAnnualTable() {
   const root = document.getElementById('annual-table-root');
@@ -176,17 +214,17 @@ function _renderAnnualTable() {
     tableId: 'dashboard-annual-table',
     options: {
       columns: [
-        { id: 'year',      label: '年度', defaultVisible: true, defaultWidth: 100 },
-        { id: 'income',    label: '總收入', defaultVisible: true, defaultWidth: 130 },
-        { id: 'expense',   label: '總支出', defaultVisible: true, defaultWidth: 130 },
-        { id: 'insurance', label: '保險平攤', defaultVisible: true, defaultWidth: 130 },
-        { id: 'net',       label: '淨餘額', defaultVisible: true, defaultWidth: 130 },
-        { id: 'avg',       label: '每月平均', defaultVisible: true, defaultWidth: 130 },
+        { id: 'year',         label: '年度',     defaultVisible: true, defaultWidth: 100 },
+        { id: 'totalIncome',  label: '總收入',   defaultVisible: true, defaultWidth: 130 },
+        { id: 'totalExpense', label: '總支出',   defaultVisible: true, defaultWidth: 130 },
+        { id: 'insurance',    label: '保險平攤', defaultVisible: true, defaultWidth: 130 },
+        { id: 'net',          label: '淨餘額',   defaultVisible: true, defaultWidth: 130 },
+        { id: 'avg',          label: '每月平均', defaultVisible: true, defaultWidth: 130 },
       ],
       resolvers: {
         year: (_, row) => `${row.year} 年${row.isCurrent ? ' <span class="badge badge-info" style="font-size:10px;">今年</span>' : ''}`,
-        income: (val) => `<span class="text-emerald">${formatHKD(val)}</span>`,
-        expense: (val) => `<span class="text-red">${formatHKD(val)}</span>`,
+        totalIncome: (val) => `<span class="text-emerald">${formatHKD(val)}</span>`,
+        totalExpense: (val) => `<span class="text-red">${formatHKD(val)}</span>`,
         insurance: (val) => `<span class="text-magenta">${formatHKD(val)}</span>`,
         net: (val) => `<span class="${val >= 0 ? 'text-emerald' : 'text-red'}">${formatHKD(val)}</span>`,
         avg: (val) => formatHKD(val),
