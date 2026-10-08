@@ -22,25 +22,13 @@
             <h1 class="page-title" id="report-year-title">2026 年</h1>
             <p class="page-subtitle">年度報表</p>
           </div>
-          <button class="btn btn-magenta" id="export-excel-btn">
+          <button type="button" class="btn btn-magenta" id="export-excel-btn">
             <i data-lucide="file-spreadsheet"></i> 匯出 Excel
           </button>
         </div>
 
-        <div class="grid grid-3 mb-20">
-          <div class="glass-card">
-            <div class="glass-card-title">年度總收入</div>
-            <div class="glass-card-value emerald mono" id="annual-income">HK$ 0</div>
-          </div>
-          <div class="glass-card">
-            <div class="glass-card-title">年度總支出</div>
-            <div class="glass-card-value red mono" id="annual-expense">HK$ 0</div>
-          </div>
-          <div class="glass-card">
-            <div class="glass-card-title">年度淨結餘</div>
-            <div class="glass-card-value mono" id="annual-balance">HK$ 0</div>
-          </div>
-        </div>
+        <!-- 🆕 v101.7.3：統計卡改由 stats-cards.js 統一渲染 -->
+        <div id="annual-stats-root"></div>
 
         <div class="report-controls">
           <div class="view-toggle-group">

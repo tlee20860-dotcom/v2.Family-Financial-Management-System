@@ -1,10 +1,12 @@
 // ============================================
-// annual-report.js — 年度報表（v101.7.0）
+// annual-report.js — 年度報表（v101.7.3）
 // 位置：js/pages/annual-report.js
 // ============================================
-// v101.7.0 新增：
-//   ✅ 全年總合：雙模式切換（卡片 / 表格）
-//   ✅ 表格：可摺疊 + 每列展開
+// v101.7.3 修正：
+//   ✅ [統一] 統計卡改用 renderStatsCards（跟隨 v101.7.2 的三模式）
+//       - 移除 HTML 硬寫 + 手動更新 DOM
+//       - 改用 #annual-stats-root 容器
+//   ✅ 保留 v101.7.0 全部功能（雙模式 + 可摺疊 + 每列展開）
 // ============================================
 
 import { api } from '../core/api.js';
@@ -13,6 +15,7 @@ import { formatHKD, formatNumber, escapeHtml } from '../core/utils.js';
 import { getOptions } from '../config/app-config.js';
 import { initCollapsibleCard } from '../shared/collapsible-card.js';
 import { renderDataTable } from '../shared/data-table.js';
+import { renderStatsCards } from '../shared/stats-cards.js';
 import { initViewToggle } from '../shared/view-toggle.js';
 import { registerPageCleanup } from '../core/app.js';
 
@@ -22,6 +25,7 @@ let _currentDisplayMonth = '01';
 let _annualData = null;
 let _cards = [];
 let _viewToggle = null;
+let _statsApi = null;
 let _summaryTableApi = null;
 let _yearSwitcherHandler = null;
 let _monthSwitcherHandler = null;
@@ -247,24 +251,46 @@ function _getCategoryOrder() {
 }
 
 /* ============================================
-   統計卡
+   🆕 v101.7.3：統計卡（改用 renderStatsCards）
    ============================================ */
 function _renderStats() {
+  if (!_annualData) return;
+
   const totalIncome = _annualData.monthly.income.reduce((s, x) => s + x, 0);
   const totalExpense = _annualData.monthly.expense.reduce((s, x) => s + x, 0);
   const balance = totalIncome - totalExpense;
 
-  const incomeEl = document.getElementById('annual-income');
-  const expenseEl = document.getElementById('annual-expense');
-  const balanceEl = document.getElementById('annual-balance');
+  const cards = [
+    {
+      title: `${_currentYear} 年度總收入`,
+      value: formatHKD(totalIncome),
+      valueClass: 'emerald',
+      hint: '所有成員收入加總',
+      icon: 'trending-up',
+    },
+    {
+      title: `${_currentYear} 年度總支出`,
+      value: formatHKD(totalExpense),
+      valueClass: 'red',
+      hint: '含保險平攤',
+      icon: 'trending-down',
+    },
+    {
+      title: `${_currentYear} 年度淨結餘`,
+      value: formatHKD(balance),
+      valueClass: balance >= 0 ? 'emerald' : 'red',
+      hint: '收入 − 支出',
+      icon: 'wallet',
+    },
+  ];
 
-  if (incomeEl) incomeEl.textContent = formatHKD(totalIncome);
-  if (expenseEl) expenseEl.textContent = formatHKD(totalExpense);
-  if (balanceEl) {
-    balanceEl.textContent = formatHKD(balance);
-    balanceEl.classList.remove('emerald', 'red');
-    balanceEl.classList.add(balance >= 0 ? 'emerald' : 'red');
-  }
+  if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} _statsApi = null; }
+
+  _statsApi = renderStatsCards({
+    container: 'annual-stats-root',
+    cards,
+    columns: 3,
+  });
 }
 
 /* ============================================
@@ -288,7 +314,7 @@ function _renderSummary() {
 }
 
 /* ============================================
-   全年總合 — 表格（用 renderDataTable）
+   全年總合 — 表格
    ============================================ */
 function _renderSummaryTable() {
   const root = document.getElementById('summary-table-root');
@@ -298,9 +324,7 @@ function _renderSummaryTable() {
 
   const catOrder = _getCategoryOrder();
 
-  // 建立欄位
   const columns = [
-    { id: '__expand__', label: '', defaultVisible: true, defaultWidth: 36 },
     { id: 'name', label: '成員', defaultVisible: true, defaultWidth: 100 },
     { id: 'income', label: '總收入', defaultVisible: true, defaultWidth: 120 },
     { id: 'expense', label: '總支出', defaultVisible: true, defaultWidth: 120 },
@@ -308,7 +332,6 @@ function _renderSummaryTable() {
     { id: 'net', label: '淨結餘', defaultVisible: true, defaultWidth: 130 },
   ];
 
-  // 建立資料
   const rows = [];
   _annualData.members.forEach((m) => {
     if (m.id === 'extra') return;
@@ -337,7 +360,7 @@ function _renderSummaryTable() {
     rows.push(row);
   });
 
-  // 家庭共用支出
+  // 家庭共用
   const sharedCatTotals = Object.fromEntries(catOrder.map((c) => [c, 0]));
   let sharedTotal = 0;
   Object.values(_annualData.fixedExpenses).forEach((catData) => {
@@ -388,7 +411,7 @@ function _renderSummaryTable() {
     rows: [...rows, totalRow],
     tableId: 'annual-summary-table',
     options: {
-      columns: columns.filter((c) => c.id !== '__expand__'),
+      columns,
       resolvers: {
         name: (_, row) => {
           if (row.__isTotal) return `<b style="color:var(--neon-cyan);">${escapeHtml(row.name)}</b>`;
@@ -397,7 +420,7 @@ function _renderSummaryTable() {
         },
         income: (val) => val > 0 ? `<span class="text-emerald">${formatHKD(val)}</span>` : '<span class="text-muted">—</span>',
         expense: (val) => val > 0 ? `<span class="text-red">${formatHKD(val)}</span>` : '<span class="text-muted">—</span>',
-        net: (val) => `<span class="${val >= 0 ? 'text-emerald' : 'text-red'}" style="${val < 0 ? '' : ''}">${formatHKD(val)}</span>`,
+        net: (val) => `<span class="${val >= 0 ? 'text-emerald' : 'text-red'}">${formatHKD(val)}</span>`,
       },
       mobileCardMode: false,
       collapsible: true,
@@ -406,9 +429,7 @@ function _renderSummaryTable() {
       storageKey: 'annual-summary-table',
       renderDetail: (row) => _renderMemberDetail(row, catOrder),
     },
-    hooks: {
-      customActions: () => [],
-    },
+    hooks: { customActions: () => [] },
   });
 
   if (window.lucide) window.lucide.createIcons();
@@ -571,7 +592,7 @@ function _renderPaymentStatsCard() {
 }
 
 /* ============================================
-   按月明細（不變）
+   按月明細
    ============================================ */
 function _renderMonthly() {
   const tbody = document.getElementById('monthly-tbody');
@@ -785,6 +806,7 @@ function _destroy() {
   _cards = [];
 
   if (_viewToggle) { try { _viewToggle.destroy(); } catch (e) {} _viewToggle = null; }
+  if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} _statsApi = null; }
   if (_summaryTableApi) { try { _summaryTableApi.destroy(); } catch (e) {} _summaryTableApi = null; }
 
   const yearEl = document.getElementById('year-switcher');
