@@ -1,21 +1,15 @@
 // ============================================
-// settings.js — 系統設定（v101.7.2）
+// settings.js — 系統設定（v101.7.5）
 // 位置：js/pages/settings.js
 // ============================================
-// v101.7.2 新增：
-//   ✅ 「統計卡顯示模式」設定區塊（auto / integrated / compact）
-//   ✅ 儲存後顯示重新整理提示 Modal
-//   ✅ 儲存後自動 reload
+// v101.7.5 修正：
+//   ✅ [廢除] 移除「側邊欄排序」功能
+//       - 移除 sidebar-order.js 相關 import
+//       - 移除 _renderPersonalPanel / _renderOrderList / _handleMove
+//       - 移除 _currentOrder / _unsubOrder
+//   ✅ 保留：平台設定 / 統計卡顯示模式 / 帳號資訊 / 登出
 // ============================================
 
-import {
-  getAllMenuItems,
-  watchSidebarOrder,
-  persistSidebarOrder,
-  resetSidebarOrder,
-  moveOrderItem,
-  sortByOrder,
-} from '../shared/sidebar-order.js';
 import { showToast } from '../shared/toast.js';
 import { escapeHtml } from '../core/utils.js';
 import { getDisplayName, logout } from '../core/auth.js';
@@ -24,7 +18,7 @@ import { getUIConstants, initAppConfig } from '../config/app-config.js';
 import { api } from '../core/api.js';
 import { buildForm } from '../shared/form-builder.js';
 import { initTabPanel } from '../shared/tab-panel.js';
-import { openConfirm, openModal, closeModal } from '../shared/modal.js';
+import { openConfirm } from '../shared/modal.js';
 import { registerPageCleanup } from '../core/app.js';
 import { STORAGE_KEYS } from '../config/constants.js';
 
@@ -33,8 +27,6 @@ import { STORAGE_KEYS } from '../config/constants.js';
    ============================================ */
 let _tabPanel = null;
 let _uiFormApi = null;
-let _currentOrder = [];
-let _unsubOrder = null;
 let _logoutHandler = null;
 let _saveStatsModeHandler = null;
 
@@ -77,7 +69,6 @@ export function initSettingsPage() {
     if (panel) panel.style.display = 'none';
   }
 
-  _renderPersonalPanel();
   _renderStatsModePanel();
 
   registerPageCleanup(_destroy);
@@ -194,7 +185,7 @@ async function _handlePlatformSave(data) {
 }
 
 /* ============================================
-   🆕 v101.7.2：統計卡顯示模式
+   統計卡顯示模式
    ============================================ */
 function _renderStatsModePanel() {
   const optionsRoot = document.getElementById('stats-mode-options');
@@ -221,12 +212,10 @@ function _renderStatsModePanel() {
       if (radio && e.target !== radio) {
         radio.checked = true;
       }
-      // 視覺強調
       _updateStatsModeSelection(optionsRoot);
     });
   });
 
-  // 初始化視覺
   _updateStatsModeSelection(optionsRoot);
 
   // 儲存按鈕
@@ -249,7 +238,6 @@ function _renderStatsModePanel() {
       return;
     }
 
-    // 顯示重新整理提示 Modal
     _showReloadPrompt();
   };
 
@@ -300,101 +288,11 @@ function _showReloadPrompt() {
 }
 
 /* ============================================
-   個人化：側邊欄排序
-   ============================================ */
-function _renderPersonalPanel() {
-  const listEl = document.getElementById('sidebar-order-list');
-  if (!listEl) return;
-
-  _unsubOrder = watchSidebarOrder((order) => {
-    _currentOrder = order;
-    _renderOrderList();
-  });
-
-  document.getElementById('reset-sidebar-order-btn')?.addEventListener('click', async () => {
-    const ok = await openConfirm('確定要重置為預設順序嗎？', {
-      title: '重置側邊欄順序',
-      okText: '重置',
-      okClass: 'btn-danger',
-    });
-    if (!ok) return;
-
-    try {
-      await resetSidebarOrder();
-      showToast('✅ 已重置為預設順序', 'success');
-    } catch (err) {
-      showToast('重置失敗：' + err.message, 'error');
-    }
-  });
-}
-
-function _renderOrderList() {
-  const listEl = document.getElementById('sidebar-order-list');
-  if (!listEl) return;
-
-  const sorted = sortByOrder(getAllMenuItems(), _currentOrder);
-
-  listEl.innerHTML = `
-    <div style="border:1px solid var(--glass-border); border-radius:var(--radius-md); overflow:hidden;">
-      ${sorted.map((item, i) => {
-        const isFirst = i === 0;
-        const isLast = i === sorted.length - 1;
-        return `
-          <div class="sidebar-order-row" style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-bottom:${isLast ? 'none' : '1px solid rgba(255,255,255,0.05)'};">
-            <div style="display:flex; align-items:center; gap:10px;">
-              <span class="mono" style="font-size:11px; color:var(--text-muted); min-width:20px;">${i + 1}.</span>
-              <i data-lucide="${item.icon}" style="width:16px;height:16px;color:var(--neon-cyan);"></i>
-              <span style="font-size:14px;">${escapeHtml(item.label)}</span>
-            </div>
-            <div style="display:flex; gap:4px;">
-              <button type="button" class="btn btn-sm btn-ghost" data-action="up" data-href="${item.href}"
-                ${isFirst ? 'disabled' : ''} title="上移" style="padding:4px 8px; line-height:1;">
-                <i data-lucide="chevron-up" style="width:14px;height:14px;"></i>
-              </button>
-              <button type="button" class="btn btn-sm btn-ghost" data-action="down" data-href="${item.href}"
-                ${isLast ? 'disabled' : ''} title="下移" style="padding:4px 8px; line-height:1;">
-                <i data-lucide="chevron-down" style="width:14px;height:14px;"></i>
-              </button>
-            </div>
-          </div>
-        `;
-      }).join('')}
-    </div>
-  `;
-
-  if (window.lucide) window.lucide.createIcons();
-
-  listEl.querySelectorAll('button[data-action]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const href = btn.dataset.href;
-      const action = btn.dataset.action;
-      await _handleMove(href, action);
-    });
-  });
-}
-
-async function _handleMove(href, direction) {
-  const newOrder = moveOrderItem(_currentOrder, href, direction);
-  if (newOrder.join(',') === _currentOrder.join(',')) return;
-
-  try {
-    await persistSidebarOrder(newOrder);
-    _currentOrder = newOrder;
-    _renderOrderList();
-    showToast('✅ 已更新排序', 'success');
-  } catch (err) {
-    showToast('更新失敗：' + err.message, 'error');
-    console.error('[settings] 排序儲存失敗：', err);
-  }
-}
-
-/* ============================================
    銷毀
    ============================================ */
 function _destroy() {
   if (_tabPanel) { try { _tabPanel.destroy(); } catch (e) {} _tabPanel = null; }
   if (_uiFormApi) { try { _uiFormApi.destroy(); } catch (e) {} _uiFormApi = null; }
-  if (_unsubOrder) { try { _unsubOrder(); } catch (e) {} _unsubOrder = null; }
   if (_logoutHandler) {
     document.getElementById('settings-logout-btn')?.removeEventListener('click', _logoutHandler);
     _logoutHandler = null;

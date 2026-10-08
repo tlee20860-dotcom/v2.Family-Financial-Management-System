@@ -1,10 +1,13 @@
 // ============================================
-// sidebar.js — 左側導覽選單（v101.6.6）
+// sidebar.js — 左側導覽選單（v101.7.5）
 // 位置：js/shared/sidebar.js
 // ============================================
-// v101.6.6 修正：
-//   ✅ [BUG-15] 改用 getDefaultOrder()（取代移除的 DEFAULT_ORDER 常數）
-//   ✅ 保留所有 v101.6 功能
+// v101.7.5 修正：
+//   ✅ [廢除] 移除 sidebar-order.js 依賴
+//       - 移除 watchSidebarOrder / sortByOrder / getDefaultOrder
+//       - 改為直接使用 SIDEBAR_GROUPS 順序（固定）
+//       - 移除 _currentOrder 與相關邏輯
+//   ✅ 保留所有 v101.6.10 功能（群組展開 / 收合）
 // ============================================
 
 import { escapeHtml } from '../core/utils.js';
@@ -16,15 +19,12 @@ import {
   saveOpenGroupSet,
   ensureGroupOpenFor,
 } from './sidebar-groups.js';
-import { sortByOrder, watchSidebarOrder, getDefaultOrder } from './sidebar-order.js';
 
 /* ============================================
    Module 狀態
    ============================================ */
-let _currentOrder = [];
 let _currentGroups = [];
 let _activeHref = '';
-let _unsubscribers = [];
 let _eventsBound = false;
 let _navEl = null;
 
@@ -41,9 +41,6 @@ export async function renderSidebar(containerId = 'sidebar-root', activeHref = '
 
   _activeHref = activeHref;
 
-  // 🆕 v101.6.6：動態取得預設順序（BUG-15 修正）
-  _currentOrder = [...getDefaultOrder()];
-
   root.classList.add('sidebar');
 
   root.innerHTML = `
@@ -55,10 +52,12 @@ export async function renderSidebar(containerId = 'sidebar-root', activeHref = '
 
   _navEl = root.querySelector('#sidebar-nav-inner');
 
+  // 🆕 v101.7.5：直接使用 SIDEBAR_GROUPS 順序（固定）
   _currentGroups = getAllGroups().map((g) => ({
     ...g,
     isOpen: false,
   }));
+
   const openSet = loadOpenGroupSet();
   ensureGroupOpenFor(openSet, activeHref);
   _currentGroups.forEach((g) => {
@@ -67,15 +66,9 @@ export async function renderSidebar(containerId = 'sidebar-root', activeHref = '
   saveOpenGroupSet(openSet);
 
   _bindGlobalEvents();
-
-  const unsubOrder = watchSidebarOrder((order) => {
-    _currentOrder = order;
-    _renderNav();
-  });
-  _unsubscribers.push(unsubOrder);
-
   _renderNav();
 
+  // 桌面版摺疊狀態
   try {
     const collapsed = localStorage.getItem(STORAGE_KEYS.SIDEBAR_COLLAPSED) === 'true';
     if (collapsed && window.innerWidth >= 640) root.classList.add('collapsed');
@@ -100,8 +93,8 @@ function _renderGroup(group) {
   const arrowIcon = group.isOpen ? 'chevron-down' : 'chevron-right';
   const openClass = group.isOpen ? 'open' : '';
 
-  const sortedItems = sortByOrder(group.items || [], _currentOrder);
-  const innerHtml = sortedItems.map((item) => _renderNavItem(item)).join('');
+  // 🆕 v101.7.5：直接使用 group.items 順序（不再排序）
+  const innerHtml = (group.items || []).map((item) => _renderNavItem(item)).join('');
 
   return `
     <div class="nav-group ${openClass}" data-group-key="${group.key}">
@@ -199,10 +192,6 @@ export function closeMobileSidebar() {
 }
 
 export function destroySidebar() {
-  _unsubscribers.forEach((fn) => {
-    try { fn(); } catch (e) { /* noop */ }
-  });
-  _unsubscribers = [];
   _navEl = null;
 
   if (_eventsBound) {
