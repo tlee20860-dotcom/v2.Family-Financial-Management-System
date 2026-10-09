@@ -71,18 +71,38 @@
 
   <script src="https://unpkg.com/lucide@0.462.0/dist/umd/lucide.min.js" defer></script>
 
+  <!-- 🆕 vConsole（手機除錯用） -->
+  <script src="https://cdn.jsdelivr.net/npm/vconsole@3.15.0/dist/vconsole.min.js"></script>
+  <script>
+    window.vConsole = new window.VConsole({ maxLogNumber: 2000 });
+    window.addEventListener('error', (e) => {
+      console.error('[GLOBAL ERROR]', e.message, e.filename, e.lineno);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      console.error('[UNHANDLED]', e.reason);
+    });
+  </script>
+
   <link rel="modulepreload" href="./js/layout/app-shell.js">
   <link rel="modulepreload" href="./js/engines/page-engine.js">
   <link rel="modulepreload" href="./js/pages/insurance.js">
 
   <script type="module">
-    import { initApp } from './js/layout/app-shell.js';
-    import { createPage } from './js/engines/page-engine.js';
-    import schema from './js/pages/insurance.js';
+    console.log('=== insurance.html 開始載入 ===');
+    try {
+      const { initApp } = await import('./js/layout/app-shell.js');
+      const { createPage } = await import('./js/engines/page-engine.js');
+      const schema = (await import('./js/pages/insurance.js')).default;
 
-    const user = await initApp({ activeHref: 'insurance.html', title: '保險清單表' });
-    if (user) {
-      await createPage(schema);
+      console.log('=== 模組載入完成 ===');
+      const user = await initApp({ activeHref: 'insurance.html', title: '保險清單表' });
+      console.log('=== initApp 完成，user:', user ? 'OK' : 'NULL', '===');
+      if (user) {
+        const page = await createPage(schema);
+        console.log('=== createPage 完成 ===', page);
+      }
+    } catch (err) {
+      console.error('=== 載入失敗 ===', err.message, err.stack);
     }
   </script>
 </body>
