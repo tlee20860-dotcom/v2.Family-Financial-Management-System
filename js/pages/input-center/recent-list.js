@@ -3,6 +3,8 @@
 // 位置：js/pages/input-center/recent-list.js
 // ============================================
 // v102.0.0 修正：
+//   ✅ [P1-2] _openEditExpenseModal 的 unsubBank 改存模組級變數，
+//             於 Modal 關閉 / destroy 時清理，不再依賴無效的 monkey-patch
 //   ✅ 顯示銀行欄位（若有 bankId）
 //   ✅ 編輯支出時支援「出帳銀行」變更
 //   ✅ 保留 v101.8.0 全部功能
@@ -15,7 +17,7 @@ import {
   getMembersOnce,
   listenBankAccounts,
 } from '../../core/db.js';
-import { escapeHtml, formatHKD, setText } from '../../core/utils.js';
+import { escapeHtml, formatHKD } from '../../core/utils.js';
 import { getStatusesByCategory } from '../../config/app-config.js';
 import { RESERVED_IDS, LIMITS } from '../../config/constants.js';
 import { AppState } from '../../core/state.js';
@@ -39,7 +41,16 @@ let _banksMap = {};
 
 let _viewToggle = null;
 let _tableApi = null;
-let _tableRoot = null;
+
+// 🆕 P1-2：模組級 unsubscribe，供 Modal 清理
+let _editModalUnsubBank = null;
+
+function _cleanupEditModalUnsub() {
+  if (_editModalUnsubBank) {
+    try { _editModalUnsubBank(); } catch (e) { /* noop */ }
+    _editModalUnsubBank = null;
+  }
+}
 
 export function initRecentList(containerId, options = {}) {
   const root = document.getElementById(containerId);
@@ -49,7 +60,6 @@ export function initRecentList(containerId, options = {}) {
   }
 
   const listenerGroup = createListenerGroup();
-  _tableRoot = root;
 
   root.innerHTML = `
     <div class="flex flex-between items-center flex-wrap gap-12 mb-12">
@@ -80,7 +90,6 @@ export function initRecentList(containerId, options = {}) {
     _renderContent(containerId);
   }));
 
-  // 🆕 v102.0.0：監聽銀行帳號
   listenerGroup.add(listenBankAccounts((list) => {
     _bankAccounts = list || [];
     _banksMap = {};
@@ -92,10 +101,10 @@ export function initRecentList(containerId, options = {}) {
     refresh: () => _renderContent(containerId),
     destroy: () => {
       listenerGroup.destroy();
+      _cleanupEditModalUnsub();
       if (_viewToggle) { try { _viewToggle.destroy(); } catch (e) {} _viewToggle = null; }
       if (_tableApi) { try { _tableApi.destroy(); } catch (e) {} _tableApi = null; }
       root.innerHTML = '';
-      _tableRoot = null;
     },
   };
 }
@@ -162,7 +171,7 @@ function _renderTable(contentEl, limited, totalCount) {
         { id: 'ym',        label: '年月', defaultVisible: true, defaultWidth: 100 },
         { id: 'member',    label: '成員', defaultVisible: true, defaultWidth: 100 },
         { id: 'name',      label: '項目', defaultVisible: true, defaultWidth: 200 },
-        { id: 'bankName',  label: '出帳銀行', defaultVisible: true, defaultWidth: 100 },   // 🆕 v102.0.0
+        { id: 'bankName',  label: '出帳銀行', defaultVisible: true, defaultWidth: 100 },
         { id: 'amount',    label: '金額', defaultVisible: true, defaultWidth: 120 },
         { id: 'date',      label: '日期', defaultVisible: true, defaultWidth: 110 },
       ],
@@ -286,7 +295,7 @@ function _mergeItems() {
       year: e.year, month: e.month, memberId: e.memberId,
       name: e.name || '（未命名支出）', amount: Number(e.amount) || 0,
       date: e.date || '', status: e.status || '',
-      bankId: e.bankId || '', txnId: e.txnId || '',      // 🆕 v102.0.0
+      bankId: e.bankId || '', txnId: e.txnId || '',
       _ts: e.createdAt || 0, _raw: e,
     });
   });
@@ -338,6 +347,9 @@ async function _openEditExpenseModal(row) {
   if (!expense) { showToast('找不到此支出', 'error'); return; }
 
   const MODAL_ID = 'ic-edit-expense-modal';
+
+  // 🆕 P1-2：開啟前先清理舊的
+  _cleanupEditModalUnsub();
   _destroyModal(MODAL_ID);
 
   const memberName = _memberName(memberId);
@@ -351,7 +363,6 @@ async function _openEditExpenseModal(row) {
       { type: 'text', id: 'name', label: '項目名稱', required: true, maxlength: 60 },
       { type: 'number', id: 'amount', label: '費用（HK$）', required: true, min: 0, step: 1 },
       { type: 'text', id: 'date', label: '支出日期', placeholder: 'YYYY-MM-DD', maxlength: 10 },
-      // 🆕 v102.0.0：出帳銀行
       { type: 'select', id: 'bankId', label: '出帳銀行（選填）', includeEmpty: true, emptyText: '— 不關聯銀行 —' },
       { type: 'select', id: 'status', label: '狀態', includeEmpty: false, options: statusList.map((s) => ({ value: s.name, label: s.name })) },
     ],
@@ -371,7 +382,6 @@ async function _openEditExpenseModal(row) {
         const oldTxnId = expense.txnId || '';
         const newBankId = data.bankId || '';
 
-        // 1. 同步銀行交易
         const newTxnId = await syncExpenseToBank({
           oldBankId,
           oldTxnId,
@@ -385,7 +395,6 @@ async function _openEditExpenseModal(row) {
           expenseId: id,
         });
 
-        // 2. 更新支出
         await updateExpense(year, month, memberId, id, {
           name: data.name,
           amount: Number(data.amount) || 0,
@@ -395,6 +404,8 @@ async function _openEditExpenseModal(row) {
           txnId: newTxnId || '',
         });
 
+        // 🆕 P1-2：關閉前清理
+        _cleanupEditModalUnsub();
         showToast('✅ 已更新支出', 'success');
         closeModal(MODAL_ID);
       } catch (err) {
@@ -402,22 +413,19 @@ async function _openEditExpenseModal(row) {
         showToast('更新失敗：' + err.message, 'error');
       }
     },
-    onCancel: () => closeModal(MODAL_ID),
+    onCancel: () => {
+      _cleanupEditModalUnsub();
+      closeModal(MODAL_ID);
+    },
   });
 
-  // 動態載入銀行帳號
-  const unsubBank = listenBankAccounts((list) => {
+  // 🆕 P1-2：動態載入銀行帳號（存模組級變數，於 Modal 關閉時清理）
+  _editModalUnsubBank = listenBankAccounts((list) => {
     formApi.updateOptions('bankId', list.map((b) => ({ value: b.id, label: b.name })), {
       includeEmpty: true,
       emptyText: '— 不關聯銀行 —',
     });
   });
-
-  const origDestroy = formApi.destroy;
-  formApi.destroy = () => {
-    try { unsubBank(); } catch (e) { /* noop */ }
-    origDestroy();
-  };
 
   openModal(MODAL_ID);
   if (window.lucide) window.lucide.createIcons();
@@ -434,7 +442,6 @@ async function _deleteExpense(row) {
   if (!ok) return;
 
   try {
-    // 🆕 v102.0.0：清理銀行交易
     if (expense.bankId && expense.txnId) {
       await cleanupExpenseBankTransaction(expense.bankId, expense.txnId);
     }
@@ -504,7 +511,12 @@ function _createModal(modalId, title) {
   overlay.id = modalId;
   overlay.innerHTML = `<div class="modal" style="max-width:480px; max-height:90vh; overflow-y:auto;"><h2 class="modal-title">${escapeHtml(title)}</h2><div id="${modalId}-form-root"></div></div>`;
   document.body.appendChild(overlay);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(modalId); });
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      _cleanupEditModalUnsub();
+      closeModal(modalId);
+    }
+  });
   return overlay;
 }
 
