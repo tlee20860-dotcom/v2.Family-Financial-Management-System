@@ -1,13 +1,12 @@
 // ============================================
-// render.js — 結算清單渲染輔助（v102.1.0-hotfix2）
+// render.js — 結算清單渲染輔助（v102.1.0-hotfix3）
 // 位置：js/pages/settlements/render.js
 // ============================================
-// v102.1.0-hotfix2 修正：
-//   ✅ [BUG-1] _openBankSelectModal 改為返回 Promise，等待使用者確認 / 取消
-//   ✅ [BUG-1] _updateInsuranceStatus 改為 await _openBankSelectModal
-//       - 確保 Modal 確認後才更新本地狀態
-//       - Modal 取消 → 不更新本地狀態，UI 保持舊值
-//   ✅ 保留 v102.1.0 全部功能
+// v102.1.0-hotfix3 修正：
+//   ✅ [BUG] renderStatusCell 加入 fallback option
+//       - 若 row.status 不在 statuses 中，額外加入 <option value="..."> 標記 selected
+//       - 避免瀏覽器預設選中第一個選項
+//   ✅ 保留 v102.1.0-hotfix2 全部功能
 // ============================================
 
 import {
@@ -54,14 +53,24 @@ export function getMembersCache() {
 
 /* ============================================
    狀態欄位渲染
+   🆕 hotfix3：加入 fallback option
    ============================================ */
 export function renderStatusCell(row) {
   const statuses = getStatusesByCategory(row.source);
+
   if (statuses.length === 0) {
     return _renderStatusBadge(row.status, row.isDone);
   }
 
-  const options = statuses.map((s) =>
+  const statusNames = statuses.map((s) => s.name);
+  const hasCurrent = row.status && statusNames.includes(row.status);
+
+  // 🆕 hotfix3：若 row.status 不在選項中，加入 fallback option（標記 selected）
+  const fallbackOption = (!hasCurrent && row.status)
+    ? `<option value="${escapeHtml(row.status)}" selected>${escapeHtml(row.status)}（未知類別）</option>`
+    : '';
+
+  const options = fallbackOption + statuses.map((s) =>
     `<option value="${escapeHtml(s.name)}" ${s.name === row.status ? 'selected' : ''}>${escapeHtml(s.name)}</option>`
   ).join('');
 
@@ -120,7 +129,6 @@ export async function updateRowStatus(row, newStatus) {
 
 /* ============================================
    保險狀態更新（含銀行選擇）
-   🆕 hotfix2：await Modal 完成
    ============================================ */
 async function _updateInsuranceStatus(row, newStatus, isDone, ref) {
   const { policyId, memberId, linkedId } = ref;
@@ -153,7 +161,7 @@ async function _updateInsuranceStatus(row, newStatus, isDone, ref) {
       );
     }
 
-    // 🆕 hotfix2：彈出「選擇銀行」Modal，並 await 使用者確認
+    // 彈出「選擇銀行」Modal，並 await 使用者確認
     const bankId = await _openBankSelectModal({
       title: paymentMode === 'advance' ? '代墊還款（選擇銀行）' : '保險扣款（選擇銀行）',
       amount: row.amount,
@@ -167,12 +175,11 @@ async function _updateInsuranceStatus(row, newStatus, isDone, ref) {
       linkedId,
     });
 
-    // 🆕 hotfix2：使用者取消 → 拋出中斷，不更新本地狀態
+    // 使用者取消 → 拋出中斷，不更新本地狀態
     if (!bankId) {
       throw new Error('CANCELLED');
     }
 
-    // 🆕 hotfix2：使用者確認後才真正寫入
     return await _writeInsurancePaymentDone(
       row, policy, paymentMode,
       bankId, '',
@@ -224,9 +231,6 @@ async function _writeInsurancePaymentDone(
   bankId, existingTxnId,
   linkedId, memberId, year, month, newStatus
 ) {
-  /* ============================================
-     1. 建立或沿用銀行交易
-     ============================================ */
   let txnId = existingTxnId || '';
 
   if (!txnId) {
@@ -257,9 +261,6 @@ async function _writeInsurancePaymentDone(
     }
   }
 
-  /* ============================================
-     2. 統一透過 insuranceSync 寫入
-     ============================================ */
   await api.insuranceSync({
     policyId: policy.id,
     memberId,
@@ -277,9 +278,7 @@ async function _writeInsurancePaymentDone(
 }
 
 /* ============================================
-   🆕 hotfix2：選擇銀行 Modal（返回 Promise）
-   -------------------------------------------------
-   回傳：bankId（成功）| null（取消）
+   選擇銀行 Modal（返回 Promise）
    ============================================ */
 async function _openBankSelectModal({
   title, amount, policyId, memberId, year, month,
@@ -347,18 +346,15 @@ async function _openBankSelectModal({
           showToast('請選擇銀行', 'warning');
           return;
         }
-        // 🆕 hotfix2：回傳 bankId
         _done(data.bankId);
         closeModal(MODAL_ID);
       },
       onCancel: () => {
-        // 🆕 hotfix2：取消回傳 null
         _done(null);
         closeModal(MODAL_ID);
       },
     });
 
-    // 動態載入銀行帳號
     _unsubBank = listenBankAccounts((list) => {
       formApi.updateOptions('bankId', list.map((b) => ({ value: b.id, label: b.name })), {
         includeEmpty: true,
@@ -660,7 +656,6 @@ async function _openInsuranceEditForm(row, containerId, modalId, onSuccess) {
         showToast('✅ 已儲存', 'success');
         if (typeof onSuccess === 'function') onSuccess();
       } catch (err) {
-        // 🆕 hotfix2：使用者取消 Modal 時，不視為錯誤
         if (err && err.message === 'CANCELLED') {
           return;
         }
