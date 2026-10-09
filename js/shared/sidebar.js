@@ -1,13 +1,10 @@
 // ============================================
-// sidebar.js — 左側導覽選單（v101.7.5）
+// sidebar.js — 左側導覽選單（v102.0.0）
 // 位置：js/shared/sidebar.js
 // ============================================
-// v101.7.5 修正：
-//   ✅ [廢除] 移除 sidebar-order.js 依賴
-//       - 移除 watchSidebarOrder / sortByOrder / getDefaultOrder
-//       - 改為直接使用 SIDEBAR_GROUPS 順序（固定）
-//       - 移除 _currentOrder 與相關邏輯
-//   ✅ 保留所有 v101.6.10 功能（群組展開 / 收合）
+// v102.0.0 修正：
+//   ✅ 版本號更新（無功能變更）
+//   ✅ 側邊欄項目名稱由 constants.js 統一控制（「銀行交易」）
 // ============================================
 
 import { escapeHtml } from '../core/utils.js';
@@ -20,21 +17,11 @@ import {
   ensureGroupOpenFor,
 } from './sidebar-groups.js';
 
-/* ============================================
-   Module 狀態
-   ============================================ */
 let _currentGroups = [];
 let _activeHref = '';
 let _eventsBound = false;
 let _navEl = null;
 
-/* ============================================
-   對外主函式
-   ============================================ */
-
-/**
- * 渲染側邊欄
- */
 export async function renderSidebar(containerId = 'sidebar-root', activeHref = '') {
   const root = document.getElementById(containerId);
   if (!root) return;
@@ -52,7 +39,6 @@ export async function renderSidebar(containerId = 'sidebar-root', activeHref = '
 
   _navEl = root.querySelector('#sidebar-nav-inner');
 
-  // 🆕 v101.7.5：直接使用 SIDEBAR_GROUPS 順序（固定）
   _currentGroups = getAllGroups().map((g) => ({
     ...g,
     isOpen: false,
@@ -68,16 +54,12 @@ export async function renderSidebar(containerId = 'sidebar-root', activeHref = '
   _bindGlobalEvents();
   _renderNav();
 
-  // 桌面版摺疊狀態
   try {
     const collapsed = localStorage.getItem(STORAGE_KEYS.SIDEBAR_COLLAPSED) === 'true';
     if (collapsed && window.innerWidth >= 640) root.classList.add('collapsed');
   } catch (e) { /* noop */ }
 }
 
-/* ============================================
-   渲染導覽
-   ============================================ */
 function _renderNav() {
   if (!_navEl) return;
 
@@ -93,7 +75,6 @@ function _renderGroup(group) {
   const arrowIcon = group.isOpen ? 'chevron-down' : 'chevron-right';
   const openClass = group.isOpen ? 'open' : '';
 
-  // 🆕 v101.7.5：直接使用 group.items 順序（不再排序）
   const innerHtml = (group.items || []).map((item) => _renderNavItem(item)).join('');
 
   return `
@@ -122,13 +103,9 @@ function _renderNavItem(item) {
   `;
 }
 
-/* ============================================
-   全域事件綁定（module 層級）
-   ============================================ */
 function _bindGlobalEvents() {
   if (_eventsBound) return;
   _eventsBound = true;
-
   document.addEventListener('click', _globalClickHandler);
 }
 
@@ -141,9 +118,6 @@ function _globalClickHandler(e) {
   }
 }
 
-/* ============================================
-   切換邏輯
-   ============================================ */
 function _toggleGroup(key) {
   const group = _currentGroups.find((g) => g.key === key);
   if (!group) return;
@@ -179,10 +153,6 @@ function _toggleGroup(key) {
 
   if (window.lucide) window.lucide.createIcons();
 }
-
-/* ============================================
-   對外 API
-   ============================================ */
 
 export function closeMobileSidebar() {
   const sidebar = document.querySelector('.sidebar');

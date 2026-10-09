@@ -1,16 +1,15 @@
 // ============================================
-// holdings-list.js — 輸入中心：保單 / 基金 / 銀行（v101.10.0）
+// holdings-list.js — 輸入中心：保單 / 基金 / 銀行（v102.0.0）
 // 位置：js/pages/input-center/holdings-list.js
 // ============================================
-// v101.10.0 修正：
-//   ✅ [P2-6] view-toggle 只建立一次（root.dataset.initialized 標記）
-//       - 原本每次 Firebase 監聽觸發都重建整區塊 + view-toggle
-//       - 改為骨架只建立一次，之後只重繪 content
-//       - 大幅減少 DOM 重建與事件綁定次數
-//   ✅ 保留 v101.8.0 canInput 判斷
+// v102.0.0 修正：
+//   ✅ 銀行 Tab 改用 bank_accounts（取代舊 banks）
+//   ✅ 保留 v101.10.0 骨架只建立一次
 // ============================================
 
-import { listenInsurancePolicies, listenFunds, listenBanks } from '../../core/db.js';
+import {
+  listenInsurancePolicies, listenFunds, listenBanks, listenBankAccounts,
+} from '../../core/db.js';
 import { escapeHtml, formatHKD } from '../../core/utils.js';
 import { ENTITY_KEYS } from '../../config/constants.js';
 import { AppState } from '../../core/state.js';
@@ -18,13 +17,15 @@ import { showToast } from '../../shared/toast.js';
 import { openConfirm } from '../../shared/modal.js';
 import { openEntityModal } from '../../shared/entity-modal.js';
 import { deleteEntity } from '../../shared/entity-helpers.js';
+import { api } from '../../core/api.js';
 import { createListenerGroup } from '../../shared/listener-group.js';
 import { renderDataTable } from '../../shared/data-table.js';
 import { initViewToggle } from '../../shared/view-toggle.js';
 
 let _policies = [];
 let _funds = [];
-let _banks = [];
+let _banks = [];         // 🔄 v102.0.0：改為 bank_accounts
+let _legacyBanks = [];   // 保留舊 banks 相容
 
 export function initHoldingsList(containerId, options = {}) {
   const root = document.getElementById(containerId);
@@ -37,9 +38,7 @@ export function initHoldingsList(containerId, options = {}) {
   const listenerGroup = createListenerGroup();
   const instances = {};
 
-  // 重置初始化標記（若同一容器多次初始化）
   delete root.dataset.initialized;
-
   root.innerHTML = '<div class="empty-state">載入中…</div>';
 
   if (types.includes('policy')) {
@@ -55,9 +54,14 @@ export function initHoldingsList(containerId, options = {}) {
     }));
   }
   if (types.includes('bank')) {
-    listenerGroup.add(listenBanks((list) => {
+    // 🆕 v102.0.0：監聽 bank_accounts
+    listenerGroup.add(listenBankAccounts((list) => {
       _banks = list || [];
       _render(root, containerId, types, instances);
+    }));
+    // 相容：同時監聽舊 banks
+    listenerGroup.add(listenBanks((list) => {
+      _legacyBanks = list || [];
     }));
   }
 
@@ -75,9 +79,6 @@ export function initHoldingsList(containerId, options = {}) {
   };
 }
 
-/* ============================================
-   主渲染（v101.10.0：骨架只建立一次）
-   ============================================ */
 function _render(root, containerId, types, instances) {
   if (!root) return;
 
@@ -86,30 +87,17 @@ function _render(root, containerId, types, instances) {
   if (types.includes('fund')) sections.push('fund');
   if (types.includes('bank')) sections.push('bank');
 
-  // v101.10.0：骨架只建立一次
   if (!root.dataset.initialized) {
     const html = sections.map((key) => _renderSectionHtml(key, containerId)).join('');
     root.innerHTML = `<div style="padding:0 0 20px;">${html}</div>`;
-
     if (window.lucide) window.lucide.createIcons();
-
-    // 建立 view-toggle（只建立一次）
-    sections.forEach((key) => {
-      _initSectionShell(key, containerId, instances);
-    });
-
+    sections.forEach((key) => _initSectionShell(key, containerId, instances));
     root.dataset.initialized = '1';
   }
 
-  // 每次更新 content（保留 view-toggle 狀態）
-  sections.forEach((key) => {
-    _updateSectionContent(key, containerId, instances);
-  });
+  sections.forEach((key) => _updateSectionContent(key, containerId, instances));
 }
 
-/* ============================================
-   建立區塊外殼（含 view-toggle，只建立一次）
-   ============================================ */
 function _initSectionShell(key, containerId, instances) {
   const toggleEl = document.getElementById(`${containerId}-${key}-view-toggle`);
   if (!toggleEl) return;
@@ -132,9 +120,6 @@ function _initSectionShell(key, containerId, instances) {
   instances[key] = { viewToggle, tableApi: null };
 }
 
-/* ============================================
-   更新區塊內容（每次資料變更時呼叫）
-   ============================================ */
 function _updateSectionContent(key, containerId, instances) {
   const config = _getSectionConfig(key);
   const contentEl = document.getElementById(`${containerId}-${key}-content`);
@@ -144,7 +129,6 @@ function _updateSectionContent(key, containerId, instances) {
   const rows = config.getRows();
   if (countEl) countEl.textContent = `（${rows.length}）`;
 
-  // 空狀態
   if (!rows.length) {
     if (instances[key]?.tableApi) {
       try { instances[key].tableApi.destroy(); } catch (e) {}
@@ -157,9 +141,6 @@ function _updateSectionContent(key, containerId, instances) {
   _renderSectionContent(key, containerId, instances);
 }
 
-/* ============================================
-   渲染區塊 HTML 骨架
-   ============================================ */
 function _renderSectionHtml(key, containerId) {
   const config = _getSectionConfig(key);
   return `
@@ -177,9 +158,6 @@ function _renderSectionHtml(key, containerId) {
   `;
 }
 
-/* ============================================
-   區塊設定
-   ============================================ */
 function _getSectionConfig(key) {
   switch (key) {
     case 'policy': return {
@@ -241,26 +219,39 @@ function _getSectionConfig(key) {
       cardFields: () => [],
     };
     case 'bank': return {
-      title: '銀行', icon: 'landmark',
+      // 🆕 v102.0.0：改為銀行帳號
+      title: '銀行帳號', icon: 'landmark',
       getRows: () => _banks,
       columns: [
         { id: 'name', label: '銀行名稱', defaultVisible: true, defaultWidth: 200 },
+        { id: 'typeLabel', label: '類型', defaultVisible: true, defaultWidth: 100 },
+        { id: 'initialBalance', label: '初始餘額', defaultVisible: true, defaultWidth: 140 },
+        { id: 'initialYM', label: '初始年月', defaultVisible: true, defaultWidth: 100 },
       ],
       resolvers: {
         name: (_, row) => escapeHtml(row.name || '—'),
+        typeLabel: (_, row) => row.type === 'personal'
+          ? '<span class="badge badge-muted">個人</span>'
+          : '<span class="badge badge-info">家庭</span>',
+        initialBalance: (val) => `<span class="mono">${formatHKD(val)}</span>`,
+        initialYM: (_, row) => `<span class="mono" style="font-size:12px; color:var(--text-muted);">${row.initialYear || '—'}-${row.initialMonth || '—'}</span>`,
       },
-      renderDetail: (row) => `<div style="font-size:13px;"><div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">銀行名稱</div><div>${escapeHtml(row.name || '—')}</div></div></div>`,
-      entityKey: ENTITY_KEYS.BANK,
-      cardAmount: () => '',
-      cardSubtitle: () => '',
-      cardFields: () => [],
+      renderDetail: (row) => `<div style="font-size:13px; display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:8px 20px;">
+        <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">銀行</div><div>${escapeHtml(row.name || '—')}</div></div>
+        <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">類型</div><div>${row.type === 'personal' ? '個人' : '家庭'}</div></div>
+        <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">初始餘額</div><div class="mono">${formatHKD(row.initialBalance)}</div></div>
+        <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">初始年月</div><div class="mono">${row.initialYear || '—'}-${row.initialMonth || '—'}</div></div>
+      </div>`,
+      entityKey: '__bank_account__',
+      cardAmount: (row) => formatHKD(row.initialBalance),
+      cardSubtitle: (row) => row.type === 'personal' ? '個人帳號' : '家庭帳號',
+      cardFields: (row) => [
+        { label: '初始年月', value: `${row.initialYear || '—'}-${row.initialMonth || '—'}` },
+      ],
     };
   }
 }
 
-/* ============================================
-   渲染區塊內容
-   ============================================ */
 function _renderSectionContent(key, containerId, instances) {
   const config = _getSectionConfig(key);
   const contentEl = document.getElementById(`${containerId}-${key}-content`);
@@ -282,6 +273,8 @@ function _renderSectionTable(contentEl, rows, config, key, instances) {
   contentEl.innerHTML = `<div id="holdings-${key}-table-root"></div>`;
 
   const userCanInput = AppState.getCanInput();
+  // 銀行帳號為特殊實體，操作需導向設定頁
+  const isBankAccount = key === 'bank';
 
   instances[key].tableApi = renderDataTable({
     container: `holdings-${key}-table-root`,
@@ -299,7 +292,7 @@ function _renderSectionTable(contentEl, rows, config, key, instances) {
       renderDetail: config.renderDetail,
     },
     hooks: {
-      customActions: userCanInput
+      customActions: userCanInput && !isBankAccount
         ? (row) => [
             { label: '編輯', icon: 'pencil', className: 'btn-ghost', action: 'edit-item', onClick: (r) => _handleEdit(key, config.entityKey, r) },
             { label: '刪除', icon: 'trash-2', className: 'btn-danger', action: 'delete-item', onClick: (r) => _handleDelete(key, config.entityKey, r) },
@@ -321,7 +314,6 @@ function _renderSectionCards(contentEl, rows, config) {
 
   const cardsGrid = contentEl.querySelector('.data-cards-grid');
   if (cardsGrid) {
-    // 移除舊監聽器（透過重新綁定，無累積風險）
     cardsGrid.addEventListener('click', (e) => {
       const btn = e.target.closest('button[data-action]');
       if (!btn) return;
@@ -340,8 +332,9 @@ function _renderSectionCard(row, config) {
   const subtitle = config.cardSubtitle(row);
   const fields = config.cardFields(row);
   const userCanInput = AppState.getCanInput();
+  const isBankAccount = config.entityKey === '__bank_account__';
 
-  const actionsHtml = userCanInput ? `
+  const actionsHtml = userCanInput && !isBankAccount ? `
     <div style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.08); display:flex; gap:8px; justify-content:flex-end;">
       <button type="button" class="btn btn-sm btn-ghost" data-action="edit-item" data-id="${escapeHtml(row.id)}">
         <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
@@ -367,27 +360,31 @@ function _renderSectionCard(row, config) {
   `;
 }
 
-/* ============================================
-   編輯 / 刪除處理
-   ============================================ */
 function _handleEdit(sectionKey, entityKey, row) {
   if (!AppState.getCanInput()) return;
+  if (entityKey === '__bank_account__') {
+    showToast('請至「系統設定 → 銀行帳號」編輯', 'info');
+    return;
+  }
   openEntityModal({ entity: entityKey, mode: 'edit', id: row.id, allRows: _getRowsByEntityKey(entityKey) });
 }
 
 function _getRowsByEntityKey(entityKey) {
   if (entityKey === ENTITY_KEYS.POLICY) return _policies;
   if (entityKey === ENTITY_KEYS.FUND) return _funds;
-  if (entityKey === ENTITY_KEYS.BANK) return _banks;
+  if (entityKey === '__bank_account__') return _banks;
   return [];
 }
 
 async function _handleDelete(sectionKey, entityKey, row) {
   if (!AppState.getCanInput()) return;
+  if (entityKey === '__bank_account__') {
+    showToast('請至「系統設定 → 銀行帳號」刪除', 'info');
+    return;
+  }
 
   let confirmText = `確定要刪除「${row.name || row.id}」嗎？`;
   if (entityKey === ENTITY_KEYS.POLICY) confirmText = `⚠️ 確定要刪除保單「${row.name}」嗎？\n\n這將會一併刪除所有相關的扣款紀錄與成員支出，此操作無法復原。`;
-  else if (entityKey === ENTITY_KEYS.BANK) confirmText = `⚠️ 確定要刪除「${row.name}」嗎？\n\n這將會一併刪除該銀行在所有月份的結餘紀錄，此操作無法復原。`;
 
   const ok = await openConfirm(confirmText, { title: '刪除', okText: '刪除', okClass: 'btn-danger' });
   if (!ok) return;

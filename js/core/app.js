@@ -1,9 +1,10 @@
 // ============================================
-// app.js — 每個頁面共用的初始化（v101.9.0）
+// app.js — 每個頁面共用的初始化（v102.0.0）
 // 位置：js/core/app.js
 // ============================================
-// v101.9.0 修正：
-//   ✅ renderNavbar 傳入 activeHref（供年月選擇器判斷）
+// v102.0.0 修正：
+//   ✅ 版本號更新（無功能變更）
+//   ✅ 保留 v101.9.0 全部功能
 // ============================================
 
 import { renderSidebar, destroySidebar } from '../shared/sidebar.js';
@@ -18,15 +19,9 @@ import {
   disposeAppConfig,
 } from '../config/app-config.js';
 
-/* ============================================
-   Module 狀態
-   ============================================ */
 let _pageCleanups = [];
 let _initialized = false;
 
-/* ============================================
-   主入口
-   ============================================ */
 export async function initApp({
   activeHref = '',
   title = '',
@@ -39,17 +34,14 @@ export async function initApp({
   }
   _initialized = true;
 
-  // 1. PWA 初始化
   try {
     initPWA();
   } catch (err) {
     console.warn('[app] PWA 初始化失敗：', err);
   }
 
-  // 2. 全域狀態初始化
   AppState.init();
 
-  // 3. 登入驗證
   let user = null;
   if (needAuth) {
     try {
@@ -61,7 +53,6 @@ export async function initApp({
     if (!user) return null;
   }
 
-  // 4. 載入 app-config
   try {
     await initAppConfig(AppState.getFamilyId());
     watchPlatformDefaults();
@@ -72,7 +63,6 @@ export async function initApp({
     console.warn('[app] app-config 載入失敗（使用常數 fallback）：', err);
   }
 
-  // 5. Sidebar 渲染
   const sidebarRoot = document.getElementById('sidebar-root');
   if (sidebarRoot) {
     try {
@@ -82,14 +72,12 @@ export async function initApp({
     }
   }
 
-  // 6. Navbar 渲染（🆕 v101.9.0：傳 activeHref）
   try {
     renderNavbar('navbar-root', title, activeHref);
   } catch (err) {
     console.error('[app] Navbar 渲染失敗：', err);
   }
 
-  // 7. Lucide icon 渲染
   if (window.lucide && typeof window.lucide.createIcons === 'function') {
     window.lucide.createIcons();
   }
@@ -97,9 +85,6 @@ export async function initApp({
   return user;
 }
 
-/* ============================================
-   頁面清理註冊
-   ============================================ */
 export function registerPageCleanup(fn) {
   if (typeof fn === 'function') {
     _pageCleanups.push(fn);

@@ -1,12 +1,10 @@
 // ============================================
-// app-config.js — 平台預設 + 家庭覆蓋設定載入（v101.5）
+// app-config.js — 平台預設 + 家庭覆蓋設定（v102.0.0）
 // 位置：js/config/app-config.js
 // ============================================
-// v101.5 修正：
-//   ✅ 新增 disposeAppConfig（供 app.js 的 destroyApp 呼叫）
-//   ✅ 修正 _mergeAll 為「逐鍵深層合併」（家庭覆蓋優先）
-//   ✅ 修正監聽重複註冊問題（先 dispose 再 watch）
-//   ✅ 新增 getOptionsRaw（供 entity-helpers 使用）
+// v102.0.0 修正：
+//   ✅ getOptions('paymentModes') 預設值
+//   ✅ 保留 v101.5 全部功能
 // ============================================
 
 import { db } from './firebase-config.js';
@@ -19,9 +17,6 @@ import {
   LIMITS,
 } from './constants.js';
 
-/* ============================================
-   內部狀態
-   ============================================ */
 let _familyId = '';
 let _merged = null;
 let _listeners = [];
@@ -44,15 +39,9 @@ let _familyOverrides = {
 /* ============================================
    初始化 / 銷毀
    ============================================ */
-
-/**
- * 初始化 app-config
- * @param {string} familyId
- */
 export async function initAppConfig(familyId = '') {
   _familyId = familyId || '';
 
-  // 載入平台預設
   const [pStatuses, pOptions, pYearRange, pUI] = await Promise.all([
     _get('platform/defaults/statuses'),
     _get('platform/defaults/options'),
@@ -67,7 +56,6 @@ export async function initAppConfig(familyId = '') {
     uiConstants: pUI,
   };
 
-  // 載入家庭覆蓋
   if (_familyId) {
     const [fStatuses, fOptions, fYearRange, fUI] = await Promise.all([
       _get(`families/${_familyId}/statuses`),
@@ -93,12 +81,7 @@ export async function initAppConfig(familyId = '') {
   return _merged;
 }
 
-/**
- * 監聽平台預設變更
- * 🆕 v101.5：先清空舊監聽，避免重複註冊
- */
 export function watchPlatformDefaults() {
-  // 清空舊的 platform 監聽（只清 platform 部分）
   _unsubscribers = _unsubscribers.filter((entry) => {
     if (entry.scope === 'platform') {
       try { entry.unsub(); } catch (e) { /* noop */ }
@@ -124,14 +107,9 @@ export function watchPlatformDefaults() {
   });
 }
 
-/**
- * 監聽家庭設定變更
- * 🆕 v101.5：先清空舊監聽，避免重複註冊
- */
 export function watchFamilySettings() {
   if (!_familyId) return;
 
-  // 清空舊的 family 監聽
   _unsubscribers = _unsubscribers.filter((entry) => {
     if (entry.scope === 'family') {
       try { entry.unsub(); } catch (e) { /* noop */ }
@@ -157,9 +135,6 @@ export function watchFamilySettings() {
   });
 }
 
-/**
- * 銷毀所有監聽
- */
 export function disposeAppConfig() {
   _unsubscribers.forEach((entry) => {
     try { entry.unsub(); } catch (e) { /* noop */ }
@@ -173,7 +148,6 @@ export function disposeAppConfig() {
 /* ============================================
    對外查詢
    ============================================ */
-
 export function getStatuses() {
   const raw = _merged?.statuses || _toObject(DEFAULT_STATUSES);
   return Object.entries(raw)
@@ -199,18 +173,11 @@ export function isDoneStatus(name) {
   return s ? !!s.isDone : false;
 }
 
-/**
- * 取得下拉選項
- * @param {string} key
- */
 export function getOptions(key) {
   const opts = _merged?.options || DEFAULT_OPTIONS;
   return opts[key] || DEFAULT_OPTIONS[key] || [];
 }
 
-/**
- * 🆕 v101.5：取得完整 options 物件（供 entity-helpers 使用）
- */
 export function getOptionsRaw() {
   return _merged?.options || DEFAULT_OPTIONS;
 }
@@ -246,9 +213,6 @@ export function getUIConstants() {
   };
 }
 
-/**
- * 訂閱設定變更
- */
 export function onConfigChange(callback) {
   _listeners.push(callback);
   try { callback(_merged); } catch (e) { console.error('[app-config] listener error:', e); }
@@ -260,7 +224,6 @@ export function onConfigChange(callback) {
 /* ============================================
    內部工具
    ============================================ */
-
 async function _get(path) {
   try {
     const snap = await get(ref(db, path));
@@ -279,13 +242,6 @@ function _toObject(arr) {
   return obj;
 }
 
-/**
- * 🆕 v101.5：逐鍵深層合併
- * - statuses: 家庭完整覆蓋（因為是清單，逐項合併會混亂）
- * - options: 逐鍵合併（家庭只覆蓋有定義的鍵）
- * - yearRange: 逐鍵合併
- * - uiConstants: 逐鍵合併
- */
 function _mergeAll() {
   return {
     statuses: _familyOverrides.statuses || _platformDefaults.statuses || _toObject(DEFAULT_STATUSES),
@@ -295,9 +251,6 @@ function _mergeAll() {
   };
 }
 
-/**
- * options 逐鍵合併（家庭只覆蓋有定義的鍵）
- */
 function _mergeOptions(familyOpts, platformOpts) {
   const base = platformOpts || DEFAULT_OPTIONS;
   if (!familyOpts || typeof familyOpts !== 'object') return base;
@@ -309,9 +262,6 @@ function _mergeOptions(familyOpts, platformOpts) {
   return merged;
 }
 
-/**
- * 通用物件逐鍵合併
- */
 function _mergeObject(familyObj, platformObj, fallback) {
   const base = platformObj || fallback;
   if (!familyObj || typeof familyObj !== 'object') return base;

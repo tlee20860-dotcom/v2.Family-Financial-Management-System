@@ -5,12 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>成員與家庭收入與支出明細 | 家庭財務</title>
 
-  <!-- 🆕 v101.10.0：preconnect / dns-prefetch -->
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="dns-prefetch" href="https://family-fin-a6dd1-default-rtdb.asia-southeast1.firebasedatabase.app">
 
-  <!-- 🆕 v101.10.0：Critical CSS -->
   <style>
     :root{--bg-deep:#080B11;--bg-navy:#0F172A;--neon-cyan:#00F0FF;--neon-magenta:#D946EF;--neon-emerald:#10B981;--neon-red:#F43F5E;--glass-bg:rgba(15,23,42,0.6);--glass-border:rgba(0,240,255,0.2);--glass-blur:12px;--text-primary:#E2E8F0;--text-secondary:#94A3B8;--text-muted:#64748B;--radius-sm:6px;--font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang TC","Microsoft JhengHei","Noto Sans TC",sans-serif;--font-mono:"JetBrains Mono","SF Mono","Consolas","Menlo",monospace;--transition:0.25s cubic-bezier(0.4,0,0.2,1)}
     *{box-sizing:border-box;margin:0;padding:0}
@@ -31,8 +29,6 @@
     .page-title{font-size:24px;font-weight:700;color:var(--neon-cyan);text-shadow:0 0 20px rgba(0,240,255,0.3);margin-bottom:4px}
     .page-subtitle{font-size:13px;color:var(--text-muted)}
     .glass-card{background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));border:1px solid var(--glass-border);border-radius:var(--radius-sm);padding:20px;transition:all var(--transition);position:relative;overflow:hidden}
-    .btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;font-size:14px;font-weight:500;border-radius:var(--radius-sm);border:1px solid var(--glass-border);background:rgba(0,240,255,0.05);color:var(--neon-cyan);transition:all var(--transition);white-space:nowrap;font-family:inherit;cursor:pointer}
-    .btn-primary{background:rgba(0,240,255,0.15);border-color:rgba(0,240,255,0.5)}
     .flex{display:flex}
     .flex-between{display:flex;align-items:center;justify-content:space-between}
     .items-center{align-items:center}
@@ -70,8 +66,6 @@
           <div id="member-view-toggle-root"></div>
         </div>
 
-        <!-- 🆕 v101.10.0：完全移除 page-filter（年月由 Navbar 控制，P3-2 修正） -->
-
         <div id="member-report-stats-root"></div>
 
         <div class="glass-card collapsible-card collapsible-card-flat" style="padding:0; margin-bottom:20px;">
@@ -82,9 +76,7 @@
             </div>
           </div>
           <div class="collapsible-body" style="display:block;">
-            <!-- 表格模式 -->
             <div id="member-list-root"></div>
-            <!-- 卡片模式 -->
             <div id="member-card-root" style="display:none; padding:16px 20px 20px;"></div>
           </div>
         </div>
@@ -104,10 +96,8 @@
     </div>
   </div>
 
-  <!-- 🆕 v101.10.0：Lucide 固定版本 + defer -->
   <script src="https://unpkg.com/lucide@0.462.0/dist/umd/lucide.min.js" defer></script>
 
-  <!-- 🆕 v101.10.0：modulepreload 首屏 JS -->
   <link rel="modulepreload" href="./js/core/app.js">
   <link rel="modulepreload" href="./js/core/state.js">
   <link rel="modulepreload" href="./js/core/auth-guard.js">
@@ -126,7 +116,6 @@
   <link rel="modulepreload" href="./js/pages/member-report.js">
 
   <script type="module">
-    // 🆕 v101.10.0：判斷 initApp 回傳值
     import { initApp } from './js/core/app.js';
     import { initMemberReportPage } from './js/pages/member-report.js';
 

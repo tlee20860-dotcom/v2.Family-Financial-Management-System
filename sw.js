@@ -1,21 +1,17 @@
 // ============================================
-// sw.js — Service Worker（v101.10.0）
+// sw.js — Service Worker（v102.0.0）
 // ============================================
-// v101.10.0 更新：
-//   ✅ CACHE_NAME = family-fin-v131（v129 → v131）
-//   ✅ 快取策略重構：
-//      - HTML: network-first（先網路，失敗回快取，再失敗回 index.html）
-//      - JS / CSS: stale-while-revalidate（先快取，背景更新）
-//      - icons / manifest: cache-first
-//      - API / Firebase / CDN: 不攔截
-//   ✅ 對應效能提升：切頁時間大幅降低
+// v102.0.0 更新：
+//   ✅ CACHE_NAME = family-fin-v132（v131 → v132）
+//   ✅ 新增快取：
+//      - js/shared/bank-helpers.js
+//      - js/shared/bank-account-manager.js
 // ============================================
 
-const CACHE_NAME = 'family-fin-v131';
+const CACHE_NAME = 'family-fin-v132';
 
 /* ============================================
-   預快取清單（首次安裝時快取）
-   注意：不預快取 HTML（避免版本鎖死）
+   預快取清單
    ============================================ */
 const STATIC_ASSETS = [
   './css/theme.css',
@@ -63,6 +59,8 @@ const STATIC_ASSETS = [
   './js/shared/entity-list-page.js',
   './js/shared/form-handler.js',
   './js/shared/listener-group.js',
+  './js/shared/bank-helpers.js',              // 🆕 v102.0.0
+  './js/shared/bank-account-manager.js',      // 🆕 v102.0.0
 
   './js/pages/dashboard.js',
   './js/pages/portfolio.js',
@@ -100,7 +98,7 @@ const STATIC_ASSETS = [
 ];
 
 /* ============================================
-   INSTALL：預快取靜態資源 + skipWaiting
+   INSTALL
    ============================================ */
 self.addEventListener('install', (e) => {
   e.waitUntil(
@@ -115,7 +113,7 @@ self.addEventListener('install', (e) => {
 });
 
 /* ============================================
-   ACTIVATE：清除舊版快取 + clients.claim
+   ACTIVATE
    ============================================ */
 self.addEventListener('activate', (e) => {
   e.waitUntil(
@@ -133,20 +131,15 @@ self.addEventListener('activate', (e) => {
 });
 
 /* ============================================
-   FETCH：依資源類型分派策略
+   FETCH
    ============================================ */
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
 
   const url = new URL(e.request.url);
-
-  // 只處理同源請求
   if (url.origin !== self.location.origin) return;
-
-  // API 不攔截
   if (url.pathname.startsWith('/api/')) return;
 
-  // HTML / 頁面導航：network-first
   if (
     e.request.mode === 'navigate' ||
     url.pathname.endsWith('.html') ||
@@ -157,22 +150,16 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // JS / CSS：stale-while-revalidate
   if (url.pathname.endsWith('.js') || url.pathname.endsWith('.css')) {
     e.respondWith(_staleWhileRevalidate(e.request));
     return;
   }
 
-  // 其他（icon / manifest 等）：cache-first
   e.respondWith(_cacheFirst(e.request));
 });
 
 /* ============================================
-   策略 1：Network-First（HTML）
-   -------------------------------------------------
-   先嘗試網路 → 成功則更新快取
-              → 失敗則讀快取
-              → 都失敗則回 index.html（SPA fallback）
+   策略
    ============================================ */
 async function _networkFirst(request) {
   try {
@@ -185,7 +172,6 @@ async function _networkFirst(request) {
   } catch (err) {
     const cached = await caches.match(request);
     if (cached) return cached;
-    // SPA fallback
     const fallback = await caches.match('./index.html');
     if (fallback) return fallback;
     return new Response('離線中，請稍後再試', {
@@ -195,12 +181,6 @@ async function _networkFirst(request) {
   }
 }
 
-/* ============================================
-   策略 2：Stale-While-Revalidate（JS / CSS）
-   -------------------------------------------------
-   立即回快取 → 背景 fetch 更新快取
-   若無快取 → 直接 fetch
-   ============================================ */
 async function _staleWhileRevalidate(request) {
   const cache = await caches.open(CACHE_NAME);
   const cached = await cache.match(request);
@@ -217,12 +197,6 @@ async function _staleWhileRevalidate(request) {
   return cached || fetchPromise;
 }
 
-/* ============================================
-   策略 3：Cache-First（icon / manifest）
-   -------------------------------------------------
-   先讀快取 → 命中回快取
-            → 未命中 fetch 並寫入快取
-   ============================================ */
 async function _cacheFirst(request) {
   const cached = await caches.match(request);
   if (cached) return cached;

@@ -1,17 +1,18 @@
 // ============================================
-// index.js — 綜合輸入中心入口（v101.10.0）
+// index.js — 綜合輸入中心入口（v102.0.0）
 // 位置：js/pages/input-center/index.js
 // ============================================
-// v101.10.0 修正：
-//   ✅ [P2-5] _yearOptions 改用 getYearList()
-//       - 原本硬編碼 -3 ~ +3
-//       - 改用 app-config 的統一範圍
-//   ✅ [P3-8] 移除 formApi.destroy 動態覆寫
-//       - 改為 module 級別的 _modalListenerCleanups
-//   ✅ [P3-11] 移除 _itemsCache 5 秒 TTL
-//       - 改用 db.js 的 getItemsOnce()
-//   ✅ [P3-9] _destroy 補上監聽器清理
-//   ✅ 保留 v101.8.0 全部功能
+// v102.0.0 修正：
+//   ✅ 5 個按鈕 + 1 個「銀行交易」下拉
+//       - 新增支出
+//       - 家用轉入（原「新增收入」）
+//       - 個人收入（新增）
+//       - 保單
+//       - 基金
+//       - 🏦 銀行交易 ▼（手動入帳 / 手動出帳）
+//   ✅ 移除「新增銀行結餘」按鈕
+//   ✅ 家用轉入表單新增「所屬年度 / 月份」選擇
+//   ✅ 保留 v101.10.0 全部功能
 // ============================================
 
 import { initTabPanel } from '../../shared/tab-panel.js';
@@ -20,15 +21,16 @@ import { openEntityModal } from '../../shared/entity-modal.js';
 import { ENTITY_KEYS, RESERVED_IDS } from '../../config/constants.js';
 import { AppState } from '../../core/state.js';
 import {
-  addExpense, saveIncome, saveBankBalance,
-  getMembersOnce, getAllMemberExpensesOnce,
-  getIncomeOnce, getItemsOnce,
-  listenCategories, listenPaymentMethods, listenBanks,
+  addExpense, saveIncome, savePersonalIncome,
+  getMembersOnce, getItemsOnce,
+  listenCategories, listenPaymentMethods, listenBanks, listenBankAccounts,
 } from '../../core/db.js';
 import { getStatusesByCategory, getDefaultStatus, getYearList } from '../../config/app-config.js';
 import { escapeHtml, formatHKD, todayISO } from '../../core/utils.js';
 import { buildForm } from '../../shared/form-builder.js';
 import { openModal, closeModal } from '../../shared/modal.js';
+import { api } from '../../core/api.js';
+import { createTransactionForExpense } from '../../shared/bank-helpers.js';
 import { registerPageCleanup } from '../../core/app.js';
 
 /* ============================================
@@ -53,8 +55,9 @@ let _tabInstances = {
   bank:      null,
 };
 
-// v101.10.0：Modal 監聽器收集（每次開啟新 Modal 前先清空）
 let _modalListenerCleanups = [];
+let _bankTxnDropdownHandler = null;
+let _bankTxnOutsideHandler = null;
 
 function _cleanupModalListeners() {
   _modalListenerCleanups.forEach((fn) => {
@@ -104,12 +107,15 @@ function _renderSkeleton() {
   const userCanInput = AppState.getCanInput();
 
   const buttonsHtml = userCanInput ? `
-    <div class="flex flex-wrap gap-8 mb-20" id="ic-buttons-root">
+    <div class="flex flex-wrap gap-8 mb-20" id="ic-buttons-root" style="position:relative;">
       <button type="button" class="btn btn-primary" data-action="add-expense">
         <i data-lucide="plus"></i> 新增支出
       </button>
-      <button type="button" class="btn btn-primary" data-action="add-income">
-        <i data-lucide="plus"></i> 新增收入
+      <button type="button" class="btn btn-primary" data-action="add-contribution">
+        <i data-lucide="plus"></i> 家用轉入
+      </button>
+      <button type="button" class="btn btn-primary" data-action="add-personal-income">
+        <i data-lucide="plus"></i> 個人收入
       </button>
       <button type="button" class="btn btn-primary" data-action="add-policy">
         <i data-lucide="plus"></i> 新增保單
@@ -117,9 +123,19 @@ function _renderSkeleton() {
       <button type="button" class="btn btn-primary" data-action="add-fund">
         <i data-lucide="plus"></i> 新增基金
       </button>
-      <button type="button" class="btn btn-primary" data-action="add-bank-balance">
-        <i data-lucide="plus"></i> 新增銀行結餘
-      </button>
+      <div style="position:relative;" id="ic-bank-txn-dropdown">
+        <button type="button" class="btn btn-primary" data-action="bank-txn-toggle">
+          <i data-lucide="landmark"></i> 銀行交易 <i data-lucide="chevron-down" style="width:14px;height:14px;"></i>
+        </button>
+        <div id="ic-bank-txn-menu" class="glass-card" style="display:none; position:absolute; top:calc(100% + 6px); left:0; z-index:100; min-width:180px; padding:6px; border-radius:var(--radius-sm);">
+          <button type="button" class="btn btn-ghost" style="width:100%; justify-content:flex-start;" data-action="add-manual-in">
+            <i data-lucide="arrow-down-circle" style="width:14px;height:14px; color:var(--neon-emerald);"></i> 手動入帳
+          </button>
+          <button type="button" class="btn btn-ghost" style="width:100%; justify-content:flex-start;" data-action="add-manual-out">
+            <i data-lucide="arrow-up-circle" style="width:14px;height:14px; color:var(--neon-red);"></i> 手動出帳
+          </button>
+        </div>
+      </div>
     </div>
   ` : `
     <div class="banner mb-20" style="border-color:rgba(251,146,60,0.3); background:rgba(251,146,60,0.06); color:var(--neon-orange);">
@@ -149,7 +165,7 @@ function _bindButtons() {
   const root = document.getElementById('ic-buttons-root');
   if (!root) return;
 
-  root.addEventListener('click', (e) => {
+  root.addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
 
@@ -158,8 +174,11 @@ function _bindButtons() {
       case 'add-expense':
         _openAddExpenseModal();
         break;
-      case 'add-income':
-        _openAddIncomeModal();
+      case 'add-contribution':
+        _openAddContributionModal();
+        break;
+      case 'add-personal-income':
+        _openAddPersonalIncomeModal();
         break;
       case 'add-policy':
         openEntityModal({ entity: ENTITY_KEYS.POLICY, mode: 'add' });
@@ -167,11 +186,46 @@ function _bindButtons() {
       case 'add-fund':
         openEntityModal({ entity: ENTITY_KEYS.FUND, mode: 'add' });
         break;
-      case 'add-bank-balance':
-        _openAddBankBalanceModal();
+      case 'bank-txn-toggle':
+        _toggleBankTxnDropdown();
+        break;
+      case 'add-manual-in':
+        _closeBankTxnDropdown();
+        _openManualBankTxnModal('in');
+        break;
+      case 'add-manual-out':
+        _closeBankTxnDropdown();
+        _openManualBankTxnModal('out');
         break;
     }
   });
+
+  // 🆕 v102.0.0：點擊 dropdown 外部時關閉
+  _bankTxnOutsideHandler = (e) => {
+    const dropdown = document.getElementById('ic-bank-txn-dropdown');
+    if (!dropdown) return;
+    if (!dropdown.contains(e.target)) {
+      _closeBankTxnDropdown();
+    }
+  };
+  document.addEventListener('click', _bankTxnOutsideHandler);
+}
+
+function _toggleBankTxnDropdown() {
+  const menu = document.getElementById('ic-bank-txn-menu');
+  if (!menu) return;
+  const isOpen = menu.style.display === 'block';
+  if (isOpen) {
+    _closeBankTxnDropdown();
+  } else {
+    menu.style.display = 'block';
+    if (window.lucide) window.lucide.createIcons();
+  }
+}
+
+function _closeBankTxnDropdown() {
+  const menu = document.getElementById('ic-bank-txn-menu');
+  if (menu) menu.style.display = 'none';
 }
 
 /* ============================================
@@ -223,12 +277,11 @@ async function _initTabModule(key, containerId) {
 }
 
 /* ============================================
-   新增支出 Modal
+   🆕 v102.0.0：新增支出 Modal（含出帳銀行）
    ============================================ */
 async function _openAddExpenseModal() {
   if (!AppState.getCanInput()) return;
 
-  // v101.10.0：清空舊 Modal 監聽器
   _cleanupModalListeners();
 
   const MODAL_ID = 'ic-add-expense-modal';
@@ -252,7 +305,6 @@ async function _openAddExpenseModal() {
   const formApi = buildForm({
     containerId: `${MODAL_ID}-form-root`,
     fields: [
-      // v101.10.0：改用 getYearList()
       { type: 'select', id: 'year',   label: '所屬年份', required: true, includeEmpty: false, options: _yearOptions(), defaultValue: ym.year || String(new Date().getFullYear()) },
       { type: 'select', id: 'month',  label: '所屬月份', required: true, includeEmpty: false, options: _monthOptions(), defaultValue: curMonth },
       { type: 'select', id: 'member', label: '支出成員', required: true, includeEmpty: true, emptyText: '— 請選擇 —', options: memberOptions },
@@ -261,6 +313,8 @@ async function _openAddExpenseModal() {
       { type: 'select', id: 'item', label: '項目', required: true, includeEmpty: true, emptyText: '— 請先選擇類別 —' },
       { type: 'number', id: 'amount', label: '費用（HK$）', required: true, min: 0, step: 1, placeholder: '0' },
       { type: 'select', id: 'payment', label: '支付方式', includeEmpty: true, emptyText: '— 請選擇 —' },
+      // 🆕 v102.0.0：出帳銀行（選填）
+      { type: 'select', id: 'bankId', label: '出帳銀行（選填）', includeEmpty: true, emptyText: '— 不關聯銀行 —', hint: '選擇後會自動建立銀行交易' },
       { type: 'select', id: 'status', label: '狀態', includeEmpty: false,
         options: statusList.map((s) => ({ value: s.name, label: s.name })),
         defaultValue: defaultStatus?.name || '未處理' },
@@ -270,7 +324,7 @@ async function _openAddExpenseModal() {
     cancelText: '取消',
     onSubmit: async (data) => {
       const itemName = await _getItemName(data.item);
-      await addExpense(data.year, data.month, data.member, {
+      const payload = {
         name: itemName || '（未命名）',
         amount: Number(data.amount) || 0,
         status: data.status,
@@ -278,7 +332,31 @@ async function _openAddExpenseModal() {
         categoryId: data.category,
         itemId: data.item,
         paymentMethodId: data.payment || '',
-      });
+        bankId: data.bankId || '',
+      };
+
+      const expenseId = await addExpense(data.year, data.month, data.member, payload);
+
+      // 🆕 v102.0.0：若選了銀行，建立對應交易
+      if (data.bankId && expenseId) {
+        try {
+          const txnId = await createTransactionForExpense({
+            bankId: data.bankId,
+            memberId: data.member,
+            amount: payload.amount,
+            date: payload.date,
+            expenseId,
+            note: itemName || '',
+          });
+          // 寫回 expense.txnId
+          const { updateExpense } = await import('../../core/db.js');
+          await updateExpense(data.year, data.month, data.member, expenseId, { txnId });
+        } catch (e) {
+          console.warn('[input-center] 建立銀行交易失敗：', e);
+          showToast('支出已新增，但銀行交易建立失敗', 'warning');
+        }
+      }
+
       showToast('✅ 已新增支出', 'success');
       closeModal(MODAL_ID);
       _refreshCurrentTab();
@@ -295,7 +373,6 @@ async function _openAddExpenseModal() {
     });
   });
 
-  // v101.10.0：改用 _modalListenerCleanups 收集訂閱
   const unsubCat = listenCategories((list) => {
     formApi.updateOptions('category', list.map((c) => ({ value: c.id, label: c.name })), {
       includeEmpty: true,
@@ -312,19 +389,28 @@ async function _openAddExpenseModal() {
   });
   _modalListenerCleanups.push(unsubPay);
 
+  // 🆕 v102.0.0：動態載入銀行帳號
+  const unsubBank = listenBankAccounts((list) => {
+    formApi.updateOptions('bankId', list.map((b) => ({ value: b.id, label: b.name })), {
+      includeEmpty: true,
+      emptyText: '— 不關聯銀行 —',
+    });
+  });
+  _modalListenerCleanups.push(unsubBank);
+
   openModal(MODAL_ID);
   if (window.lucide) window.lucide.createIcons();
 }
 
 /* ============================================
-   新增收入 Modal
+   🆕 v102.0.0：家用轉入 Modal
    ============================================ */
-async function _openAddIncomeModal() {
+async function _openAddContributionModal() {
   if (!AppState.getCanInput()) return;
 
   _cleanupModalListeners();
 
-  const MODAL_ID = 'ic-add-income-modal';
+  const MODAL_ID = 'ic-add-contribution-modal';
   _destroyModal(MODAL_ID);
 
   const ym = AppState.getYearMonth();
@@ -333,96 +419,61 @@ async function _openAddIncomeModal() {
   const members = await getMembersOnce();
   const sortedMembers = sortMembersLocal(members);
 
-  const fields = [
-    { type: 'select', id: 'year',  label: '所屬年份', required: true, includeEmpty: false, options: _yearOptions(), defaultValue: ym.year || String(new Date().getFullYear()) },
-    { type: 'select', id: 'month', label: '所屬月份', required: true, includeEmpty: false, options: _monthOptions(), defaultValue: curMonth },
-  ];
-  sortedMembers.forEach((m) => {
-    fields.push({
-      type: 'number',
-      id: `member_${m.id}`,
-      label: m.name,
-      min: 0,
-      step: 1,
-      placeholder: '0',
-    });
-  });
-  fields.push({
-    type: 'number',
-    id: 'extra',
-    label: '額外收入（HK$）',
-    min: 0,
-    step: 1,
-    placeholder: '0',
-  });
+  _createModal(MODAL_ID, '家用轉入');
 
-  _createModal(MODAL_ID, '新增收入');
-  buildForm({
-    containerId: `${MODAL_ID}-form-root`,
-    fields,
-    submitText: '儲存收入',
-    showCancel: true,
-    cancelText: '取消',
-    onSubmit: async (data) => {
-      const payload = {};
-      sortedMembers.forEach((m) => {
-        const val = Number(data[`member_${m.id}`]) || 0;
-        if (val > 0) payload[m.id] = val;
-      });
-      const extra = Number(data.extra) || 0;
-      if (extra > 0) payload[RESERVED_IDS.EXTRA_INCOME] = extra;
-
-      await saveIncome(data.year, data.month, payload);
-      showToast(`✅ 已儲存 ${data.year} 年 ${data.month} 月收入`, 'success');
-      closeModal(MODAL_ID);
-      _refreshCurrentTab();
-    },
-    onCancel: () => closeModal(MODAL_ID),
-  });
-
-  openModal(MODAL_ID);
-  if (window.lucide) window.lucide.createIcons();
-}
-
-/* ============================================
-   新增銀行結餘 Modal
-   ============================================ */
-async function _openAddBankBalanceModal() {
-  if (!AppState.getCanInput()) return;
-
-  _cleanupModalListeners();
-
-  const MODAL_ID = 'ic-add-bank-modal';
-  _destroyModal(MODAL_ID);
-
-  const ym = AppState.getYearMonth();
-  const curMonth = ym.month === 'all' ? '01' : (ym.month || '01');
-
-  _createModal(MODAL_ID, '新增銀行結餘');
   const formApi = buildForm({
     containerId: `${MODAL_ID}-form-root`,
     fields: [
+      // 🆕 v102.0.0：所屬年度 / 月份（可選過去）
       { type: 'select', id: 'year',  label: '所屬年份', required: true, includeEmpty: false, options: _yearOptions(), defaultValue: ym.year || String(new Date().getFullYear()) },
       { type: 'select', id: 'month', label: '所屬月份', required: true, includeEmpty: false, options: _monthOptions(), defaultValue: curMonth },
-      { type: 'select', id: 'bank',  label: '銀行', required: true, includeEmpty: true, emptyText: '— 請選擇銀行 —' },
-      { type: 'number', id: 'amount', label: '結餘金額（HK$）', required: true, min: 0, step: 1, placeholder: '0' },
+      { type: 'select', id: 'member', label: '轉入成員', required: true, includeEmpty: true, emptyText: '— 請選擇成員 —', options: sortedMembers.map((m) => ({ value: m.id, label: m.name })) },
+      { type: 'number', id: 'amount', label: '轉入金額（HK$）', required: true, min: 0, step: 1, placeholder: '0' },
+      { type: 'select', id: 'bankId', label: '轉入銀行', required: true, includeEmpty: true, emptyText: '— 請選擇銀行 —' },
+      { type: 'text', id: 'note', label: '備註（可選）', maxlength: 60 },
     ],
-    submitText: '儲存結餘',
+    submitText: '確認轉入',
     showCancel: true,
     cancelText: '取消',
     onSubmit: async (data) => {
-      await saveBankBalance(data.year, data.month, data.bank, Number(data.amount) || 0);
-      showToast(`✅ 已儲存 ${data.year} 年 ${data.month} 月結餘`, 'success');
+      const amount = Number(data.amount) || 0;
+      if (amount <= 0) {
+        showToast('金額必須大於 0', 'warning');
+        return;
+      }
+
+      const year = String(data.year);
+      const month = String(data.month);
+      const memberId = data.member;
+
+      // 1. 寫入 income/{year}/{month}/{memberId}
+      await saveIncome(year, month, { [memberId]: amount });
+
+      // 2. 建立銀行交易
+      try {
+        await api.bankTransactions.create(data.bankId, {
+          type: 'in',
+          category: 'contribution',
+          amount,
+          date: `${year}-${month}-01`,
+          memberId,
+          note: data.note || '家用轉入',
+        });
+      } catch (e) {
+        console.warn('[input-center] 建立銀行交易失敗：', e);
+        showToast('家用轉入已記錄，但銀行交易建立失敗', 'warning');
+      }
+
+      showToast(`✅ 已記錄 ${year}-${month} 家用轉入`, 'success');
       closeModal(MODAL_ID);
       _refreshCurrentTab();
     },
     onCancel: () => closeModal(MODAL_ID),
   });
 
-  // v101.10.0：改用 _modalListenerCleanups
-  const unsubBank = listenBanks((list) => {
-    const options = list.map((b) => ({ value: b.id, label: b.name }));
-    formApi.updateOptions('bank', options, {
+  // 動態載入銀行帳號
+  const unsubBank = listenBankAccounts((list) => {
+    formApi.updateOptions('bankId', list.map((b) => ({ value: b.id, label: b.name })), {
       includeEmpty: true,
       emptyText: '— 請選擇銀行 —',
     });
@@ -434,7 +485,137 @@ async function _openAddBankBalanceModal() {
 }
 
 /* ============================================
-   項目查詢（v101.10.0：改用 db.js 的 getItemsOnce）
+   🆕 v102.0.0：個人收入 Modal
+   ============================================ */
+async function _openAddPersonalIncomeModal() {
+  if (!AppState.getCanInput()) return;
+
+  _cleanupModalListeners();
+
+  const MODAL_ID = 'ic-add-personal-income-modal';
+  _destroyModal(MODAL_ID);
+
+  const ym = AppState.getYearMonth();
+  const curMonth = ym.month === 'all' ? '01' : (ym.month || '01');
+
+  const members = await getMembersOnce();
+  const sortedMembers = sortMembersLocal(members);
+  const currentMemberId = AppState.getCurrentMemberId();
+  const isOwner = AppState.getRole() === 'owner' || AppState.isSuperAdmin;
+
+  // 非 owner 只能選自己
+  const memberOptions = isOwner
+    ? sortedMembers.map((m) => ({ value: m.id, label: m.name }))
+    : sortedMembers.filter((m) => m.id === currentMemberId).map((m) => ({ value: m.id, label: m.name }));
+
+  if (memberOptions.length === 0) {
+    showToast('找不到您的成員身份，請聯繫管理員', 'error');
+    return;
+  }
+
+  _createModal(MODAL_ID, '個人收入');
+  const formApi = buildForm({
+    containerId: `${MODAL_ID}-form-root`,
+    fields: [
+      { type: 'select', id: 'year',  label: '所屬年份', required: true, includeEmpty: false, options: _yearOptions(), defaultValue: ym.year || String(new Date().getFullYear()) },
+      { type: 'select', id: 'month', label: '所屬月份', required: true, includeEmpty: false, options: _monthOptions(), defaultValue: curMonth },
+      {
+        type: 'select', id: 'memberId', label: '成員', required: true, includeEmpty: false,
+        options: memberOptions,
+        disabled: !isOwner,
+        hint: isOwner ? '' : '（僅能輸入自己的個人收入）',
+      },
+      { type: 'number', id: 'amount', label: '金額（HK$）', required: true, min: 0, step: 1, placeholder: '0' },
+    ],
+    submitText: '儲存',
+    showCancel: true,
+    cancelText: '取消',
+    onSubmit: async (data) => {
+      const amount = Number(data.amount) || 0;
+      if (amount <= 0) {
+        showToast('金額必須大於 0', 'warning');
+        return;
+      }
+
+      try {
+        await savePersonalIncome(data.memberId, data.year, data.month, amount);
+        showToast(`✅ 已記錄 ${data.year}-${data.month} 個人收入`, 'success');
+        closeModal(MODAL_ID);
+        _refreshCurrentTab();
+      } catch (e) {
+        showToast('儲存失敗：' + e.message, 'error');
+      }
+    },
+    onCancel: () => closeModal(MODAL_ID),
+  });
+
+  openModal(MODAL_ID);
+  if (window.lucide) window.lucide.createIcons();
+}
+
+/* ============================================
+   🆕 v102.0.0：手動銀行交易 Modal
+   ============================================ */
+async function _openManualBankTxnModal(type) {
+  if (!AppState.getCanInput()) return;
+
+  _cleanupModalListeners();
+
+  const MODAL_ID = 'ic-add-manual-txn-modal';
+  _destroyModal(MODAL_ID);
+
+  _createModal(MODAL_ID, type === 'in' ? '手動入帳' : '手動出帳');
+
+  const formApi = buildForm({
+    containerId: `${MODAL_ID}-form-root`,
+    fields: [
+      { type: 'select', id: 'bankId', label: '銀行', required: true, includeEmpty: true, emptyText: '— 請選擇銀行 —' },
+      { type: 'number', id: 'amount', label: '金額（HK$）', required: true, min: 0, step: 1, placeholder: '0' },
+      { type: 'text', id: 'date', label: '日期', required: true, placeholder: 'YYYY-MM-DD', maxlength: 10, defaultValue: todayISO() },
+      { type: 'text', id: 'note', label: '備註', maxlength: 60, placeholder: '例如：利息、手續費' },
+    ],
+    submitText: '新增',
+    showCancel: true,
+    cancelText: '取消',
+    onSubmit: async (data) => {
+      const amount = Number(data.amount) || 0;
+      if (amount <= 0) {
+        showToast('金額必須大於 0', 'warning');
+        return;
+      }
+
+      try {
+        await api.bankTransactions.create(data.bankId, {
+          type,
+          category: 'manual',
+          amount,
+          date: data.date,
+          note: data.note || '',
+        });
+        showToast(`✅ 已新增${type === 'in' ? '入帳' : '出帳'}`, 'success');
+        closeModal(MODAL_ID);
+        _refreshCurrentTab();
+      } catch (e) {
+        showToast('新增失敗：' + e.message, 'error');
+      }
+    },
+    onCancel: () => closeModal(MODAL_ID),
+  });
+
+  const unsubBank = listenBankAccounts((list) => {
+    formApi.updateOptions('bankId', list.map((b) => ({ value: b.id, label: b.name })), {
+      includeEmpty: true,
+      emptyText: '— 請選擇銀行 —',
+    });
+  });
+  _modalListenerCleanups.push(unsubBank);
+
+  openModal(MODAL_ID);
+  if (window.lucide) window.lucide.createIcons();
+}
+
+/* ============================================
+   項目查詢
    ============================================ */
 async function _getItemsByCategory(categoryId) {
   const items = await getItemsOnce();
@@ -483,8 +664,6 @@ function _destroyModal(modalId) {
 /* ============================================
    年份 / 月份選項
    ============================================ */
-
-// v101.10.0：改用 getYearList() 從 app-config 取得
 function _yearOptions() {
   const years = getYearList();
   return years.map((y) => ({ value: String(y), label: `${y} 年` }));
@@ -533,20 +712,23 @@ function _destroy() {
     _tabPanel = null;
   }
 
-  // v101.10.0：清理 Modal 監聽器
   _cleanupModalListeners();
 
-  // v101.10.0：清理按鈕事件監聽器
+  if (_bankTxnOutsideHandler) {
+    document.removeEventListener('click', _bankTxnOutsideHandler);
+    _bankTxnOutsideHandler = null;
+  }
+
   const btnRoot = document.getElementById('ic-buttons-root');
   if (btnRoot) {
-    // 因為使用 addEventListener 而未保存 handler，透過 clone 節點移除
     const newRoot = btnRoot.cloneNode(false);
     btnRoot.parentNode?.replaceChild(newRoot, btnRoot);
   }
 
   _destroyModal('ic-add-expense-modal');
-  _destroyModal('ic-add-income-modal');
-  _destroyModal('ic-add-bank-modal');
+  _destroyModal('ic-add-contribution-modal');
+  _destroyModal('ic-add-personal-income-modal');
+  _destroyModal('ic-add-manual-txn-modal');
 
   _container = null;
 }

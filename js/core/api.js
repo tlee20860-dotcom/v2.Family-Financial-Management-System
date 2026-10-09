@@ -1,11 +1,14 @@
 // ============================================
-// api.js — Cloudflare Functions 呼叫封裝（v101.8.8）
+// api.js — Cloudflare Functions 呼叫封裝（v102.0.0）
 // 位置：js/core/api.js
 // ============================================
-// v101.8.8 修正：
-//   ✅ fetchAnnualSummary 的 yearlyInsuranceTotal 取 12 月最大值
-//       - 原本只取 results[0]（1 月）→ 遺漏年中期才開始的保單
-//       - 修正後取 Math.max(所有月份的 yearlyInsuranceTotal)
+// v102.0.0 新增：
+//   ✅ bankAccounts API（list / create / update / remove）
+//   ✅ bankTransactions API（list / listAll / create / update / remove）
+//   ✅ personalIncome API（list / save）
+//   ✅ memberAdvances API（list / listAll / create / update / remove）
+//   ✅ clearBankBalances（危險操作）
+//   ✅ 保留 v101.10.0 全部功能
 // ============================================
 
 import { AppState } from './state.js';
@@ -113,9 +116,6 @@ export const api = {
     const totalExpense = monthly.reduce((s, m) => s + m.totalExpense, 0);
     const netBalance = totalIncome - totalExpense;
 
-    // 🆕 v101.8.8：yearlyInsuranceTotal 取 12 月最大值
-    // 原因：每月 API 回傳「該月有供款保單的年繳加總」
-    //       保單年中期才開始時，1 月不含它，需取任一月最大值
     const yearlyInsuranceTotal = monthly.reduce(
       (max, m) => Math.max(max, m.yearlyInsuranceTotal || 0),
       0
@@ -129,6 +129,16 @@ export const api = {
       bankBalance: results[11]?.bankBalance || 0,
       fundValue: results[11]?.fundValue || 0,
     };
+  },
+
+  fetchAnnualSummaryRange: async (startYear, endYear) => {
+    const familyId = getFamilyId();
+    return callApi(`/api/annual-summary?familyId=${familyId}&startYear=${startYear}&endYear=${endYear}`);
+  },
+
+  fetchSettlementsYear: async (year) => {
+    const familyId = getFamilyId();
+    return callApi(`/api/settlements-year?familyId=${familyId}&year=${year}`);
   },
 
   /* ---------- 保險同步 ---------- */
@@ -270,4 +280,112 @@ export const api = {
         body: JSON.stringify({ familyId: getFamilyId(), action: 'delete-status', id }),
       }),
   },
+
+  /* ---------- 🆕 v102.0.0：銀行帳號 ---------- */
+  bankAccounts: {
+    list: () =>
+      callApi(`/api/bank-accounts?familyId=${getFamilyId()}&action=list`),
+
+    create: (data) =>
+      callApi('/api/bank-accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ familyId: getFamilyId(), action: 'create', data }),
+      }),
+
+    update: (id, data) =>
+      callApi('/api/bank-accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ familyId: getFamilyId(), action: 'update', id, data }),
+      }),
+
+    remove: (id) =>
+      callApi('/api/bank-accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ familyId: getFamilyId(), action: 'remove', id }),
+      }),
+  },
+
+  /* ---------- 🆕 v102.0.0：銀行交易 ---------- */
+  bankTransactions: {
+    list: (bankId) =>
+      callApi(`/api/bank-transactions?familyId=${getFamilyId()}&bankId=${bankId}&action=list`),
+
+    listAll: () =>
+      callApi(`/api/bank-transactions?familyId=${getFamilyId()}&action=listAll`),
+
+    create: (bankId, data) =>
+      callApi('/api/bank-transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ familyId: getFamilyId(), bankId, action: 'create', data }),
+      }),
+
+    update: (bankId, txnId, data) =>
+      callApi('/api/bank-transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ familyId: getFamilyId(), bankId, txnId, action: 'update', data }),
+      }),
+
+    remove: (bankId, txnId) =>
+      callApi('/api/bank-transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ familyId: getFamilyId(), bankId, txnId, action: 'remove' }),
+      }),
+  },
+
+  /* ---------- 🆕 v102.0.0：個人收入 ---------- */
+  personalIncome: {
+    list: (memberId) =>
+      callApi(`/api/personal-income?familyId=${getFamilyId()}&memberId=${memberId}&action=list`),
+
+    save: (memberId, year, month, amount) =>
+      callApi('/api/personal-income', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ familyId: getFamilyId(), memberId, year, month, amount, action: 'save' }),
+      }),
+  },
+
+  /* ---------- 🆕 v102.0.0：成員代墊 ---------- */
+  memberAdvances: {
+    list: (memberId) =>
+      callApi(`/api/member-advances?familyId=${getFamilyId()}&memberId=${memberId}&action=list`),
+
+    listAll: () =>
+      callApi(`/api/member-advances?familyId=${getFamilyId()}&action=listAll`),
+
+    create: (memberId, data) =>
+      callApi('/api/member-advances', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ familyId: getFamilyId(), memberId, action: 'create', data }),
+      }),
+
+    update: (memberId, advanceId, data) =>
+      callApi('/api/member-advances', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ familyId: getFamilyId(), memberId, advanceId, action: 'update', data }),
+      }),
+
+    remove: (memberId, advanceId) =>
+      callApi('/api/member-advances', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ familyId: getFamilyId(), memberId, advanceId, action: 'remove' }),
+      }),
+  },
+
+  /* ---------- 🆕 v102.0.0：清除舊銀行資料（危險操作） ---------- */
+  clearBankBalances: () =>
+    callApi('/api/clear-bank-balances', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ familyId: getFamilyId() }),
+    }),
 };

@@ -1,16 +1,11 @@
 // ============================================
-// stats-cards.js — 統計卡片渲染（v101.7.2）
+// stats-cards.js — 統計卡片渲染（v102.0.0）
 // 位置：js/shared/stats-cards.js
 // ============================================
-// v101.7.2 新增：
-//   ✅ 三種顯示模式：
-//      - auto（預設）：手機緊湊 / 桌面跟隨 view-toggle
-//      - integrated：整合卡（單卡內部分隔）
-//      - compact：緊湊獨立卡（2x2 / 3 欄 / 4 欄）
-//   ✅ 監聽 AppState 的 view-change 事件自動重繪
-//   ✅ 支援 localStorage 儲存的模式設定
-//
-// 讀取設定：localStorage['fin_ui_stats_mode'] = 'auto' | 'integrated' | 'compact'
+// v102.0.0 新增：
+//   ✅ options.customFirstCell（自訂第一格 HTML）
+//       - 用於「家庭總餘額」摺疊展開卡片
+//   ✅ 保留 v101.7.2 全部功能
 // ============================================
 
 import { escapeHtml } from '../core/utils.js';
@@ -21,21 +16,13 @@ import { STORAGE_KEYS } from '../config/constants.js';
    主函式
    ============================================ */
 
-/**
- * 渲染統計卡
- * @param {Object} options
- * @param {HTMLElement|string} options.container - 容器
- * @param {Array} options.cards - 卡片資料
- * @param {number} [options.columns=3] - 每列卡片數（2 / 3 / 4）
- * @param {number} [options.mb=20] - 下方間距（px）
- * @returns {Object} { container, refresh, destroy }
- */
 export function renderStatsCards(options) {
   const {
     container,
     cards = [],
     columns = 3,
     mb = 20,
+    customFirstCell = null,   // 🆕 v102.0.0
   } = options;
 
   const root = _resolveElement(container);
@@ -44,7 +31,7 @@ export function renderStatsCards(options) {
     return null;
   }
 
-  if (!cards.length) {
+  if (!cards.length && !customFirstCell) {
     root.innerHTML = '';
     return { container: root, refresh: () => {}, destroy: () => { root.innerHTML = ''; } };
   }
@@ -57,9 +44,9 @@ export function renderStatsCards(options) {
     const displayMode = _resolveDisplayMode(mode);
 
     if (displayMode === 'C') {
-      _renderIntegrated(root, cards, mb);
+      _renderIntegrated(root, cards, mb, customFirstCell);
     } else {
-      _renderCompact(root, cards, columns, mb);
+      _renderCompact(root, cards, columns, mb, customFirstCell);
     }
 
     if (window.lucide) window.lucide.createIcons();
@@ -69,14 +56,10 @@ export function renderStatsCards(options) {
     _render();
   }
 
-  // 初次渲染
   _render();
 
-  // auto 模式：訂閱 view 變化 + 螢幕尺寸變化
   if (_getStatsMode() === 'auto') {
     _unsubViewChange = AppState.on('view-change', _render);
-
-    // 螢幕尺寸變化也需重繪（桌面 ⇄ 手機）
     _resizeHandler = _debounce(() => _render(), 200);
     window.addEventListener('resize', _resizeHandler);
   }
@@ -111,23 +94,25 @@ function _getStatsMode() {
 }
 
 function _resolveDisplayMode(mode) {
-  // 強制模式
   if (mode === 'integrated') return 'C';
   if (mode === 'compact') return 'B';
-
-  // auto：手機 → B，桌面跟隨 view
   if (typeof window !== 'undefined' && window.innerWidth < 640) return 'B';
   return AppState.getCurrentView() === 'table' ? 'C' : 'B';
 }
 
 /* ============================================
-   方案 C：整合卡
+   方案 C：整合卡（🆕 v102.0.0：支援 customFirstCell）
    ============================================ */
-function _renderIntegrated(root, cards, mb) {
+function _renderIntegrated(root, cards, mb, customFirstCell) {
+  const cellsHtml = [
+    customFirstCell || '',
+    ...cards.map((c) => _renderIntegratedCell(c)),
+  ].join('');
+
   root.innerHTML = `
     <div class="stats-integrated" style="margin-bottom:${mb}px;">
       <div class="stats-integrated-grid">
-        ${cards.map((c) => _renderIntegratedCell(c)).join('')}
+        ${cellsHtml}
       </div>
     </div>
   `;
@@ -164,17 +149,21 @@ function _renderIntegratedCell(card) {
 }
 
 /* ============================================
-   方案 B：緊湊獨立卡
+   方案 B：緊湊獨立卡（🆕 v102.0.0：支援 customFirstCell）
    ============================================ */
-function _renderCompact(root, cards, columns, mb) {
+function _renderCompact(root, cards, columns, mb, customFirstCell) {
   const cols = columns || 3;
-  const count = cards.length;
+  const count = cards.length + (customFirstCell ? 1 : 0);
 
-  // 若卡片數 < columns，用實際數量
   const effectiveCols = Math.min(cols, count);
+
+  const firstHtml = customFirstCell
+    ? `<div class="glass-card stats-compact-card" style="grid-column: span 2;">${customFirstCell}</div>`
+    : '';
 
   root.innerHTML = `
     <div class="stats-compact-grid stats-compact-grid-${effectiveCols}" style="margin-bottom:${mb}px;">
+      ${firstHtml}
       ${cards.map((c) => _renderCompactCard(c)).join('')}
     </div>
   `;

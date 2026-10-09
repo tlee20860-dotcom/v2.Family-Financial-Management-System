@@ -1,11 +1,14 @@
 // ============================================
-// db.js — Firebase RTDB 讀寫封裝（v101.6.11）
+// db.js — Firebase RTDB 讀寫封裝（v102.0.0）
 // 位置：js/core/db.js
 // ============================================
-// v101.6.11 新增：
-//   ✅ getCategoriesOnce() — 支出類別一次讀取
-//   ✅ getItemsOnce() — 支出項目一次讀取
-//       （供結算清單編輯 Modal 使用）
+// v102.0.0 新增：
+//   ✅ 銀行帳號 CRUD（listenBankAccounts / addBankAccount / updateBankAccount / removeBankAccount）
+//   ✅ 銀行交易 CRUD（listenBankTransactions / addBankTransaction / updateBankTransaction / removeBankTransaction）
+//   ✅ 個人收入 CRUD（listenPersonalIncome / savePersonalIncome / getPersonalIncomeOnce）
+//   ✅ 代墊 CRUD（listenMemberAdvances / addMemberAdvance / updateMemberAdvance / removeMemberAdvance）
+//   ✅ 銀行帳號初始餘額讀取
+//   ✅ 保留 v101.6.11 全部功能
 // ============================================
 
 import { db } from '../config/firebase-config.js';
@@ -105,16 +108,6 @@ export async function removeMember(id) {
   await remove(familyRef(`members/${id}`));
 }
 
-export async function updateMemberOrders(orderMap) {
-  const familyId = AppState.getFamilyId();
-  if (!familyId) throw new Error('尚未選擇家庭');
-  const updates = {};
-  Object.entries(orderMap).forEach(([id, order]) => {
-    updates[`families/${familyId}/members/${id}/order`] = Number(order);
-  });
-  await update(ref(db), updates);
-}
-
 export async function deleteMemberAndData(memberId) {
   const familyId = AppState.getFamilyId();
   if (!familyId) throw new Error('尚未選擇家庭');
@@ -131,11 +124,12 @@ export async function deleteMemberAndData(memberId) {
   });
 
   updates[`families/${familyId}/members/${memberId}`] = null;
+  updates[`families/${familyId}/personal_income/${memberId}`] = null;
   await update(ref(db), updates);
 }
 
 /* ============================================
-   銀行
+   銀行（舊：category-like）
    ============================================ */
 
 export function listenBanks(cb, err) {
@@ -189,7 +183,229 @@ export async function deleteBankAndBalances(bankId) {
 }
 
 /* ============================================
-   銀行結餘
+   🆕 v102.0.0：銀行帳號
+   ============================================ */
+
+export function listenBankAccounts(cb, err) {
+  return listenList('bank_accounts', byOrderThenCreated, cb, err);
+}
+
+export async function getBankAccountsOnce() {
+  const snap = await get(familyRef('bank_accounts'));
+  const val = snap.val() || {};
+  return Object.entries(val).map(([id, b]) => ({ id, ...b }));
+}
+
+export async function addBankAccount(data) {
+  const newRef = push(familyRef('bank_accounts'));
+  await set(newRef, {
+    name: String(data.name || '').trim(),
+    type: data.type || 'family',
+    initialBalance: roundInt(data.initialBalance),
+    initialYear: String(data.initialYear || new Date().getFullYear()),
+    initialMonth: String(data.initialMonth || '01').padStart(2, '0'),
+    order: Number(data.order) || 0,
+    createdAt: Date.now(),
+  });
+  return newRef.key;
+}
+
+export async function updateBankAccount(id, patch) {
+  const clean = {};
+  if (patch.name !== undefined) clean.name = String(patch.name).trim();
+  if (patch.type !== undefined) clean.type = patch.type;
+  if (patch.initialBalance !== undefined) clean.initialBalance = roundInt(patch.initialBalance);
+  if (patch.initialYear !== undefined) clean.initialYear = String(patch.initialYear);
+  if (patch.initialMonth !== undefined) clean.initialMonth = String(patch.initialMonth).padStart(2, '0');
+  if (patch.order !== undefined) clean.order = Number(patch.order) || 0;
+  if (Object.keys(clean).length === 0) return;
+  await update(familyRef(`bank_accounts/${id}`), clean);
+}
+
+export async function removeBankAccount(id) {
+  await remove(familyRef(`bank_accounts/${id}`));
+}
+
+/* ============================================
+   🆕 v102.0.0：銀行交易
+   ============================================ */
+
+export function listenBankTransactions(bankId, cb, err) {
+  if (!bankId) {
+    console.warn('[db] listenBankTransactions: 缺少 bankId');
+    return () => {};
+  }
+  return listenList(
+    `bank_accounts/${bankId}/transactions`,
+    byCreatedAt,
+    cb,
+    err
+  );
+}
+
+export function listenAllBankTransactions(cb, err) {
+  return listen('bank_accounts', (snap) => {
+    const val = snap.val() || {};
+    const flat = [];
+    Object.entries(val).forEach(([bankId, bankData]) => {
+      const txns = bankData.transactions || {};
+      Object.entries(txns).forEach(([txnId, txn]) => {
+        flat.push({ id: txnId, bankId, bankName: bankData.name || '', ...txn });
+      });
+    });
+    flat.sort(byCreatedAt);
+    cb(flat);
+  }, err);
+}
+
+export async function getBankTransactionsOnce(bankId) {
+  if (!bankId) return [];
+  const snap = await get(familyRef(`bank_accounts/${bankId}/transactions`));
+  const val = snap.val() || {};
+  return Object.entries(val).map(([id, t]) => ({ id, ...t })).sort(byCreatedAt);
+}
+
+export async function addBankTransaction(bankId, data) {
+  if (!bankId) throw new Error('缺少 bankId');
+  const newRef = push(familyRef(`bank_accounts/${bankId}/transactions`));
+  await set(newRef, {
+    type: data.type || 'manual',
+    category: data.category || 'manual',
+    amount: roundInt(data.amount),
+    date: data.date || new Date().toISOString().slice(0, 10),
+    memberId: data.memberId || '',
+    refId: data.refId || '',
+    note: data.note || '',
+    createdAt: Date.now(),
+  });
+  return newRef.key;
+}
+
+export async function updateBankTransaction(bankId, txnId, patch) {
+  if (!bankId || !txnId) throw new Error('缺少 bankId 或 txnId');
+  const clean = {};
+  const allowed = ['type', 'category', 'amount', 'date', 'memberId', 'refId', 'note'];
+  allowed.forEach((k) => {
+    if (patch[k] !== undefined) clean[k] = patch[k];
+  });
+  if (clean.amount != null) clean.amount = roundInt(clean.amount);
+  if (Object.keys(clean).length === 0) return;
+  clean.updatedAt = Date.now();
+  await update(familyRef(`bank_accounts/${bankId}/transactions/${txnId}`), clean);
+}
+
+export async function removeBankTransaction(bankId, txnId) {
+  if (!bankId || !txnId) throw new Error('缺少 bankId 或 txnId');
+  await remove(familyRef(`bank_accounts/${bankId}/transactions/${txnId}`));
+}
+
+/* ============================================
+   🆕 v102.0.0：個人收入
+   ============================================ */
+
+export function listenPersonalIncome(memberId, cb, err) {
+  if (!memberId) {
+    console.warn('[db] listenPersonalIncome: 缺少 memberId');
+    return () => {};
+  }
+  return listen(`personal_income/${memberId}`, (snap) => cb(snap.val() || {}), err);
+}
+
+export function listenAllPersonalIncome(cb, err) {
+  return listen('personal_income', (snap) => cb(snap.val() || {}), err);
+}
+
+export async function getPersonalIncomeOnce(memberId) {
+  if (!memberId) return {};
+  const snap = await get(familyRef(`personal_income/${memberId}`));
+  return snap.val() || {};
+}
+
+export async function savePersonalIncome(memberId, year, month, amount) {
+  if (!memberId || !year || !month) throw new Error('缺少參數');
+  const num = roundInt(amount);
+  const path = `personal_income/${memberId}/${year}`;
+  if (num > 0) {
+    await update(familyRef(path), { [String(month).padStart(2, '0')]: num });
+  } else {
+    await remove(familyRef(`${path}/${String(month).padStart(2, '0')}`));
+  }
+}
+
+export async function removePersonalIncomeEntry(memberId, year, month) {
+  if (!memberId || !year || !month) throw new Error('缺少參數');
+  await remove(familyRef(`personal_income/${memberId}/${year}/${String(month).padStart(2, '0')}`));
+}
+
+/* ============================================
+   🆕 v102.0.0：成員代墊
+   ============================================ */
+
+export function listenMemberAdvances(memberId, cb, err) {
+  if (!memberId) {
+    console.warn('[db] listenMemberAdvances: 缺少 memberId');
+    return () => {};
+  }
+  return listenList(`member_advances/${memberId}`, byCreatedAt, cb, err);
+}
+
+export function listenAllMemberAdvances(cb, err) {
+  return listen('member_advances', (snap) => {
+    const val = snap.val() || {};
+    const flat = [];
+    Object.entries(val).forEach(([memberId, advances]) => {
+      Object.entries(advances || {}).forEach(([advanceId, adv]) => {
+        flat.push({ id: advanceId, memberId, ...adv });
+      });
+    });
+    flat.sort(byCreatedAt);
+    cb(flat);
+  }, err);
+}
+
+export async function getMemberAdvancesOnce(memberId) {
+  if (!memberId) return [];
+  const snap = await get(familyRef(`member_advances/${memberId}`));
+  const val = snap.val() || {};
+  return Object.entries(val).map(([id, a]) => ({ id, ...a })).sort(byCreatedAt);
+}
+
+export async function addMemberAdvance(memberId, data) {
+  if (!memberId) throw new Error('缺少 memberId');
+  const newRef = push(familyRef(`member_advances/${memberId}`));
+  await set(newRef, {
+    policyId: data.policyId || '',
+    totalAmount: roundInt(data.totalAmount),
+    remainingAmount: roundInt(data.totalAmount),
+    startYear: String(data.startYear || ''),
+    startMonth: String(data.startMonth || '').padStart(2, '0'),
+    note: data.note || '',
+    createdAt: Date.now(),
+  });
+  return newRef.key;
+}
+
+export async function updateMemberAdvance(memberId, advanceId, patch) {
+  if (!memberId || !advanceId) throw new Error('缺少參數');
+  const clean = {};
+  const allowed = ['policyId', 'totalAmount', 'remainingAmount', 'startYear', 'startMonth', 'note'];
+  allowed.forEach((k) => {
+    if (patch[k] !== undefined) clean[k] = patch[k];
+  });
+  if (clean.totalAmount != null) clean.totalAmount = roundInt(clean.totalAmount);
+  if (clean.remainingAmount != null) clean.remainingAmount = roundInt(clean.remainingAmount);
+  if (Object.keys(clean).length === 0) return;
+  clean.updatedAt = Date.now();
+  await update(familyRef(`member_advances/${memberId}/${advanceId}`), clean);
+}
+
+export async function removeMemberAdvance(memberId, advanceId) {
+  if (!memberId || !advanceId) throw new Error('缺少參數');
+  await remove(familyRef(`member_advances/${memberId}/${advanceId}`));
+}
+
+/* ============================================
+   銀行結餘（舊，保留向後相容）
    ============================================ */
 
 export function listenBankBalances(year, month, cb, err) {
@@ -225,6 +441,16 @@ export async function getPrevMonthBankTotal(year, month) {
   const snap = await get(familyRef(`bank_balances/${prevY}/${prevMonthStr}`));
   const val = snap.val() || {};
   return Object.values(val).reduce((s, b) => s + roundInt(b.amount), 0);
+}
+
+/* ============================================
+   🆕 v102.0.0：清除舊銀行資料
+   ============================================ */
+
+export async function clearAllBankBalances() {
+  const familyId = AppState.getFamilyId();
+  if (!familyId) throw new Error('尚未選擇家庭');
+  await remove(ref(db, `families/${familyId}/bank_balances`));
 }
 
 /* ============================================
@@ -310,7 +536,6 @@ export function listenCategories(cb, err) {
   return listenList('expense_categories', byOrder, cb, err);
 }
 
-// 🆕 v101.6.11：一次讀取（供結算清單編輯 Modal 使用）
 export async function getCategoriesOnce() {
   const snap = await get(familyRef('expense_categories'));
   const val = snap.val() || {};
@@ -345,7 +570,6 @@ export function listenItems(cb, err) {
   return listenList('expense_items', byCreatedAt, cb, err);
 }
 
-// 🆕 v101.6.11：一次讀取（供結算清單編輯 Modal 使用）
 export async function getItemsOnce() {
   const snap = await get(familyRef('expense_items'));
   const val = snap.val() || {};
@@ -620,6 +844,8 @@ export async function addExpense(year, month, memberId, expense) {
     categoryId: expense.categoryId || '',
     itemId: expense.itemId || '',
     paymentMethodId: expense.paymentMethodId || '',
+    bankId: expense.bankId || '',           // 🆕 v102.0.0
+    txnId: expense.txnId || '',             // 🆕 v102.0.0
     isAutoLinked: expense.isAutoLinked || false,
     policyId: expense.policyId || '',
     createdAt: Date.now(),
@@ -686,6 +912,8 @@ export async function batchUpdateExpenses(updates) {
         categoryId: data.categoryId || '',
         itemId: data.itemId || '',
         paymentMethodId: data.paymentMethodId || '',
+        bankId: data.bankId || '',
+        txnId: data.txnId || '',
         isAutoLinked: false,
         createdAt: Date.now(),
       };
@@ -700,6 +928,8 @@ export async function batchUpdateExpenses(updates) {
         categoryId: data.categoryId || '',
         itemId: data.itemId || '',
         paymentMethodId: data.paymentMethodId || '',
+        bankId: data.bankId || '',
+        txnId: data.txnId || '',
       };
     }
   }
@@ -732,12 +962,17 @@ export async function addInsurancePolicy(policy) {
     name: policy.name || '',
     company: policy.company || '',
     paymentType: policy.paymentType || '年繳',
+    paymentMode: policy.paymentMode || 'direct',       // 🆕 v102.0.0
+    advanceHolderId: policy.advanceHolderId || '',     // 🆕 v102.0.0
+    advanceId: policy.advanceId || '',                 // 🆕 v102.0.0
     firstStartYear: Number(policy.firstStartYear) || 0,
     firstStartMonth: String(policy.firstStartMonth || '01').padStart(2, '0'),
     totalPolicyYears: Number(policy.totalPolicyYears) || 0,
     totalPolicyPeriods: Number(policy.totalPolicyPeriods) || 0,
     totalPremium: roundInt(policy.totalPremium),
     currentPeriodIndex: Number(policy.currentPeriodIndex) || 1,
+    monthlyPremium: roundInt(policy.monthlyPremium),   // v101.10.0
+    annualPremium: roundInt(policy.annualPremium),     // v101.10.0
     account: policy.account || '',
     periods: policy.periods || {},
     createdAt: Date.now(),
@@ -749,13 +984,17 @@ export async function updateInsurancePolicy(id, patch) {
   const clean = {};
   const fields = [
     'type', 'memberId', 'policyHolderId', 'name', 'company', 'paymentType',
+    'paymentMode', 'advanceHolderId', 'advanceId',
     'firstStartYear', 'firstStartMonth', 'totalPolicyYears', 'totalPolicyPeriods',
-    'totalPremium', 'currentPeriodIndex', 'account', 'periods', 'isCompleted',
+    'totalPremium', 'currentPeriodIndex', 'monthlyPremium', 'annualPremium',
+    'account', 'periods', 'isCompleted',
   ];
   fields.forEach((f) => {
     if (patch[f] !== undefined) clean[f] = patch[f];
   });
   if (clean.totalPremium != null) clean.totalPremium = roundInt(clean.totalPremium);
+  if (clean.monthlyPremium != null) clean.monthlyPremium = roundInt(clean.monthlyPremium);
+  if (clean.annualPremium != null) clean.annualPremium = roundInt(clean.annualPremium);
   if (Object.keys(clean).length === 0) return;
   await update(familyRef(`insurance_policies/${id}`), clean);
 }
@@ -764,16 +1003,10 @@ export async function removeInsurancePolicy(id) {
   await remove(familyRef(`insurance_policies/${id}`));
 }
 
-/**
- * 刪除保單與所有相關資料
- * @param {string} policyId
- * @param {string} [memberId] - 可選，若未提供會自動從 policy 讀取 policyHolderId
- */
 export async function deleteInsurancePolicyAndData(policyId, memberId) {
   const familyId = AppState.getFamilyId();
   if (!familyId) throw new Error('尚未選擇家庭');
 
-  // memberId fallback（v101.6.6 修正）
   let effectiveMemberId = memberId;
   if (!effectiveMemberId) {
     try {
@@ -801,8 +1034,6 @@ export async function deleteInsurancePolicyAndData(policyId, memberId) {
         ] = null;
       }
     }
-  } else {
-    console.warn(`[db] deleteInsurancePolicyAndData: 保單 ${policyId} 找不到 policyHolderId / memberId，將略過連結支出清理`);
   }
 
   updates[`families/${familyId}/insurance_payments/${policyId}`] = null;
@@ -834,6 +1065,8 @@ export async function saveInsurancePaymentBatch(policyId, year, month, data) {
     status: data.status || '已扣款',
     amount: roundInt(data.amount),
     date: data.date || new Date().toISOString().slice(0, 10),
+    bankId: data.bankId || '',   // 🆕 v102.0.0
+    txnId: data.txnId || '',     // 🆕 v102.0.0
   });
 }
 
@@ -842,7 +1075,7 @@ export async function removeInsurancePaymentBatch(policyId, year, month) {
 }
 
 /* ============================================
-   收入
+   收入（舊：家用轉入，向後相容）
    ============================================ */
 
 export function listenIncome(year, month, cb, err) {
@@ -973,9 +1206,6 @@ export async function updateEntityStatus(source, row, newStatus, isDone) {
   }
 }
 
-/**
- * 固定支出相容函式（僅供 updateEntityStatus 使用）
- */
 async function updateFixedExpenseCompat(year, month, id, patch) {
   const clean = { ...patch };
   if (clean.amount != null) clean.amount = roundInt(clean.amount);
@@ -983,7 +1213,7 @@ async function updateFixedExpenseCompat(year, month, id, patch) {
 }
 
 /* ============================================
-   側邊欄排序
+   側邊欄排序（已廢除，僅向後相容）
    ============================================ */
 
 export function listenSidebarOrder(cb, err) {

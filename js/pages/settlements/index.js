@@ -1,12 +1,12 @@
 // ============================================
-// index.js — 結算清單入口（v101.10.0）
+// index.js — 結算清單入口（v102.0.0）
 // 位置：js/pages/settlements/index.js
 // ============================================
-// v101.10.0 修正：
-//   ✅ [P2-7] 全年模式改用 /api/settlements-year 聚合 API
-//       - 原本 12 + N 次 API → 1 次
-//   ✅ [P2-8] 單月模式改 Firebase 單次讀取（不再逐保單讀取 payments）
-//   ✅ 保留 v101.9.0 全部功能（page-filter 只留 source/status/member）
+// v102.0.0 修正：
+//   ✅ 支援支出編輯時的出帳銀行變更（含銀行交易同步）
+//   ✅ 保險結算時彈出「選擇銀行」Modal
+//   ✅ 保單 paymentMode='advance' 時，還款給代墊成員
+//   ✅ 保留 v101.10.0 全部功能（聚合 API + 單次讀取）
 // ============================================
 
 import { AppState } from '../../core/state.js';
@@ -71,7 +71,6 @@ let _monthlyUnsub = null;
 
 const listenerGroup = createListenerGroup();
 
-/* 表格欄位定義 */
 const TABLE_COLUMNS = [
   { id: 'source',   label: '來源',      defaultVisible: true,  defaultWidth: 90 },
   { id: 'yearMonth', label: '年月',      defaultVisible: true,  defaultWidth: 90 },
@@ -237,7 +236,7 @@ async function _reload() {
 }
 
 /* ============================================
-   🆕 v101.10.0：單月載入（改 Firebase 單次讀取整月 payments）
+   單月載入
    ============================================ */
 async function _loadMonthly(year, month) {
   if (_monthlyUnsub) {
@@ -262,7 +261,7 @@ async function _loadMonthly(year, month) {
 }
 
 /* ============================================
-   🆕 v101.10.0：全年載入（改聚合 API）
+   全年載入（聚合 API）
    ============================================ */
 async function _loadAnnual(year) {
   if (_monthlyUnsub) {
@@ -305,15 +304,10 @@ async function _loadAnnual(year) {
     _render();
   } catch (err) {
     console.error('[settlements] 全年聚合 API 失敗，改為逐月讀取：', err);
-    // Fallback：若聚合 API 失敗，改為逐月讀取（容錯）
     await _loadAnnualFallback(year);
   }
 }
 
-/**
- * Fallback：逐月讀取（與舊版行為相容）
- * 只在聚合 API 失敗時使用
- */
 async function _loadAnnualFallback(year) {
   const allRows = [];
   for (let m = 1; m <= 12; m++) {
@@ -338,22 +332,19 @@ async function _loadAnnualFallback(year) {
 }
 
 /* ============================================
-   🆕 v101.10.0：單月保險扣款（單次讀取）
+   單月保險扣款（單次讀取）
    ============================================ */
 async function _loadInsurancePaymentsForMonthOptimized(year, month) {
   try {
-    // 一次讀取所有 insurance_payments（結構：{policyId: {year: {month: {...}}}}）
     const { get } = await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js');
     const { familyRef } = await import('../../core/db.js');
     const snap = await get(familyRef('insurance_payments'));
     const allPayments = snap.val() || {};
 
-    // 一次讀取所有 policies
     const policiesSnap = await get(familyRef('insurance_policies'));
     const policiesObj = policiesSnap.val() || {};
     const policies = Object.entries(policiesObj).map(([id, p]) => ({ id, ...p }));
 
-    // 組裝 rows
     const rows = [];
     policies.forEach((p) => {
       const existing = allPayments?.[p.id]?.[year]?.[month];
@@ -375,9 +366,6 @@ async function _loadInsurancePaymentsForMonthOptimized(year, month) {
   }
 }
 
-/* ============================================
-   🆕 v101.10.0：從聚合 API 快取建立保險 rows
-   ============================================ */
 function _buildInsuranceRowsFromCache(policies, paymentsCache, year, month) {
   const rows = [];
 
@@ -397,9 +385,6 @@ function _buildInsuranceRowsFromCache(policies, paymentsCache, year, month) {
   return rows;
 }
 
-/* ============================================
-   建立保險 Row
-   ============================================ */
 function _buildInsuranceRow(policy, payment, year, month) {
   return {
     policyId: policy.id,
@@ -407,9 +392,13 @@ function _buildInsuranceRow(policy, payment, year, month) {
     memberId: policy.memberId,
     policyHolderId: policy.policyHolderId || policy.memberId,
     type: policy.type,
+    paymentMode: policy.paymentMode || 'direct',              // 🆕 v102.0.0
+    advanceHolderId: policy.advanceHolderId || '',            // 🆕 v102.0.0
     status: payment.status || '已扣款',
     amount: Number(payment.amount) || 0,
     date: payment.date || '',
+    bankId: payment.bankId || '',                             // 🆕 v102.0.0
+    txnId: payment.txnId || '',                               // 🆕 v102.0.0
   };
 }
 
@@ -541,9 +530,6 @@ function _renderStatusBadge(row) {
   return `<span class="badge ${cls}">${escapeHtml(status)}</span>`;
 }
 
-/* ============================================
-   表格每列展開內容
-   ============================================ */
 function _renderRowDetail(row) {
   const cat = row.categoryId ? _categories.find((c) => c.id === row.categoryId) : null;
   const item = row.itemId ? _items.find((i) => i.id === row.itemId) : null;
@@ -708,7 +694,7 @@ function _bindCardEvents() {
 }
 
 /* ============================================
-   篩選
+   篩選 / 排序
    ============================================ */
 function _applyFilters(list) {
   return list.filter((r) => {
@@ -721,9 +707,6 @@ function _applyFilters(list) {
   });
 }
 
-/* ============================================
-   排序
-   ============================================ */
 function _applySort(list) {
   const arr = [...list];
 

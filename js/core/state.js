@@ -1,14 +1,11 @@
 // ============================================
-// state.js — 全域狀態中心（v101.8.0）
+// state.js — 全域狀態中心（v102.0.0）
 // 位置：js/core/state.js
 // ============================================
-// v101.8.0 新增：
-//   ✅ role（'owner' | 'member' | 'superadmin'）
-//   ✅ canInput（true | false）
-//   ✅ displayName（登入者顯示名稱）
-//   ✅ memberAccount（完整帳號資料）
-//   ✅ familyOwnerUid（家庭主帳號 UID，可能與 familyId 不同）
-//   ✅ isSuperAdmin 保留（向後相容）
+// v102.0.0 新增：
+//   ✅ getCurrentMemberId()（判斷當前登入者的成員 ID）
+//   ✅ currentMemberId（從 memberAccount 或 fallback UID）
+//   ✅ 保留 v101.8.0 全部功能
 // ============================================
 
 import { STORAGE_KEYS } from '../config/constants.js';
@@ -21,19 +18,20 @@ export const AppState = {
   // ---------- 家庭 ----------
   currentFamilyId: '',
   currentFamilyName: '',
-  familyOwnerUid: '',       // 🆕 v101.8.0
+  familyOwnerUid: '',
 
-  // ---------- 🆕 v101.8.0：帳號資訊 ----------
+  // ---------- 帳號資訊 ----------
   role: '',                 // 'owner' | 'member' | 'superadmin'
   canInput: false,          // 是否可以輸入 / 編輯
   displayName: '',          // 顯示名稱
   memberAccount: null,      // 完整帳號物件 { email, displayName, role, canInput }
+  currentMemberId: '',      // 🆕 v102.0.0：當前登入者對應的成員 ID
 
   // ---------- 年月 ----------
   year: '',
   month: '',
 
-  // ---------- 🆕 v101.7.2：當前檢視模式 ----------
+  // ---------- 檢視模式 ----------
   currentView: 'table',
 
   // ---------- 事件總線 ----------
@@ -76,6 +74,7 @@ export const AppState = {
     this.canInput = false;
     this.displayName = '';
     this.memberAccount = null;
+    this.currentMemberId = '';
     this.currentView = 'table';
   },
 
@@ -133,7 +132,7 @@ export const AppState = {
   },
 
   /* ============================================
-     🆕 v101.8.0：帳號資訊
+     帳號資訊
      ============================================ */
   setRole(role) {
     this.role = role || '';
@@ -159,10 +158,13 @@ export const AppState = {
   setMemberAccount(account) {
     this.memberAccount = account || null;
     if (account) {
-      // 同步更新相關欄位
       this.role = account.role || this.role;
       this.canInput = account.canInput !== false;
       this.displayName = account.displayName || this.displayName;
+      // 🆕 v102.0.0：若 memberAccount 有 memberId，設定之
+      if (account.memberId) {
+        this.currentMemberId = account.memberId;
+      }
     }
     this.emit('member-account-change', this.memberAccount);
   },
@@ -170,12 +172,28 @@ export const AppState = {
   getMemberAccount() { return this.memberAccount; },
 
   /**
+   * 🆕 v102.0.0：取得當前登入者對應的成員 ID
+   * 優先順序：
+   *   1. memberAccount.memberId
+   *   2. currentMemberId
+   *   3. fallback：若 displayName 與某成員名稱相同則使用該成員（由呼叫端處理）
+   */
+  getCurrentMemberId() {
+    if (this.currentMemberId) return this.currentMemberId;
+    if (this.memberAccount?.memberId) return this.memberAccount.memberId;
+    return '';
+  },
+
+  /**
+   * 🆕 v102.0.0：手動設定當前成員 ID
+   */
+  setCurrentMemberId(memberId) {
+    this.currentMemberId = memberId || '';
+    this.emit('current-member-change', this.currentMemberId);
+  },
+
+  /**
    * 一鍵設定所有帳號相關資訊
-   * @param {Object} data
-   * @param {string} data.familyId
-   * @param {string} data.familyName
-   * @param {Object} data.memberAccount - { email, displayName, role, canInput }
-   * @param {string} [data.ownerUid]
    */
   setAccountContext({ familyId, familyName, memberAccount, ownerUid }) {
     this.setFamily(familyId, familyName, ownerUid);
@@ -197,7 +215,7 @@ export const AppState = {
   isAnnualMode() { return this.month === 'all'; },
 
   /* ============================================
-     🆕 v101.7.2：當前檢視模式
+     當前檢視模式
      ============================================ */
   setCurrentView(view) {
     if (view !== 'table' && view !== 'card') return;

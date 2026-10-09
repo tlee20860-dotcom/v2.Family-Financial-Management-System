@@ -1,24 +1,31 @@
 // ============================================
-// annual-report.js — 年度報表（v101.7.3）
+// annual-report.js — 年度報表（v102.0.0）
 // 位置：js/pages/annual-report.js
 // ============================================
-// v101.7.3 修正：
-//   ✅ [統一] 統計卡改用 renderStatsCards（跟隨 v101.7.2 的三模式）
-//       - 移除 HTML 硬寫 + 手動更新 DOM
-//       - 改用 #annual-stats-root 容器
-//   ✅ 保留 v101.7.0 全部功能（雙模式 + 可摺疊 + 每列展開）
+// v102.0.0 修正：
+//   ✅ 收入區塊拆分為「家庭收入（家用轉入）」與「個人收入」
+//   ✅ 個人收入顯示：owner 可見全部，member 僅見自己
+//   ✅ Excel 匯出新增「個人收入」分頁
+//   ✅ 保留 v101.7.3 全部功能
 // ============================================
 
 import { api } from '../core/api.js';
 import { AppState } from '../core/state.js';
+import {
+  listenMembers, listenAllPersonalIncome,
+} from '../core/db.js';
 import { formatHKD, formatNumber, escapeHtml } from '../core/utils.js';
 import { getOptions } from '../config/app-config.js';
 import { initCollapsibleCard } from '../shared/collapsible-card.js';
 import { renderDataTable } from '../shared/data-table.js';
 import { renderStatsCards } from '../shared/stats-cards.js';
 import { initViewToggle } from '../shared/view-toggle.js';
+import { createListenerGroup } from '../shared/listener-group.js';
 import { registerPageCleanup } from '../core/app.js';
 
+/* ============================================
+   Module 狀態
+   ============================================ */
 let _currentYear = '';
 let _currentView = 'summary';
 let _currentDisplayMonth = '01';
@@ -30,10 +37,19 @@ let _summaryTableApi = null;
 let _yearSwitcherHandler = null;
 let _monthSwitcherHandler = null;
 
+// 🆕 v102.0.0
+let _members = [];
+let _personalIncomeRaw = {};   // { memberId: { year: { month: amount } } }
+let _isOwner = false;
+
+const listenerGroup = createListenerGroup();
+
 /* ============================================
    主入口
    ============================================ */
 export function initAnnualReportPage() {
+  _isOwner = AppState.getRole() === 'owner' || AppState.isSuperAdmin;
+
   _cards.push(initCollapsibleCard('summary-table-card', 'ar-summary-open', true));
   _cards.push(initCollapsibleCard('payment-stats-card', 'ar-payment-stats-open', true));
   _cards.push(initCollapsibleCard('monthly-table-card', 'ar-monthly-open', true));
@@ -60,6 +76,20 @@ export function initAnnualReportPage() {
   document.getElementById('view-summary-btn')?.addEventListener('click', () => _switchView('summary'));
   document.getElementById('view-monthly-btn')?.addEventListener('click', () => _switchView('monthly'));
   document.getElementById('export-excel-btn')?.addEventListener('click', _exportToExcel);
+
+  // 監聽成員
+  listenerGroup.add(listenMembers((list) => {
+    _members = list || [];
+  }));
+
+  // 🆕 v102.0.0：監聽個人收入（僅 owner 可讀全部）
+  if (_isOwner) {
+    listenerGroup.add(listenAllPersonalIncome((data) => {
+      _personalIncomeRaw = data || {};
+      if (_annualData) _renderStats();
+      if (_annualData && _currentView === 'summary') _renderSummary();
+    }));
+  }
 
   _loadAnnual();
 
@@ -251,7 +281,31 @@ function _getCategoryOrder() {
 }
 
 /* ============================================
-   🆕 v101.7.3：統計卡（改用 renderStatsCards）
+   個人收入統計
+   ============================================ */
+function _getPersonalIncomeForMember(memberId) {
+  if (!_personalIncomeRaw || !memberId) return Array(12).fill(0);
+  const yearData = _personalIncomeRaw[memberId]?.[_currentYear] || {};
+  const arr = Array(12).fill(0);
+  Object.entries(yearData).forEach(([m, amount]) => {
+    const idx = Number(m) - 1;
+    if (idx >= 0 && idx < 12) arr[idx] = Math.round(Number(amount) || 0);
+  });
+  return arr;
+}
+
+function _getTotalPersonalIncome() {
+  if (!_isOwner) return 0;
+  let total = 0;
+  Object.values(_personalIncomeRaw).forEach((yearData) => {
+    const yearArr = yearData?.[_currentYear] || {};
+    Object.values(yearArr).forEach((v) => { total += Math.round(Number(v) || 0); });
+  });
+  return total;
+}
+
+/* ============================================
+   統計卡
    ============================================ */
 function _renderStats() {
   if (!_annualData) return;
@@ -259,13 +313,14 @@ function _renderStats() {
   const totalIncome = _annualData.monthly.income.reduce((s, x) => s + x, 0);
   const totalExpense = _annualData.monthly.expense.reduce((s, x) => s + x, 0);
   const balance = totalIncome - totalExpense;
+  const personalTotal = _getTotalPersonalIncome();
 
   const cards = [
     {
-      title: `${_currentYear} 年度總收入`,
+      title: `${_currentYear} 家庭收入（家用轉入）`,
       value: formatHKD(totalIncome),
       valueClass: 'emerald',
-      hint: '所有成員收入加總',
+      hint: '成員轉入家庭帳號的總額',
       icon: 'trending-up',
     },
     {
@@ -279,22 +334,33 @@ function _renderStats() {
       title: `${_currentYear} 年度淨結餘`,
       value: formatHKD(balance),
       valueClass: balance >= 0 ? 'emerald' : 'red',
-      hint: '收入 − 支出',
+      hint: '家用轉入 − 支出',
       icon: 'wallet',
     },
   ];
+
+  // 🆕 v102.0.0：owner 加第 4 張「個人收入」
+  if (_isOwner) {
+    cards.push({
+      title: `${_currentYear} 個人收入合計`,
+      value: formatHKD(personalTotal),
+      valueClass: 'cyan',
+      hint: '不計入家庭總帳',
+      icon: 'user',
+    });
+  }
 
   if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} _statsApi = null; }
 
   _statsApi = renderStatsCards({
     container: 'annual-stats-root',
     cards,
-    columns: 3,
+    columns: _isOwner ? 4 : 3,
   });
 }
 
 /* ============================================
-   全年總合（依 view 切換）
+   全年總合
    ============================================ */
 function _renderSummary() {
   const view = _viewToggle?.getView() || 'table';
@@ -326,11 +392,16 @@ function _renderSummaryTable() {
 
   const columns = [
     { id: 'name', label: '成員', defaultVisible: true, defaultWidth: 100 },
-    { id: 'income', label: '總收入', defaultVisible: true, defaultWidth: 120 },
+    { id: 'income', label: '家用轉入', defaultVisible: true, defaultWidth: 120 },   // 🔄 改名
     { id: 'expense', label: '總支出', defaultVisible: true, defaultWidth: 120 },
     ...catOrder.map((c) => ({ id: `cat_${c}`, label: c, defaultVisible: true, defaultWidth: 110, type: 'number' })),
     { id: 'net', label: '淨結餘', defaultVisible: true, defaultWidth: 130 },
   ];
+
+  // 🆕 v102.0.0：owner 加「個人收入」欄位
+  if (_isOwner) {
+    columns.splice(2, 0, { id: 'personalIncome', label: '個人收入', defaultVisible: true, defaultWidth: 120 });
+  }
 
   const rows = [];
   _annualData.members.forEach((m) => {
@@ -356,6 +427,11 @@ function _renderSummaryTable() {
       expense: totalExpense,
       net: totalIncome - totalExpense,
     };
+    // 🆕 v102.0.0
+    if (_isOwner) {
+      const personalArr = _getPersonalIncomeForMember(m.id);
+      row.personalIncome = personalArr.reduce((s, x) => s + x, 0);
+    }
     catOrder.forEach((c) => { row[`cat_${c}`] = catTotals[c]; });
     rows.push(row);
   });
@@ -381,6 +457,7 @@ function _renderSummaryTable() {
       net: -sharedTotal,
       __isShared: true,
     };
+    if (_isOwner) sharedRow.personalIncome = 0;
     catOrder.forEach((c) => { sharedRow[`cat_${c}`] = sharedCatTotals[c]; });
     rows.push(sharedRow);
   }
@@ -389,9 +466,10 @@ function _renderSummaryTable() {
   const extraMember = _annualData.members.find((m) => m.id === 'extra');
   const extraIncome = extraMember ? extraMember.income.reduce((s, x) => s + x, 0) : 0;
 
-  // 總計列
+  // 總計
   const grandTotalIncome = rows.reduce((s, r) => s + r.income, 0);
   const grandTotalExpense = rows.reduce((s, r) => s + r.expense, 0);
+  const grandPersonalIncome = _isOwner ? rows.reduce((s, r) => s + (r.personalIncome || 0), 0) : 0;
   const grandCatTotals = Object.fromEntries(catOrder.map((c) => [c, 0]));
   rows.forEach((r) => catOrder.forEach((c) => { grandCatTotals[c] += r[`cat_${c}`] || 0; }));
 
@@ -403,6 +481,7 @@ function _renderSummaryTable() {
     net: grandTotalIncome + extraIncome - grandTotalExpense,
     __isTotal: true,
   };
+  if (_isOwner) totalRow.personalIncome = grandPersonalIncome;
   catOrder.forEach((c) => { totalRow[`cat_${c}`] = grandCatTotals[c]; });
 
   _summaryTableApi = renderDataTable({
@@ -419,6 +498,7 @@ function _renderSummaryTable() {
           return escapeHtml(row.name);
         },
         income: (val) => val > 0 ? `<span class="text-emerald">${formatHKD(val)}</span>` : '<span class="text-muted">—</span>',
+        personalIncome: (val) => val > 0 ? `<span class="text-cyan">${formatHKD(val)}</span>` : '<span class="text-muted">—</span>',   // 🆕
         expense: (val) => val > 0 ? `<span class="text-red">${formatHKD(val)}</span>` : '<span class="text-muted">—</span>',
         net: (val) => `<span class="${val >= 0 ? 'text-emerald' : 'text-red'}">${formatHKD(val)}</span>`,
       },
@@ -456,8 +536,16 @@ function _renderMemberDetail(row, catOrder) {
     `;
   }
 
+  const extraInfo = _isOwner && row.personalIncome > 0
+    ? `<div style="margin-bottom:8px; padding:8px 12px; background:rgba(0,240,255,0.04); border-radius:var(--radius-sm); display:flex; justify-content:space-between;">
+        <span class="text-muted" style="font-size:12px;">個人收入（不計入家庭總帳）</span>
+        <span class="mono text-cyan">${formatHKD(row.personalIncome)}</span>
+      </div>`
+    : '';
+
   return `
     <div style="font-size:13px;">
+      ${extraInfo}
       <div style="color:var(--text-muted); font-size:11px; margin-bottom:6px;">${escapeHtml(row.name)} 年度類別明細</div>
       <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:8px 16px;">
         ${catOrder.filter((c) => row[`cat_${c}`] > 0).map((c) => `
@@ -491,16 +579,27 @@ function _renderSummaryCards(container) {
         else if (catTotals['其他'] != null) catTotals['其他'] += sum;
       });
       const net = totalIncome - totalExpense;
+      const personalArr = _isOwner ? _getPersonalIncomeForMember(m.id) : [];
+      const personalTotal = personalArr.reduce((s, x) => s + x, 0);
+
+      const personalHtml = _isOwner && personalTotal > 0
+        ? `<div style="display:flex; justify-content:space-between; margin-top:4px; padding-top:4px; border-top:1px dashed rgba(0,240,255,0.1);">
+             <span class="text-muted" style="font-size:11px;">個人收入</span>
+             <span class="mono text-cyan" style="font-size:12px;">${formatHKD(personalTotal)}</span>
+           </div>`
+        : '';
+
       return `
         <div class="glass-card" style="padding:14px;">
           <div style="font-size:15px; font-weight:700; color:var(--neon-cyan); margin-bottom:8px;">${escapeHtml(m.name)}</div>
           <div style="display:flex; flex-direction:column; gap:4px; font-size:12px;">
-            <div style="display:flex; justify-content:space-between;"><span class="text-muted">收入</span><span class="mono text-emerald">${formatHKD(totalIncome)}</span></div>
+            <div style="display:flex; justify-content:space-between;"><span class="text-muted">家用轉入</span><span class="mono text-emerald">${formatHKD(totalIncome)}</span></div>
             <div style="display:flex; justify-content:space-between;"><span class="text-muted">支出</span><span class="mono text-red">${formatHKD(totalExpense)}</span></div>
             <div style="display:flex; justify-content:space-between; margin-top:6px; padding-top:6px; border-top:1px dashed rgba(255,255,255,0.08);">
               <span class="text-muted">淨結餘</span>
               <span class="mono ${net >= 0 ? 'text-emerald' : 'text-red'}" style="font-weight:700;">${formatHKD(net)}</span>
             </div>
+            ${personalHtml}
           </div>
         </div>
       `;
@@ -604,7 +703,7 @@ function _renderMonthly() {
 
   const incomeRows = _annualData.members.filter((m) => m.income.some((v) => v > 0));
   if (incomeRows.length > 0) {
-    rows.push(`<tr class="group-header"><td>【收入】</td><td class="num"></td><td class="num"></td></tr>`);
+    rows.push(`<tr class="group-header"><td>【家用轉入】</td><td class="num"></td><td class="num"></td></tr>`);
     incomeRows.forEach((m) => {
       const current = m.income[monthIdx] || 0;
       const annual = sumArr(m.income);
@@ -613,6 +712,28 @@ function _renderMonthly() {
     const totalCurrent = _annualData.monthly.income[monthIdx] || 0;
     const totalAnnual = sumArr(_annualData.monthly.income);
     rows.push(`<tr class="subtotal-row"><td>收入小計</td><td class="num">${formatNumber(totalCurrent)}</td><td class="num">${formatNumber(totalAnnual)}</td></tr>`);
+  }
+
+  // 🆕 v102.0.0：個人收入（owner 可見）
+  if (_isOwner) {
+    const personalRows = _annualData.members
+      .filter((m) => m.id !== 'extra')
+      .map((m) => ({ m, arr: _getPersonalIncomeForMember(m.id) }))
+      .filter((x) => x.arr.some((v) => v > 0));
+
+    if (personalRows.length > 0) {
+      rows.push(`<tr class="group-header"><td>【個人收入】（不計入家庭總帳）</td><td class="num"></td><td class="num"></td></tr>`);
+      let totalPersonalCurrent = 0;
+      let totalPersonalAnnual = 0;
+      personalRows.forEach(({ m, arr }) => {
+        const cur = arr[monthIdx] || 0;
+        const annual = sumArr(arr);
+        totalPersonalCurrent += cur;
+        totalPersonalAnnual += annual;
+        rows.push(`<tr><td>${escapeHtml(m.name)}</td><td class="num text-cyan">${cur ? formatNumber(cur) : '—'}</td><td class="num text-cyan">${annual ? formatNumber(annual) : '—'}</td></tr>`);
+      });
+      rows.push(`<tr class="subtotal-row"><td>個人收入小計</td><td class="num text-cyan">${formatNumber(totalPersonalCurrent)}</td><td class="num text-cyan">${formatNumber(totalPersonalAnnual)}</td></tr>`);
+    }
   }
 
   _annualData.members.forEach((m) => {
@@ -716,18 +837,36 @@ async function _exportToExcel() {
   const totalExpense = Math.round(data.monthly.expense.reduce((s, x) => s + x, 0));
   const balance = totalIncome - totalExpense;
 
-  rows.push(['【收入】', '', '', '', '', '', '', '', '', '', '', '', '', '']);
+  rows.push(['【家庭收入（家用轉入）】', '', '', '', '', '', '', '', '', '', '', '', '', '']);
   data.members.filter((m) => m.income.some((v) => v > 0)).forEach((m) => {
     const subtotal = Math.round(m.income.reduce((s, x) => s + x, 0));
     rows.push([`  ${m.name}`, ...m.income.map((v) => Math.round(v)), subtotal]);
   });
-  rows.push(['收入小計', ...data.monthly.income.map((v) => Math.round(v)), totalIncome]);
+  rows.push(['家庭收入小計', ...data.monthly.income.map((v) => Math.round(v)), totalIncome]);
+
+  // 🆕 v102.0.0：個人收入
+  if (_isOwner) {
+    const personalRows = data.members
+      .filter((m) => m.id !== 'extra')
+      .map((m) => ({ m, arr: _getPersonalIncomeForMember(m.id) }))
+      .filter((x) => x.arr.some((v) => v > 0));
+
+    if (personalRows.length > 0) {
+      rows.push(['【個人收入】（不計入家庭總帳）', '', '', '', '', '', '', '', '', '', '', '', '', '']);
+      personalRows.forEach(({ m, arr }) => {
+        const subtotal = Math.round(arr.reduce((s, x) => s + x, 0));
+        rows.push([`  ${m.name}`, ...arr.map((v) => Math.round(v)), subtotal]);
+      });
+      const totalPersonal = personalRows.reduce((s, { arr }) => s + arr.reduce((a, b) => a + b, 0), 0);
+      rows.push(['個人收入小計', '', '', '', '', '', '', '', '', '', '', '', '', Math.round(totalPersonal)]);
+    }
+  }
 
   data.members.forEach((m) => {
     if (m.id === 'extra') return;
     const catIds = Object.keys(m.expenses);
     if (catIds.length === 0) return;
-    rows.push([`【${m.name}】`, '', '', '', '', '', '', '', '', '', '', '', '', '']);
+    rows.push([`【${m.name} 支出】`, '', '', '', '', '', '', '', '', '', '', '', '', '']);
     const monthlyMemberTotal = Array(12).fill(0);
     Object.entries(m.expenses).forEach(([catId, catData]) => {
       const amounts = catData.amounts;
@@ -802,6 +941,7 @@ function _loadScript(src) {
    銷毀
    ============================================ */
 function _destroy() {
+  listenerGroup.destroy();
   _cards.forEach((c) => { try { c?.destroy(); } catch (e) {} });
   _cards = [];
 

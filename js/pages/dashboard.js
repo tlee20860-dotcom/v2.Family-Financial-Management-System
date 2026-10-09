@@ -1,30 +1,37 @@
 // ============================================
-// dashboard.js — 總覽儀表板（v101.7.6）
+// dashboard.js — 總覽儀表板（v102.0.0）
 // 位置：js/pages/dashboard.js
 // ============================================
-// v101.7.6 修正：
-//   ✅ [BUG] 年度總覽表格 columns id 與資料欄位名不一致
-//       - columns: income → totalIncome
-//       - columns: expense → totalExpense
-//       - resolvers: 同步更新 key
-//   ✅ 保留所有 v101.7.0 功能（雙模式 + 可摺疊）
+// v102.0.0 修正：
+//   ✅ 統計卡第 1 張改為「家庭總餘額」（從 bank_accounts 計算）
+//   ✅ 其他統計卡保留：年度總收入（家用轉入）/ 年度總支出 / 年度淨餘額
+//   ✅ 保留 v101.7.6 全部功能
 // ============================================
 
 import { api } from '../core/api.js';
 import { AppState } from '../core/state.js';
 import { formatHKD, escapeHtml, setText } from '../core/utils.js';
+import {
+  listenBankAccounts, listenAllBankTransactions,
+} from '../core/db.js';
+import { calcTotalBankBalance } from '../shared/bank-helpers.js';
 import { renderStatsCards } from '../shared/stats-cards.js';
 import { renderDataTable } from '../shared/data-table.js';
 import { initViewToggle } from '../shared/view-toggle.js';
+import { createListenerGroup } from '../shared/listener-group.js';
 import { registerPageCleanup } from '../core/app.js';
 
 let _annualData = {};
 let _years = [];
 let _currentYear = 0;
+let _bankAccounts = [];
+let _bankTransactions = [];
 let _statsCardsApi = null;
 let _viewToggle = null;
 let _annualTableApi = null;
 let _errorEl = null;
+
+const listenerGroup = createListenerGroup();
 
 /* ============================================
    主入口
@@ -47,6 +54,24 @@ export async function initDashboardPage() {
     onChange: () => _renderAnnual(),
   });
 
+  // 🆕 v102.0.0：監聽銀行帳號 / 交易
+  listenerGroup.add(listenBankAccounts((list) => {
+    _bankAccounts = list || [];
+    _renderStatsCards();
+  }));
+
+  listenerGroup.add(listenAllBankTransactions((list) => {
+    _bankTransactions = list || [];
+    _renderStatsCards();
+  }));
+
+  listenerGroup.add(AppState.on('ym-change', () => {
+    _currentYear = Number(AppState.year) || _currentYear;
+    _years = _getSurroundingYears(_currentYear);
+    setText('dashboard-subtitle', `${_years[0]} ~ ${_years[_years.length - 1]} 年`);
+    _loadAnnualData();
+  }));
+
   await _loadAnnualData();
 
   registerPageCleanup(_destroy);
@@ -60,7 +85,7 @@ function _getSurroundingYears(currentYear) {
 }
 
 /* ============================================
-   載入年度資料（兩階段）
+   載入年度資料
    ============================================ */
 async function _loadAnnualData() {
   _annualData = {};
@@ -78,7 +103,7 @@ async function _loadAnnualData() {
     _showError(`無法載入 ${_currentYear} 年度資料`);
   }
 
-  // 階段 2：其餘 4 年
+  // 階段 2：其餘
   for (const y of _years) {
     if (y === _currentYear) continue;
     try {
@@ -91,46 +116,55 @@ async function _loadAnnualData() {
 }
 
 /* ============================================
-   統計卡
+   統計卡（🆕 v102.0.0：家庭總餘額）
    ============================================ */
 function _renderStatsCards() {
   const data = _annualData[_currentYear];
-  if (!data) {
+  if (!data && _bankAccounts.length === 0) {
     if (_statsCardsApi) { try { _statsCardsApi.destroy(); } catch (e) {} _statsCardsApi = null; }
     return;
   }
 
-  const monthsWithData = (data.monthly || []).filter((m) => m.totalExpense > 0).length;
-  const monthlyAvg = monthsWithData > 0 ? Math.round(data.totalExpense / monthsWithData) : 0;
+  const { year, month } = AppState.getYearMonth();
+  const targetYear = _currentYear;
+  const targetMonth = month === 'all' ? '12' : month;
+
+  // 🆕 家庭總餘額
+  const totalBankBalance = calcTotalBankBalance(
+    _bankAccounts, _bankTransactions, targetYear, targetMonth
+  );
+
+  const monthsWithData = (data?.monthly || []).filter((m) => m.totalExpense > 0).length;
+  const monthlyAvg = data && monthsWithData > 0 ? Math.round(data.totalExpense / monthsWithData) : 0;
 
   const cards = [
     {
-      title: `${_currentYear} 年度總收入`,
-      value: formatHKD(data.totalIncome),
+      title: '家庭總餘額',
+      value: formatHKD(totalBankBalance),
+      valueClass: totalBankBalance >= 0 ? 'emerald' : 'red',
+      hint: `共 ${_bankAccounts.length} 個銀行帳號`,
+      icon: 'landmark',
+    },
+    {
+      title: `${_currentYear} 家庭收入`,
+      value: formatHKD(data?.totalIncome || 0),
       valueClass: 'emerald',
-      hint: '所有成員收入加總',
+      hint: '家用轉入加總',
       icon: 'trending-up',
     },
     {
       title: `${_currentYear} 年度總支出`,
-      value: formatHKD(data.totalExpense),
+      value: formatHKD(data?.totalExpense || 0),
       valueClass: 'red',
       hint: '含保險平攤',
       icon: 'trending-down',
     },
     {
       title: `${_currentYear} 年度淨餘額`,
-      value: formatHKD(data.netBalance),
-      valueClass: data.netBalance >= 0 ? 'emerald' : 'red',
-      hint: '收入 − 支出',
+      value: formatHKD(data?.netBalance || 0),
+      valueClass: (data?.netBalance || 0) >= 0 ? 'emerald' : 'red',
+      hint: '家用轉入 − 支出',
       icon: 'wallet',
-    },
-    {
-      title: `${_currentYear} 每月平均支出`,
-      value: formatHKD(monthlyAvg),
-      valueClass: 'magenta',
-      hint: monthsWithData > 0 ? `依 ${monthsWithData} 個月計算` : '尚無支出',
-      icon: 'calculator',
     },
   ];
 
@@ -171,7 +205,7 @@ function _getAnnualRows() {
 }
 
 /* ============================================
-   年度渲染（依 view 切換）
+   年度渲染
    ============================================ */
 function _renderAnnual() {
   const view = _viewToggle?.getView() || 'table';
@@ -188,12 +222,6 @@ function _renderAnnual() {
   }
 }
 
-/* ============================================
-   年度表格
-   -------------------------------------------------
-   ✅ v101.7.6：columns id 改用 totalIncome / totalExpense
-               （與 _getAnnualRows 返回的欄位名一致）
-   ============================================ */
 function _renderAnnualTable() {
   const root = document.getElementById('annual-table-root');
   if (!root) return;
@@ -215,7 +243,7 @@ function _renderAnnualTable() {
     options: {
       columns: [
         { id: 'year',         label: '年度',     defaultVisible: true, defaultWidth: 100 },
-        { id: 'totalIncome',  label: '總收入',   defaultVisible: true, defaultWidth: 130 },
+        { id: 'totalIncome',  label: '家庭收入',   defaultVisible: true, defaultWidth: 130 },   // 🔄 改名
         { id: 'totalExpense', label: '總支出',   defaultVisible: true, defaultWidth: 130 },
         { id: 'insurance',    label: '保險平攤', defaultVisible: true, defaultWidth: 130 },
         { id: 'net',          label: '淨餘額',   defaultVisible: true, defaultWidth: 130 },
@@ -236,7 +264,7 @@ function _renderAnnualTable() {
       storageKey: 'dashboard-annual-table',
       renderDetail: (row) => `
         <div style="font-size:13px; display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:8px 20px;">
-          <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">年度總收入</div><div class="mono text-emerald">${formatHKD(row.totalIncome)}</div></div>
+          <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">家庭收入</div><div class="mono text-emerald">${formatHKD(row.totalIncome)}</div></div>
           <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">年度總支出</div><div class="mono text-red">${formatHKD(row.totalExpense)}</div></div>
           <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">保險平攤</div><div class="mono text-magenta">${formatHKD(row.insurance)}</div></div>
           <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">淨餘額</div><div class="mono ${row.net >= 0 ? 'text-emerald' : 'text-red'}">${formatHKD(row.net)}</div></div>
@@ -248,9 +276,6 @@ function _renderAnnualTable() {
   });
 }
 
-/* ============================================
-   年度卡片
-   ============================================ */
 function _renderAnnualCards(container) {
   const rows = _getAnnualRows().filter((r) => r.hasData);
 
@@ -283,9 +308,6 @@ function _renderAnnualCards(container) {
   `;
 }
 
-/* ============================================
-   錯誤顯示
-   ============================================ */
 function _showError(msg) {
   if (_errorEl) {
     _errorEl.textContent = '⚠ ' + msg;
@@ -293,13 +315,13 @@ function _showError(msg) {
   }
 }
 
-/* ============================================
-   銷毀
-   ============================================ */
 function _destroy() {
+  listenerGroup.destroy();
   if (_statsCardsApi) { try { _statsCardsApi.destroy(); } catch (e) {} _statsCardsApi = null; }
   if (_viewToggle) { try { _viewToggle.destroy(); } catch (e) {} _viewToggle = null; }
   if (_annualTableApi) { try { _annualTableApi.destroy(); } catch (e) {} _annualTableApi = null; }
   _annualData = {};
   _years = [];
+  _bankAccounts = [];
+  _bankTransactions = [];
 }

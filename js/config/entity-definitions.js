@@ -1,12 +1,11 @@
 // ============================================
-// entity-definitions.js — 實體表單定義 SSOT（v101.10.0）
+// entity-definitions.js — 實體表單定義 SSOT（v102.0.0）
 // 位置：js/config/entity-definitions.js
 // ============================================
-// v101.10.0 修正：
-//   ✅ [P1-3] POLICY 新增 monthlyPremium 欄位（基金保險專用）
-//       - 原本基金保險無法輸入月供金額 → 年度供款永遠為 0
-//       - 新增欄位 + fromForm 處理
-//   ✅ 保留 v101.6 全部功能
+// v102.0.0 修正：
+//   ✅ POLICY 新增 paymentMode / advanceHolderId 欄位
+//   ✅ POLICY 支援「代墊模式」
+//   ✅ 保留 v101.10.0 monthlyPremium 修正
 // ============================================
 
 import {
@@ -44,18 +43,9 @@ const ENTITY_DEFS = {
     },
 
     fields: [
-      {
-        id: 'name', label: '名稱', type: 'text',
-        required: true, maxlength: 20, placeholder: '例如：老公、梓舜',
-      },
-      {
-        id: 'role', label: '角色', type: 'select',
-        required: true, optionsSource: 'memberRoles',
-      },
-      {
-        id: 'order', label: '排序', type: 'number-plain',
-        min: 0, defaultValue: 0,
-      },
+      { id: 'name', label: '名稱', type: 'text', required: true, maxlength: 20, placeholder: '例如：老公、梓舜' },
+      { id: 'role', label: '角色', type: 'select', required: true, optionsSource: 'memberRoles' },
+      { id: 'order', label: '排序', type: 'number-plain', min: 0, defaultValue: 0 },
     ],
 
     ui: {
@@ -101,10 +91,7 @@ const ENTITY_DEFS = {
     },
 
     fields: [
-      {
-        id: 'name', label: '銀行名稱', type: 'text',
-        required: true, maxlength: 20, placeholder: '例如：中銀、匯豐',
-      },
+      { id: 'name', label: '銀行名稱', type: 'text', required: true, maxlength: 20, placeholder: '例如：中銀、匯豐' },
     ],
 
     ui: {
@@ -134,7 +121,7 @@ const ENTITY_DEFS = {
   },
 
   /* ============================================
-     3. 保單（v101.10.0：新增 monthlyPremium 欄位）
+     3. 保單（🆕 v102.0.0：新增 paymentMode）
      ============================================ */
   [ENTITY_KEYS.POLICY]: {
     key: ENTITY_KEYS.POLICY,
@@ -150,65 +137,24 @@ const ENTITY_DEFS = {
     },
 
     fields: [
-      {
-        id: 'type', label: '保單類型', type: 'select',
-        required: true, optionsSource: 'policyTypes',
-      },
-      {
-        id: 'memberId', label: '受保人', type: 'select',
-        required: true, optionsSource: 'members',
-      },
-      {
-        id: 'policyHolderId', label: '保單持有人', type: 'select',
-        required: false, optionsSource: 'members',
-        emptyText: '— 同受保人 —',
-        hint: '若未選擇，預設與受保人相同',
-      },
-      {
-        id: 'name', label: '保單名稱', type: 'text',
-        required: true, maxlength: 60, placeholder: '例如：危疾+住院',
-      },
-      {
-        id: 'company', label: '保險公司', type: 'select',
-        required: false, optionsSource: 'companies',
-      },
-      {
-        id: 'firstStartYear', label: '保單開始年份', type: 'number-plain',
-        required: true, min: 2000, max: 2100,
-        defaultValue: () => new Date().getFullYear(),
-      },
-      {
-        id: 'firstStartMonth', label: '保單開始月份', type: 'select',
-        required: true, optionsSource: 'months', defaultValue: '01',
-      },
-      {
-        id: 'totalPolicyYears', label: '總供款年期', type: 'number-plain',
-        required: true, min: 1, max: 50, defaultValue: 5,
-      },
-      {
-        id: 'currentPeriodIndex', label: '當前第幾年度', type: 'number-plain',
-        required: true, min: 1, max: 50, defaultValue: 1,
-      },
-      {
-        id: 'paymentType', label: '付款類型', type: 'select',
-        required: true, optionsSource: 'insurancePaymentTypes',
-      },
-      {
-        id: 'account', label: '扣款帳戶（可選）', type: 'text',
-        required: false, maxlength: 60,
-      },
-      // 🆕 v101.10.0：基金保險專用月供金額
-      {
-        id: 'monthlyPremium', label: '月供金額（HK$）', type: 'number',
-        required: false, min: 0, step: 1, defaultValue: 0,
-        hint: '💡 基金保險（投資型）填此欄；普通保險留空即可',
-      },
-      // 普通保險年繳保費
-      {
-        id: 'annualPremium', label: '當前年度年繳保費（HK$）', type: 'number',
-        required: false, min: 0, step: 1, defaultValue: 0,
-        hint: '💡 普通保險（住院 / 人壽 / 意外）填此欄',
-      },
+      { id: 'type', label: '保單類型', type: 'select', required: true, optionsSource: 'policyTypes' },
+      { id: 'memberId', label: '受保人', type: 'select', required: true, optionsSource: 'members' },
+      { id: 'policyHolderId', label: '保單持有人', type: 'select', required: false, optionsSource: 'members', emptyText: '— 同受保人 —', hint: '若未選擇，預設與受保人相同' },
+      { id: 'name', label: '保單名稱', type: 'text', required: true, maxlength: 60, placeholder: '例如：危疾+住院' },
+      { id: 'company', label: '保險公司', type: 'select', required: false, optionsSource: 'companies' },
+
+      // 🆕 v102.0.0：付款模式
+      { id: 'paymentMode', label: '付款模式', type: 'select', required: true, optionsSource: 'paymentModes', defaultValue: 'direct' },
+      { id: 'advanceHolderId', label: '代墊成員（若為代墊模式）', type: 'select', required: false, optionsSource: 'members', emptyText: '— 請選擇 —', hint: '僅在「代墊模式」時需要' },
+
+      { id: 'firstStartYear', label: '保單開始年份', type: 'number-plain', required: true, min: 2000, max: 2100, defaultValue: () => new Date().getFullYear() },
+      { id: 'firstStartMonth', label: '保單開始月份', type: 'select', required: true, optionsSource: 'months', defaultValue: '01' },
+      { id: 'totalPolicyYears', label: '總供款年期', type: 'number-plain', required: true, min: 1, max: 50, defaultValue: 5 },
+      { id: 'currentPeriodIndex', label: '當前第幾年度', type: 'number-plain', required: true, min: 1, max: 50, defaultValue: 1 },
+      { id: 'paymentType', label: '付款類型', type: 'select', required: true, optionsSource: 'insurancePaymentTypes' },
+      { id: 'account', label: '扣款帳戶（可選）', type: 'text', required: false, maxlength: 60 },
+      { id: 'monthlyPremium', label: '月供金額（HK$）', type: 'number', required: false, min: 0, step: 1, defaultValue: 0, hint: '💡 基金保險（投資型）填此欄；普通保險留空即可' },
+      { id: 'annualPremium', label: '當前年度年繳保費（HK$）', type: 'number', required: false, min: 0, step: 1, defaultValue: 0, hint: '💡 普通保險（住院 / 人壽 / 意外）填此欄' },
     ],
 
     ui: {
@@ -233,6 +179,7 @@ const ENTITY_DEFS = {
       const type = data.type || 'normal';
       const monthlyPremium = Number(data.monthlyPremium) || 0;
       const annualPremium = Number(data.annualPremium) || 0;
+      const paymentMode = data.paymentMode || 'direct';
 
       // 基金保險必須填月供
       if (type === 'fund_insurance' && monthlyPremium <= 0) {
@@ -242,11 +189,16 @@ const ENTITY_DEFS = {
       if (type === 'normal' && annualPremium <= 0) {
         return { field: 'annualPremium', message: '普通保險請填寫年繳保費（大於 0）' };
       }
+      // 代墊模式必須指定代墊成員
+      if (paymentMode === 'advance' && !data.advanceHolderId) {
+        return { field: 'advanceHolderId', message: '代墊模式需指定代墊成員' };
+      }
       return null;
     },
 
     fromForm: (data) => {
       const type = data.type || 'normal';
+      const paymentMode = data.paymentMode || 'direct';
       const startYear = Number(data.firstStartYear);
       const startMonth = String(data.firstStartMonth || '01').padStart(2, '0');
       const currentPeriod = Number(data.currentPeriodIndex);
@@ -271,6 +223,8 @@ const ENTITY_DEFS = {
         name: data.name,
         company: data.company || '',
         paymentType: data.paymentType || '年繳',
+        paymentMode,                                              // 🆕 v102.0.0
+        advanceHolderId: paymentMode === 'advance' ? (data.advanceHolderId || '') : '',  // 🆕 v102.0.0
         firstStartYear: startYear,
         firstStartMonth: startMonth,
         totalPolicyYears: totalYears,
@@ -278,8 +232,8 @@ const ENTITY_DEFS = {
         totalPremium: annualPremium * totalYears,
         currentPeriodIndex: currentPeriod,
         account: data.account || '',
-        monthlyPremium,   // 🆕 v101.10.0
-        annualPremium,    // 保留供 data-table 顯示
+        monthlyPremium,
+        annualPremium,
         periods,
       };
     },
@@ -290,6 +244,8 @@ const ENTITY_DEFS = {
         ...row,
         annualPremium: curPeriod ? curPeriod.annualPremium : (row.annualPremium || 0),
         monthlyPremium: row.monthlyPremium || 0,
+        paymentMode: row.paymentMode || 'direct',                 // 🆕 v102.0.0
+        advanceHolderId: row.advanceHolderId || '',               // 🆕 v102.0.0
       };
     },
   },
@@ -311,26 +267,11 @@ const ENTITY_DEFS = {
     },
 
     fields: [
-      {
-        id: 'name', label: '基金名稱', type: 'text',
-        required: true, maxlength: 60, placeholder: '例如：富達環球股票基金',
-      },
-      {
-        id: 'cost', label: '投入成本（HK$）', type: 'number',
-        required: true, min: 0, step: 1, defaultValue: 0,
-      },
-      {
-        id: 'currentValue', label: '現時價值（HK$）', type: 'number',
-        required: true, min: 0, step: 1, defaultValue: 0,
-      },
-      {
-        id: 'units', label: '持有單位數（可選）', type: 'number-plain',
-        required: false, min: 0, step: 0.0001, defaultValue: 0,
-      },
-      {
-        id: 'note', label: '備註（可選）', type: 'text',
-        required: false, maxlength: 60,
-      },
+      { id: 'name', label: '基金名稱', type: 'text', required: true, maxlength: 60, placeholder: '例如：富達環球股票基金' },
+      { id: 'cost', label: '投入成本（HK$）', type: 'number', required: true, min: 0, step: 1, defaultValue: 0 },
+      { id: 'currentValue', label: '現時價值（HK$）', type: 'number', required: true, min: 0, step: 1, defaultValue: 0 },
+      { id: 'units', label: '持有單位數（可選）', type: 'number-plain', required: false, min: 0, step: 0.0001, defaultValue: 0 },
+      { id: 'note', label: '備註（可選）', type: 'text', required: false, maxlength: 60 },
     ],
 
     ui: {
@@ -368,14 +309,8 @@ const ENTITY_DEFS = {
     },
 
     fields: [
-      {
-        id: 'name', label: '類別名稱', type: 'text',
-        required: true, maxlength: 20, placeholder: '例如：醫療類',
-      },
-      {
-        id: 'order', label: '排序', type: 'number-plain',
-        min: 0, defaultValue: 0,
-      },
+      { id: 'name', label: '類別名稱', type: 'text', required: true, maxlength: 20, placeholder: '例如：醫療類' },
+      { id: 'order', label: '排序', type: 'number-plain', min: 0, defaultValue: 0 },
     ],
 
     ui: {
@@ -421,14 +356,8 @@ const ENTITY_DEFS = {
     },
 
     fields: [
-      {
-        id: 'categoryId', label: '所屬類別', type: 'select',
-        required: true, optionsSource: 'categories',
-      },
-      {
-        id: 'name', label: '項目名稱', type: 'text',
-        required: true, maxlength: 30, placeholder: '例如：看病-濕疹',
-      },
+      { id: 'categoryId', label: '所屬類別', type: 'select', required: true, optionsSource: 'categories' },
+      { id: 'name', label: '項目名稱', type: 'text', required: true, maxlength: 30, placeholder: '例如：看病-濕疹' },
     ],
 
     ui: {
@@ -436,9 +365,7 @@ const ENTITY_DEFS = {
       cardFields: ['categoryId'],
       primaryColumn: 'name',
       searchFields: ['name'],
-      sortOptions: [
-        { value: 'name-asc', label: '名稱（A→Z）' },
-      ],
+      sortOptions: [{ value: 'name-asc', label: '名稱（A→Z）' }],
       defaultSort: 'name-asc',
       pageSize: LIMITS.DEFAULT_TABLE_PAGE_SIZE,
       canCreate: true,
@@ -465,14 +392,8 @@ const ENTITY_DEFS = {
     },
 
     fields: [
-      {
-        id: 'name', label: '支付方式名稱', type: 'text',
-        required: true, maxlength: 20, placeholder: '例如：現金、中銀',
-      },
-      {
-        id: 'order', label: '排序', type: 'number-plain',
-        min: 0, defaultValue: 0,
-      },
+      { id: 'name', label: '支付方式名稱', type: 'text', required: true, maxlength: 20, placeholder: '例如：現金、中銀' },
+      { id: 'order', label: '排序', type: 'number-plain', min: 0, defaultValue: 0 },
     ],
 
     ui: {
@@ -518,99 +439,4 @@ const ENTITY_DEFS = {
     },
 
     fields: [
-      {
-        id: 'name', label: '狀態名稱', type: 'text',
-        required: true, maxlength: 20, placeholder: '例如：未處理、已還款',
-      },
-      {
-        id: 'category', label: '所屬類別', type: 'select',
-        required: true, optionsSource: 'statusCategories',
-      },
-      {
-        id: 'isDone', label: '是否為「已完成」', type: 'select',
-        required: true, optionsSource: 'booleanOptions', defaultValue: 'false',
-      },
-      {
-        id: 'order', label: '排序', type: 'number-plain',
-        min: 0, defaultValue: 0,
-      },
-    ],
-
-    ui: {
-      listColumns: ['name', 'category', 'isDone', 'order'],
-      cardFields: ['category', 'isDone', 'order'],
-      primaryColumn: 'name',
-      searchFields: ['name'],
-      sortOptions: [
-        { value: 'order-asc',    label: '排序（小→大）' },
-        { value: 'category-asc', label: '類別' },
-      ],
-      defaultSort: 'order-asc',
-      pageSize: LIMITS.DEFAULT_TABLE_PAGE_SIZE,
-      canCreate: true,
-      canEdit: true,
-      canDelete: true,
-      deleteConfirmText: (row) => `確定要刪除狀態「${row.name}」嗎？`,
-    },
-
-    toForm: (row) => ({ ...row, isDone: row.isDone ? 'true' : 'false' }),
-    fromForm: (data) => ({ ...data, isDone: data.isDone === 'true' }),
-
-    validate: (data, allRows, currentId) => {
-      const name = (data.name || '').trim();
-      if (allRows && allRows.some(s => s.id !== currentId && s.name === name)) {
-        return { field: 'name', message: '此狀態名稱已存在' };
-      }
-      return null;
-    },
-  },
-};
-
-/* ============================================
-   對外 API
-   ============================================ */
-
-export function getEntityDef(entityKey) {
-  return ENTITY_DEFS[entityKey] || null;
-}
-
-export function getAllEntityKeys() {
-  return Object.keys(ENTITY_DEFS);
-}
-
-export function getAllEntityDefs() {
-  return { ...ENTITY_DEFS };
-}
-
-export function getEntityFields(entityKey) {
-  const def = getEntityDef(entityKey);
-  return def ? def.fields : [];
-}
-
-export function getEntityFormFields(entityKey) {
-  return getEntityFields(entityKey).filter((f) => f.type !== 'hidden');
-}
-
-export function getEntityUi(entityKey) {
-  const def = getEntityDef(entityKey);
-  return def ? def.ui : null;
-}
-
-export function resolveFieldDefault(field) {
-  if (field.defaultValue == null) return '';
-  if (typeof field.defaultValue === 'function') return field.defaultValue();
-  return field.defaultValue;
-}
-
-/* ============================================
-   內部工具
-   ============================================ */
-
-function _getPeriodRange(firstY, firstM, periodIndex) {
-  const startDate = new Date(Number(firstY), Number(firstM) - 1, 1);
-  startDate.setMonth(startDate.getMonth() + (periodIndex - 1) * 12);
-  return {
-    startY: startDate.getFullYear(),
-    startM: String(startDate.getMonth() + 1).padStart(2, '0'),
-  };
-}
+      { id: 'name', label: '狀態名稱', type: 'text', required: true, maxlength: 20, placeholder: '例如：未處理、已還款

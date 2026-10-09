@@ -1,13 +1,15 @@
 // ============================================
-// utils.js — 通用工具函式（v101.6.6）
+// utils.js — 通用工具函式（v102.0.0）
 // 位置：js/core/utils.js
 // ============================================
-// v101.6.6 修正：
-//   ✅ [BUG-11] 新增 formatCellValue（統一 data-table / data-card 的 cell 格式化）
-//   ✅ 保留所有 v101.6 函式
+// v102.0.0 新增：
+//   ✅ calculateBankBalance()（銀行餘額計算 SSOT）
+//   ✅ formatTransactionType() / formatTransactionCategory()
+//   ✅ getCategoryBadgeClass()
+//   ✅ 保留 v101.6.6 全部功能
 // ============================================
 
-import { LIMITS, RESERVED_IDS } from '../config/constants.js';
+import { LIMITS, RESERVED_IDS, BANK_TXN_TYPE_LABELS, BANK_TXN_CATEGORY_LABELS, BANK_TXN_CATEGORY_BADGES } from '../config/constants.js';
 
 /* ============================================
    金額格式化
@@ -44,12 +46,7 @@ export function formatPercent(value, digits = 2) {
 }
 
 /* ============================================
-   🆕 v101.6.6：統一的 cell 值格式化（SSOT）
-   -------------------------------------------------
-   用於 data-table.js / data-card.js 等通用渲染層
-   @param {*} val - 原始值
-   @param {string} type - field type（number / number-plain / date / select / text）
-   @returns {string} HTML 字串（已 escape）
+   統一的 cell 值格式化（SSOT）
    ============================================ */
 export function formatCellValue(val, type) {
   if (val == null || val === '') return '<span class="text-muted">—</span>';
@@ -66,6 +63,102 @@ export function formatCellValue(val, type) {
     default:
       return escapeHtml(String(val));
   }
+}
+
+/* ============================================
+   🆕 v102.0.0：銀行交易格式化
+   ============================================ */
+
+/**
+ * 格式化交易類型
+ */
+export function formatTransactionType(type) {
+  return BANK_TXN_TYPE_LABELS[type] || type || '未知';
+}
+
+/**
+ * 格式化交易分類
+ */
+export function formatTransactionCategory(category) {
+  return BANK_TXN_CATEGORY_LABELS[category] || category || '未分類';
+}
+
+/**
+ * 取得交易分類的 badge class
+ */
+export function getCategoryBadgeClass(category) {
+  return BANK_TXN_CATEGORY_BADGES[category] || 'badge-muted';
+}
+
+/**
+ * 🆕 v102.0.0：計算銀行餘額
+ *
+ * balance(bankId, targetYear, targetMonth)
+ *   = initialBalance
+ *   + Σ in transactions (from initialMonth+1 to targetMonth)
+ *   - Σ out transactions (from initialMonth+1 to targetMonth)
+ *   - Σ transfer transactions (from initialMonth+1 to targetMonth)
+ *
+ * @param {Object} bankAccount - { initialBalance, initialYear, initialMonth }
+ * @param {Array} transactions - [{ type, amount, date }]
+ * @param {string|number} targetYear
+ * @param {string|number} targetMonth
+ * @returns {number}
+ */
+export function calculateBankBalance(bankAccount, transactions, targetYear, targetMonth) {
+  if (!bankAccount) return 0;
+
+  const initial = Number(bankAccount.initialBalance) || 0;
+  const initY = Number(bankAccount.initialYear) || 0;
+  const initM = Number(bankAccount.initialMonth) || 0;
+
+  if (!initY || !initM) return initial;
+
+  const targetY = Number(targetYear);
+  const targetM = Number(targetMonth);
+
+  // 目標年月早於初始年月 → 只回傳初始值
+  if (targetY < initY || (targetY === initY && targetM < initM)) {
+    return initial;
+  }
+
+  let balance = initial;
+  (transactions || []).forEach((txn) => {
+    const date = txn.date || '';
+    if (!date || date.length < 7) return;
+
+    const [y, m] = date.split('-').map(Number);
+    // 只計算「初始年月之後」到「目標年月（含）」
+    const afterInit = y > initY || (y === initY && m > initM);
+    const beforeTarget = y < targetY || (y === targetY && m <= targetM);
+
+    if (!afterInit || !beforeTarget) return;
+
+    const amount = Number(txn.amount) || 0;
+
+    if (txn.type === 'in') {
+      balance += amount;
+    } else if (txn.type === 'out') {
+      balance -= amount;
+    } else if (txn.type === 'transfer') {
+      // transfer 為內部轉帳，對「單一銀行」而言視為 out（轉出）
+      balance -= amount;
+    }
+  });
+
+  return balance;
+}
+
+/**
+ * 🆕 v102.0.0：計算「家庭總餘額」（所有銀行加總）
+ */
+export function calculateTotalBankBalance(bankAccounts, allTransactions, targetYear, targetMonth) {
+  let total = 0;
+  (bankAccounts || []).forEach((acc) => {
+    const txns = (allTransactions || []).filter((t) => t.bankId === acc.id);
+    total += calculateBankBalance(acc, txns, targetYear, targetMonth);
+  });
+  return total;
 }
 
 /* ============================================

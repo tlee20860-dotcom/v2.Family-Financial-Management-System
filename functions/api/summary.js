@@ -1,11 +1,13 @@
 // ============================================
-// summary.js — GET /api/summary?familyId=...&year=YYYY&month=MM（v101.8.8）
+// summary.js — GET /api/summary（v102.0.0）
 // 位置：functions/api/summary.js
 // ============================================
-// v101.8.8 修正：
-//   ✅ 基金保險也檢查年度範圍（firstStartYear + totalPolicyYears）
-//       - 原本基金保險一律計算，不論年份 → 年度總供款不準
-//   ✅ 保留 v101.5 / v101.6 全部功能
+// v102.0.0 修正：
+//   ✅ 加入 bankAccounts / bankTransactions 統計
+//   ✅ 加入 householdContributions（家用轉入，即 income/）
+//   ✅ 加入 personalIncomeTotal（若為 owner）
+//   ✅ 移除 bankBalance 對舊 bank_balances/ 的依賴
+//   ✅ 保留 v101.8.8 全部功能
 // ============================================
 
 import { dbGet, jsonResponse } from './_config.js';
@@ -47,12 +49,13 @@ export async function onRequestGet({ request }) {
       fixed,
       categories,
       items,
-      bankBalances,
-      prevBankBalances,
       banks,
       paymentMethods,
       statuses,
       settingsOptions,
+      bankAccounts,
+      personalIncome,
+      memberAdvances,
     ] = await Promise.all([
       dbGet(`${basePath}/members`, token),
       dbGet(`${basePath}/insurance_policies`, token),
@@ -62,12 +65,13 @@ export async function onRequestGet({ request }) {
       year && month ? dbGet(`${basePath}/fixed_expenses/${year}/${month}`, token) : null,
       dbGet(`${basePath}/expense_categories`, token),
       dbGet(`${basePath}/expense_items`, token),
-      year && month ? dbGet(`${basePath}/bank_balances/${year}/${month}`, token) : null,
-      dbGet(`${basePath}/bank_balances/${prevY}/${prevMonthStr}`, token),
       dbGet(`${basePath}/banks`, token),
       dbGet(`${basePath}/payment_methods`, token),
       dbGet(`${basePath}/statuses`, token),
       dbGet(`${basePath}/settings/options`, token),
+      dbGet(`${basePath}/bank_accounts`, token),
+      dbGet(`${basePath}/personal_income`, token),
+      dbGet(`${basePath}/member_advances`, token),
     ]);
 
     const membersObj = members || {};
@@ -78,11 +82,10 @@ export async function onRequestGet({ request }) {
     const fixedObj = fixed || {};
     const categoriesObj = categories || {};
     const itemsObj = items || {};
-    const bankBalancesObj = bankBalances || {};
-    const prevBankBalancesObj = prevBankBalances || {};
     const banksObj = banks || {};
     const paymentsObj = paymentMethods || {};
     const statusesObj = statuses || {};
+    const bankAccountsObj = bankAccounts || {};
 
     const statusMap = {};
     Object.entries(statusesObj).forEach(([id, s]) => {
@@ -118,6 +121,8 @@ export async function onRequestGet({ request }) {
           policyId: e.policyId || '',
           paymentMethodId: pmId,
           paymentMethodName: paymentsObj[pmId]?.name || '',
+          bankId: e.bankId || '',                // 🆕 v102.0.0
+          txnId: e.txnId || '',                  // 🆕 v102.0.0
         };
       });
 
@@ -164,7 +169,7 @@ export async function onRequestGet({ request }) {
     totalExpense += fixedTotal;
 
     /* ============================================
-       收入匯總
+       收入匯總（🆕 v102.0.0：改為「家用轉入」）
        ============================================ */
     const incomeBreakdown = {};
     let totalIncome = 0;
@@ -177,7 +182,22 @@ export async function onRequestGet({ request }) {
     });
 
     /* ============================================
-       保險匯總（🆕 v101.8.8：基金保險也檢查年度）
+       🆕 v102.0.0：個人收入總和（僅 owner / superadmin 可見）
+       ============================================ */
+    const personalIncomeObj = personalIncome || {};
+    let personalIncomeTotal = 0;
+    const personalIncomeBreakdown = {};
+    Object.entries(personalIncomeObj).forEach(([memberId, yearData]) => {
+      const monthData = yearData?.[year] || {};
+      const sum = Object.values(monthData).reduce((s, v) => s + roundInt(v), 0);
+      if (sum > 0) {
+        personalIncomeBreakdown[memberId] = sum;
+        personalIncomeTotal += sum;
+      }
+    });
+
+    /* ============================================
+       保險匯總（支援基金保險 + 代墊模式）
        ============================================ */
     const policyList = Object.values(policiesObj);
     let yearlyInsuranceTotal = 0;
@@ -193,14 +213,12 @@ export async function onRequestGet({ request }) {
 
       if (!firstY) return;
 
-      // 統一年度檢查
       const totalMonths = (curY - firstY) * 12 + (curM - firstM);
-      if (totalMonths < 0) return;   // 尚未開始
+      if (totalMonths < 0) return;
 
       const periodIndex = Math.floor(totalMonths / 12) + 1;
-      if (totalYears > 0 && periodIndex > totalYears) return;   // 已供滿
+      if (totalYears > 0 && periodIndex > totalYears) return;
 
-      // 🆕 基金保險：monthlyPremium × 12
       if (p.type === 'fund_insurance') {
         const mp = roundInt(p.monthlyPremium);
         if (mp <= 0) return;
@@ -210,7 +228,6 @@ export async function onRequestGet({ request }) {
         return;
       }
 
-      // 普通保險：從 periods 讀取
       const periodData = (p.periods || {})[String(periodIndex)];
       if (periodData) {
         monthlyInsuranceAverage += roundInt(periodData.monthlyAverage);
@@ -244,20 +261,61 @@ export async function onRequestGet({ request }) {
     }
 
     /* ============================================
-       資產匯總
+       🆕 v102.0.0：銀行餘額計算（從 bank_accounts + transactions）
        ============================================ */
-    const bankBalanceTotal = Object.values(bankBalancesObj)
-      .reduce((s, b) => s + roundInt(b.amount), 0);
+    const bankAccountsList = Object.entries(bankAccountsObj).map(([id, acc]) => ({
+      id, ...acc,
+    }));
+
+    // 收集所有交易
+    const allTransactions = [];
+    Object.entries(bankAccountsObj).forEach(([bid, bankData]) => {
+      const txns = bankData.transactions || {};
+      Object.entries(txns).forEach(([txnId, txn]) => {
+        allTransactions.push({ id: txnId, bankId: bid, ...txn });
+      });
+    });
+
+    // 計算當前月份總餘額（簡化：使用初始餘額 + 交易）
+    const currentBankTotal = _calculateBankTotal(
+      bankAccountsList,
+      allTransactions,
+      year,
+      month
+    );
 
     const fundList = Object.values(fundsObj);
     const fundValue = fundList.reduce((s, f) => s + roundInt(f.currentValue), 0);
-    const totalAssets = bankBalanceTotal + fundValue;
+    const totalAssets = currentBankTotal + fundValue;
 
-    const prevBankTotal = Object.values(prevBankBalancesObj)
-      .reduce((s, b) => s + roundInt(b.amount), 0);
+    const prevBankTotal = _calculateBankTotal(
+      bankAccountsList,
+      allTransactions,
+      prevY,
+      prevMonthStr
+    );
     const availableFunds = prevBankTotal + totalIncome;
 
     const netBalance = totalIncome - totalExpense;
+
+    /* ============================================
+       🆕 v102.0.0：代墊統計
+       ============================================ */
+    const memberAdvancesObj = memberAdvances || {};
+    const advancesList = [];
+    let totalAdvanceRemaining = 0;
+    Object.entries(memberAdvancesObj).forEach(([memberId, advances]) => {
+      Object.entries(advances || {}).forEach(([advanceId, adv]) => {
+        const remaining = roundInt(adv.remainingAmount);
+        totalAdvanceRemaining += remaining;
+        advancesList.push({
+          id: advanceId,
+          memberId,
+          ...adv,
+          remainingAmount: remaining,
+        });
+      });
+    });
 
     return jsonResponse({
       ok: true,
@@ -268,18 +326,27 @@ export async function onRequestGet({ request }) {
       totalExpense: roundInt(totalExpense),
       netBalance: roundInt(netBalance),
 
+      // 🆕 v102.0.0
+      personalIncomeTotal: roundInt(personalIncomeTotal),
+      personalIncomeBreakdown,
+
       yearlyInsuranceTotal: roundInt(yearlyInsuranceTotal),
       monthlyInsuranceAverage: roundInt(monthlyInsuranceAverage),
       policyCount: activePolicyCount,
 
       totalAssets: roundInt(totalAssets),
-      bankBalance: roundInt(bankBalanceTotal),
+      bankBalance: roundInt(currentBankTotal),   // 🔄 從 bank_accounts 計算
+      bankAccounts: bankAccountsList,            // 🆕 v102.0.0
       fundValue: roundInt(fundValue),
       fundCount: fundList.length,
 
       prevBankTotal: roundInt(prevBankTotal),
       availableFunds: roundInt(availableFunds),
-      bankCount: Object.keys(banksObj).length,
+      bankCount: bankAccountsList.length,
+
+      // 🆕 v102.0.0
+      memberAdvances: advancesList,
+      totalAdvanceRemaining: roundInt(totalAdvanceRemaining),
 
       fixedTotal: roundInt(fixedTotal),
       fixedPendingTotal: roundInt(fixedPendingTotal),
@@ -301,4 +368,53 @@ export async function onRequestGet({ request }) {
 
 export async function onRequestOptions() {
   return handleOptions();
+}
+
+/* ============================================
+   內部工具：計算銀行總餘額
+   ============================================ */
+function _calculateBankTotal(bankAccounts, transactions, targetYear, targetMonth) {
+  if (!targetYear || !targetMonth) return 0;
+
+  const tY = Number(targetYear);
+  const tM = Number(targetMonth);
+  let total = 0;
+
+  bankAccounts.forEach((acc) => {
+    const init = Number(acc.initialBalance) || 0;
+    const initY = Number(acc.initialYear) || 0;
+    const initM = Number(acc.initialMonth) || 0;
+
+    if (!initY || !initM) {
+      total += init;
+      return;
+    }
+
+    // 目標早於初始
+    if (tY < initY || (tY === initY && tM < initM)) {
+      total += init;
+      return;
+    }
+
+    let balance = init;
+    transactions
+      .filter((t) => t.bankId === acc.id)
+      .forEach((txn) => {
+        const date = txn.date || '';
+        if (!date || date.length < 7) return;
+        const [y, m] = date.split('-').map(Number);
+        const afterInit = y > initY || (y === initY && m > initM);
+        const beforeTarget = y < tY || (y === tY && m <= tM);
+        if (!afterInit || !beforeTarget) return;
+
+        const amount = Number(txn.amount) || 0;
+        if (txn.type === 'in') balance += amount;
+        else if (txn.type === 'out') balance -= amount;
+        else if (txn.type === 'transfer') balance -= amount;
+      });
+
+    total += balance;
+  });
+
+  return total;
 }

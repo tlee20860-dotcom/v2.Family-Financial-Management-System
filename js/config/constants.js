@@ -1,18 +1,17 @@
 // ============================================
-// constants.js — 全站常數集中管理（v101.10.0）
+// constants.js — 全站常數集中管理（v102.0.0）
 // ============================================
-// v101.10.0 新增：
-//   ✅ APP_VERSION / SW_VERSION（版本同步）
-//   ✅ SESSION_KEYS（sessionStorage 快取 key 前綴）
-//   ✅ AUTH_CONTEXT_TTL_MS / APP_CONFIG_TTL_MS（快取 TTL）
-//   ✅ 保留 v101.7.2 全部功能
+// v102.0.0 修正：
+//   ✅ SIDEBAR_GROUPS：「財務總覽」→「銀行交易」
+//   ✅ 版本號：APP_VERSION / SW_VERSION
+//   ✅ 保留 v101.10.0 全部功能
 // ============================================
 
 /* ============================================
-   0. 版本號（v101.10.0 新增）
+   0. 版本號
    ============================================ */
-export const APP_VERSION = 'v101.10.0';
-export const SW_VERSION = 'family-fin-v131';
+export const APP_VERSION = 'v102.0.0';
+export const SW_VERSION = 'family-fin-v132';
 
 /* ============================================
    1. localStorage Keys
@@ -28,23 +27,23 @@ export const STORAGE_KEYS = {
   SIDEBAR_GROUPS: 'fin_ui_sidebar_groups',
   MEMBERS_GROUP_OPEN: 'fin_ui_members_group_open',
 
-  // 統計卡顯示模式（auto / integrated / compact）
   STATS_MODE: 'fin_ui_stats_mode',
 
   UI_PREFIX: 'fin_ui_',
 };
 
 /* ============================================
-   2. sessionStorage Keys（v101.10.0 新增）
+   2. sessionStorage Keys
    ============================================ */
 export const SESSION_KEYS = {
   AUTH_CONTEXT_PREFIX: 'fin_auth_context_',
   APP_CONFIG_PREFIX: 'fin_app_config_cache_',
+  BANK_CACHE_PREFIX: 'fin_bank_cache_',
 };
 
-// 快取 TTL
-export const AUTH_CONTEXT_TTL_MS = 5 * 60 * 1000;   // 5 分鐘
-export const APP_CONFIG_TTL_MS = 5 * 60 * 1000;     // 5 分鐘
+export const AUTH_CONTEXT_TTL_MS = 5 * 60 * 1000;
+export const APP_CONFIG_TTL_MS = 5 * 60 * 1000;
+export const BANK_CACHE_TTL_MS = 2 * 60 * 1000;
 
 /* ============================================
    3. 數值限制
@@ -85,7 +84,75 @@ export function isLinkedKey(key) {
 }
 
 /* ============================================
-   6. 平台資源對照表
+   6. 銀行交易類型
+   ============================================ */
+export const BANK_TXN_TYPES = {
+  IN: 'in',
+  OUT: 'out',
+  TRANSFER: 'transfer',
+};
+
+export const BANK_TXN_TYPE_LABELS = {
+  in: '入帳',
+  out: '出帳',
+  transfer: '內部轉帳',
+};
+
+/* ============================================
+   7. 銀行交易分類
+   ============================================ */
+export const BANK_TXN_CATEGORIES = {
+  CONTRIBUTION: 'contribution',
+  EXPENSE: 'expense',
+  INSURANCE: 'insurance',
+  REIMBURSEMENT: 'reimbursement',
+  MANUAL: 'manual',
+};
+
+export const BANK_TXN_CATEGORY_LABELS = {
+  contribution: '家用轉入',
+  expense: '支出',
+  insurance: '保險',
+  reimbursement: '代墊報銷',
+  manual: '手動',
+};
+
+export const BANK_TXN_CATEGORY_BADGES = {
+  contribution: 'badge-success',
+  expense: 'badge-pending',
+  insurance: 'badge-magenta',
+  reimbursement: 'badge-info',
+  manual: 'badge-muted',
+};
+
+/* ============================================
+   8. 銀行帳號類型
+   ============================================ */
+export const BANK_ACCOUNT_TYPES = {
+  FAMILY: 'family',
+  PERSONAL: 'personal',
+};
+
+export const BANK_ACCOUNT_TYPE_LABELS = {
+  family: '家庭帳號',
+  personal: '個人帳號',
+};
+
+/* ============================================
+   9. 保單付款模式
+   ============================================ */
+export const PAYMENT_MODES = {
+  DIRECT: 'direct',
+  ADVANCE: 'advance',
+};
+
+export const PAYMENT_MODE_LABELS = {
+  direct: '直接付款',
+  advance: '代墊模式',
+};
+
+/* ============================================
+   10. 平台資源對照表
    ============================================ */
 export const PLATFORM_RESOURCES = {
   members:     { path: 'members',             type: 'list' },
@@ -101,7 +168,7 @@ export const PLATFORM_RESOURCES = {
 };
 
 /* ============================================
-   7. 實體識別碼
+   11. 實體識別碼
    ============================================ */
 export const ENTITY_KEYS = {
   MEMBER:   'member',
@@ -115,7 +182,7 @@ export const ENTITY_KEYS = {
 };
 
 /* ============================================
-   8. 狀態 badge class 對照
+   12. 狀態 badge class 對照
    ============================================ */
 export const STATUS_BADGE_CLASS = {
   done:    'badge-success',
@@ -130,7 +197,7 @@ export function getStatusBadgeClass(isDone, isSkipped = false) {
 }
 
 /* ============================================
-   9. policyHolderId fallback 規則
+   13. policyHolderId fallback 規則
    ============================================ */
 export const POLICY_HOLDER_FALLBACK = {
   primary: 'policyHolderId',
@@ -143,7 +210,7 @@ export function getPolicyEffectiveMemberId(policy) {
 }
 
 /* ============================================
-   10. 表格欄位設定前綴
+   14. 表格欄位設定前綴
    ============================================ */
 export const COLUMN_SETTINGS_PREFIX = 'fin_ui_columns_';
 
@@ -152,30 +219,28 @@ export function buildColumnSettingsKey(tableId) {
 }
 
 /* ============================================
-   11. 帳號網域
+   15. 帳號網域
    ============================================ */
 export const SUPERADMIN_DOMAIN = '@familyfin.local';
 export const SUPERADMIN_EMAIL = `superadmin${SUPERADMIN_DOMAIN}`;
 
 /* ============================================
-   12. 預設狀態清單
+   16. 預設狀態清單
    ============================================ */
 export const DEFAULT_STATUSES = [
   { key: 'status_untreated', name: '未處理', category: 'personal',  isDone: false, order: 1 },
   { key: 'status_done',      name: '已處理', category: 'personal',  isDone: true,  order: 2 },
   { key: 'status_unrepaid',  name: '未還款', category: 'personal',  isDone: false, order: 3 },
   { key: 'status_repaid',    name: '已還款', category: 'personal',  isDone: true,  order: 4 },
-  // legacy
   { key: 'status_unpaid',    name: '未付款', category: 'fixed',     isDone: false, order: 5 },
   { key: 'status_paid',      name: '已付款', category: 'fixed',     isDone: true,  order: 6 },
   { key: 'status_na',        name: '不適用', category: 'fixed',     isDone: true,  order: 7 },
-  // insurance
   { key: 'status_unbilled',  name: '未扣款', category: 'insurance', isDone: false, order: 8 },
   { key: 'status_billed',    name: '已扣款', category: 'insurance', isDone: true,  order: 9 },
 ];
 
 /* ============================================
-   13. 預設下拉選項
+   17. 預設下拉選項
    ============================================ */
 export const DEFAULT_OPTIONS = {
   memberRoles: [
@@ -199,6 +264,10 @@ export const DEFAULT_OPTIONS = {
     { value: '年繳',     label: '年繳' },
     { value: '月繳',     label: '月繳' },
     { value: '一次付款', label: '一次付款' },
+  ],
+  paymentModes: [
+    { value: 'direct',  label: '直接付款（家庭帳號扣款）' },
+    { value: 'advance', label: '代墊模式（成員墊付，家庭月攤）' },
   ],
   categoryOrder: ['銀行類', '醫療類', '學校類', '保險類', '固定費用類', '交通類', '其他'],
 };
@@ -261,7 +330,7 @@ export const DEFAULT_PAYMENTS = [
 ];
 
 /* ============================================
-   14. 側邊欄分類群組
+   18. 側邊欄分類群組（🔄 v102.0.0：財務總覽 → 銀行交易）
    ============================================ */
 export const SIDEBAR_GROUPS = [
   { key: 'overview', label: '總覽', icon: 'home', defaultOpen: true,
@@ -278,8 +347,9 @@ export const SIDEBAR_GROUPS = [
     ] },
   { key: 'settle', label: '對帳', icon: 'clipboard-check', defaultOpen: false,
     items: [{ icon: 'clipboard-check', label: '結算清單', href: 'settlements.html' }] },
+  // 🆕 v102.0.0：資產群組改名為「銀行交易」
   { key: 'assets', label: '資產', icon: 'landmark', defaultOpen: false,
-    items: [{ icon: 'landmark', label: '財務總覽', href: 'finance-overview.html' }] },
+    items: [{ icon: 'landmark', label: '銀行交易', href: 'finance-overview.html' }] },
   { key: 'reports', label: '報表', icon: 'bar-chart-3', defaultOpen: false,
     items: [
       { icon: 'bar-chart-3', label: '年度報表', href: 'annual-report.html' },
@@ -290,7 +360,7 @@ export const SIDEBAR_GROUPS = [
 ];
 
 /* ============================================
-   15. 快速摘要卡類型
+   19. 快速摘要卡類型
    ============================================ */
 export const QUICK_SUMMARY_TYPES = {
   TOP_CATEGORIES: 'top-categories',
@@ -301,10 +371,10 @@ export const QUICK_SUMMARY_TYPES = {
 };
 
 /* ============================================
-   16. 狀態分類
+   20. 狀態分類
    ============================================ */
 export const STATUS_CATEGORIES = {
   PERSONAL: 'personal',
-  FIXED: 'fixed',        // ⚠️ legacy
+  FIXED: 'fixed',
   INSURANCE: 'insurance',
 };

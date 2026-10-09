@@ -1,14 +1,15 @@
 // ============================================
-// insurance-sync.js — POST /api/insurance-sync（v101.5）
+// insurance-sync.js — POST /api/insurance-sync（v102.0.0）
 // 位置：functions/api/insurance-sync.js
 // ============================================
-// v101.5 修正：
-//   ✅ linked_ 前綴改用 buildLinkedKey（與前端 db.js 對齊）
-//   ✅ memberId 支援 policyHolderId fallback
-//   ✅ _findDoneStatus 找不到時回傳 statuses 中第一個 isDone
+// v102.0.0 修正：
+//   ✅ 支援 bankId / txnId（保險扣款關聯銀行）
+//   ✅ 支援 paymentMode（direct / advance）
+//   ✅ 支援 advanceId（代墊模式）
+//   ✅ 保留 v101.5 全部功能
 // ============================================
 
-import { dbGet, dbPut, dbDelete } from './_config.js';
+import { dbGet, dbPut, dbDelete, dbPush } from './_config.js';
 import {
   authenticate,
   errorResponse,
@@ -35,6 +36,10 @@ export async function onRequestPost({ request }) {
       month,
       expenseStatusName,
       paymentStatusName,
+      bankId,           // 🆕 v102.0.0
+      txnId,            // 🆕 v102.0.0
+      paymentMode,      // 🆕 v102.0.0
+      advanceHolderId,  // 🆕 v102.0.0
     } = body || {};
 
     const missing = requireFields(body, ['familyId', 'policyId', 'memberId', 'year', 'month']);
@@ -46,7 +51,6 @@ export async function onRequestPost({ request }) {
 
     const basePath = `families/${familyId}`;
 
-    // 🆕 v101.5：使用 buildLinkedKey
     const linkedKey = buildLinkedKey(policyId);
     const expensePath = `${basePath}/expenses/${year}/${month}/member_expenses/${memberId}/${linkedKey}`;
     const paymentPath = `${basePath}/insurance_payments/${policyId}/${year}/${month}`;
@@ -76,7 +80,9 @@ export async function onRequestPost({ request }) {
 
     const amount = roundInt(monthlyAverage);
 
-    /* 寫入成員支出（保險平攤） */
+    /* ============================================
+       寫入成員支出（保險平攤）
+       ============================================ */
     const expense = {
       name: `${policyName} (平攤)`,
       amount,
@@ -85,18 +91,51 @@ export async function onRequestPost({ request }) {
       categoryId: firstCategoryId,
       itemId: '',
       paymentMethodId: '',
+      bankId: bankId || '',          // 🆕 v102.0.0
+      txnId: txnId || '',            // 🆕 v102.0.0
       isAutoLinked: true,
       policyId,
       createdAt: Date.now(),
     };
     const expenseOk = await dbPut(expensePath, expense, token);
 
-    /* 寫入保險付款紀錄 */
-    const paymentOk = await dbPut(paymentPath, {
+    /* ============================================
+       寫入保險付款紀錄
+       ============================================ */
+    const paymentRecord = {
       status: resolvedPaymentStatus,
       amount,
       date: new Date().toISOString().slice(0, 10),
-    }, token);
+      bankId: bankId || '',          // 🆕 v102.0.0
+      txnId: txnId || '',            // 🆕 v102.0.0
+      paymentMode: paymentMode || 'direct',   // 🆕 v102.0.0
+    };
+    const paymentOk = await dbPut(paymentPath, paymentRecord, token);
+
+    /* ============================================
+       🆕 v102.0.0：若為代墊模式，更新 member_advances
+       ============================================ */
+    if (paymentMode === 'advance' && advanceHolderId) {
+      try {
+        // 查找該 member 下對應 policyId 的代墊記錄
+        const advances = await dbGet(`${basePath}/member_advances/${advanceHolderId}`, token);
+        if (advances) {
+          for (const [advanceId, adv] of Object.entries(advances)) {
+            if (adv.policyId === policyId) {
+              const newRemaining = Math.max(0, roundInt(adv.remainingAmount) - amount);
+              await dbPut(`${basePath}/member_advances/${advanceHolderId}/${advanceId}`, {
+                ...adv,
+                remainingAmount: newRemaining,
+                updatedAt: Date.now(),
+              }, token);
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[insurance-sync] 更新代墊記錄失敗：', e);
+      }
+    }
 
     if (!expenseOk && !paymentOk) {
       return errorResponse('INTERNAL', '寫入失敗，請檢查 Firebase 規則');
@@ -107,6 +146,7 @@ export async function onRequestPost({ request }) {
       expenseStatus: resolvedExpenseStatus,
       paymentStatus: resolvedPaymentStatus,
       categoryId: firstCategoryId,
+      paymentMode: paymentMode || 'direct',
     });
   } catch (err) {
     return handleError(err);
@@ -121,9 +161,6 @@ export async function onRequestOptions() {
    內部工具
    ============================================ */
 
-/**
- * 從類別清單中取得「第一個類別」的 ID
- */
 function _getFirstCategoryId(categories) {
   const list = Object.entries(categories || {})
     .map(([id, c]) => ({ id, ...c }))
@@ -132,10 +169,6 @@ function _getFirstCategoryId(categories) {
   return list.length > 0 ? list[0].id : '';
 }
 
-/**
- * 🆕 v101.5：從狀態清單找出指定類別的「已完成」狀態名稱
- * 若找不到，回傳 statuses 中第一個 isDone 的狀態
- */
 function _findDoneStatus(statuses, category) {
   const list = Object.entries(statuses)
     .map(([id, s]) => ({ id, ...s }))
@@ -144,7 +177,6 @@ function _findDoneStatus(statuses, category) {
 
   if (list.length > 0) return list[0].name;
 
-  // 🆕 v101.5：若該類別找不到，回傳全域第一個 isDone
   const anyDone = Object.entries(statuses)
     .map(([id, s]) => ({ id, ...s }))
     .filter((s) => s.isDone)

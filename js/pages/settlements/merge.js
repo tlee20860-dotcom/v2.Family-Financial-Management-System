@@ -1,12 +1,10 @@
 // ============================================
-// merge.js — 結算資料合併邏輯（v101.8.6）
+// merge.js — 結算資料合併邏輯（v102.0.0）
 // 位置：js/pages/settlements/merge.js
 // ============================================
-// v101.8.6 修正：
-//   ✅ [一致性] 保險平攤以 linked_xxx 為主
-//       - 確保與總覽儀表板的支出金額一致
-//       - 孤兒 linked_xxx 仍正確顯示
-//   ✅ 保留 v101.6.11 全部功能
+// v102.0.0 修正：
+//   ✅ 合併 bankId / txnId / paymentMode / advanceHolderId
+//   ✅ 保留 v101.8.6 全部功能（以 linked 為主）
 // ============================================
 
 import { getStatusesByCategory } from '../../config/app-config.js';
@@ -15,7 +13,6 @@ import { RESERVED_IDS } from '../../config/constants.js';
 /* ============================================
    主函式
    ============================================ */
-
 export function mergeSettlementData({
   memberExpenses = [],
   insuranceRows = [],
@@ -31,7 +28,7 @@ export function mergeSettlementData({
       rows.push(_buildPersonalRow(e, year, month));
     });
 
-  // 2. 🆕 保險平攤（linked_xxx）：建立 policyId → linked expense 對照
+  // 2. linked_xxx 對照
   const linkedMap = {};
   memberExpenses
     .filter((e) => e.isAutoLinked)
@@ -41,7 +38,7 @@ export function mergeSettlementData({
       linkedMap[policyId] = e;
     });
 
-  // 3. 🆕 合併 linked_xxx + insuranceRows（以 linked 為主）
+  // 3. 合併 linked_xxx + insuranceRows
   const allPolicyIds = new Set([
     ...Object.keys(linkedMap),
     ...insuranceRows.map((p) => p.policyId),
@@ -52,10 +49,8 @@ export function mergeSettlementData({
     const insuranceRow = insuranceRows.find((p) => p.policyId === policyId);
 
     if (linked) {
-      // 🆕 優先使用 linked_xxx（與總覽一致）
       rows.push(_buildLinkedInsuranceRow(linked, insuranceRow, year, month, policyId));
     } else if (insuranceRow) {
-      // 只有 insuranceRow（未扣款，或 linked 尚未產生）
       rows.push(_buildInsuranceRow(insuranceRow, year, month));
     }
   });
@@ -64,7 +59,7 @@ export function mergeSettlementData({
 }
 
 /* ============================================
-   建立 Row：個人支出（含家庭共用）
+   個人支出
    ============================================ */
 function _buildPersonalRow(e, year, month) {
   const isShared = e.memberId === RESERVED_IDS.SHARED_MEMBER;
@@ -84,6 +79,8 @@ function _buildPersonalRow(e, year, month) {
     categoryId: e.categoryId || '',
     itemId: e.itemId || '',
     paymentMethodId: e.paymentMethodId || '',
+    bankId: e.bankId || '',                 // 🆕 v102.0.0
+    txnId: e.txnId || '',                   // 🆕 v102.0.0
     isAutoLinked: false,
     _ref: {
       memberId: e.memberId,
@@ -93,11 +90,9 @@ function _buildPersonalRow(e, year, month) {
 }
 
 /* ============================================
-   🆕 v101.8.6：建立 Row：保險平攤（以 linked 為主）
+   保險平攤（以 linked 為主）
    ============================================ */
 function _buildLinkedInsuranceRow(linked, insuranceRow, year, month, policyId) {
-  // 從 linked 讀取金額 / 狀態 / 日期
-  // 從 insuranceRow 讀取 policyName / memberId（若存在）
   const effectiveMemberId = insuranceRow?.policyHolderId
     || insuranceRow?.memberId
     || linked.memberId
@@ -113,22 +108,26 @@ function _buildLinkedInsuranceRow(linked, insuranceRow, year, month, policyId) {
     month,
     memberId: effectiveMemberId,
     name: insuranceRow?.policyName || linked.name || '（未命名保單）',
-    amount: Number(linked.amount) || 0,   // 🆕 以 linked amount 為主
+    amount: Number(linked.amount) || 0,
     status,
     isDone: _isDoneStatus(status, 'insurance'),
     date: linked.date || insuranceRow?.date || '',
     categoryId: linked.categoryId || '',
+    bankId: linked.bankId || insuranceRow?.bankId || '',           // 🆕 v102.0.0
+    txnId: linked.txnId || insuranceRow?.txnId || '',              // 🆕 v102.0.0
+    paymentMode: insuranceRow?.paymentMode || 'direct',            // 🆕 v102.0.0
+    advanceHolderId: insuranceRow?.advanceHolderId || '',          // 🆕 v102.0.0
     isAutoLinked: true,
     _ref: {
       policyId,
       memberId: effectiveMemberId,
-      linkedId: linked.id,   // 🆕 保存 linked 的 id（供更新 / 刪除使用）
+      linkedId: linked.id,
     },
   };
 }
 
 /* ============================================
-   建立 Row：保險扣款（無 linked_xxx 時使用）
+   保險（無 linked_xxx 時）
    ============================================ */
 function _buildInsuranceRow(p, year, month) {
   const effectiveMemberId = p.policyHolderId || p.memberId || '';
@@ -147,17 +146,20 @@ function _buildInsuranceRow(p, year, month) {
     isDone: _isDoneStatus(p.status, 'insurance'),
     date: p.date || '',
     categoryId: '',
+    bankId: p.bankId || '',                        // 🆕 v102.0.0
+    txnId: p.txnId || '',                          // 🆕 v102.0.0
+    paymentMode: p.paymentMode || 'direct',        // 🆕 v102.0.0
+    advanceHolderId: p.advanceHolderId || '',      // 🆕 v102.0.0
     isAutoLinked: false,
     _ref: {
       policyId: p.policyId,
       memberId: effectiveMemberId,
-      // ⚠️ 無 linkedId（可能為未扣款）
     },
   };
 }
 
 /* ============================================
-   🆕 v101.8.6：從 linked_{policyId} 提取 policyId
+   內部工具
    ============================================ */
 function _extractPolicyId(id) {
   if (!id || typeof id !== 'string') return '';
@@ -165,9 +167,6 @@ function _extractPolicyId(id) {
   return '';
 }
 
-/* ============================================
-   判斷是否「已完成」
-   ============================================ */
 function _isDoneStatus(statusName, category) {
   if (!statusName) return false;
 

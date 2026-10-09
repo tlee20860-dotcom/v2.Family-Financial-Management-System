@@ -1,13 +1,10 @@
 // ============================================
-// navbar.js — 頂部導覽列（v101.10.0）
+// navbar.js — 頂部導覽列（v102.0.0）
 // 位置：js/shared/navbar.js
 // ============================================
-// v101.10.0 修正：
-//   ✅ [P3-12] _renderYearMonth 的 change 監聽器保存供 destroy 清理
-//       - 改用 event delegation（一個監聽器，非每個 select 一個）
-//       - 加入 module 變數 _yearMonthChangeHandler
-//       - destroyNavbar 統一移除
-//   ✅ 保留 v101.9.0 全部功能（年月選擇器 / SHOW_YEAR_MONTH_PAGES）
+// v102.0.0 修正：
+//   ✅ SHOW_YEAR_MONTH_PAGES 更新（保留既有頁面，不變）
+//   ✅ 保留 v101.10.0 全部功能
 // ============================================
 
 import { AppState } from '../core/state.js';
@@ -22,18 +19,20 @@ let _unsubscribeFamilyChange = null;
 let _unsubscribeMemberAccountChange = null;
 let _unsubscribeYMChange = null;
 let _currentActiveHref = '';
-
-// 🆕 v101.10.0：保存年月選擇器的 change 監聽器
 let _yearMonthChangeHandler = null;
 
 /* ============================================
    顯示年月選擇器的頁面
+   -------------------------------------------------
+   ⚠️ v102.0.0 注意：
+   - 財務總覽已改名為「銀行交易」（finance-overview.html）
+   - 頁面 href 未變，故無需修改 SHOW_YEAR_MONTH_PAGES
    ============================================ */
 const SHOW_YEAR_MONTH_PAGES = [
   'insurance.html',
   'portfolio.html',
   'settlements.html',
-  'finance-overview.html',
+  'finance-overview.html',   // 🔄 顯示為「銀行交易」，href 不變
   'member-report.html',
 ];
 
@@ -55,7 +54,6 @@ export function renderNavbar(containerId = 'navbar-root', title = '', activeHref
        </a>`
     : '';
 
-  // 判斷是否顯示年月選擇器
   const showYearMonth = SHOW_YEAR_MONTH_PAGES.includes(activeHref);
   const yearMonthHtml = showYearMonth ? `<div id="navbar-year-month" class="navbar-year-month"></div>` : '';
 
@@ -82,7 +80,7 @@ export function renderNavbar(containerId = 'navbar-root', title = '', activeHref
 }
 
 /* ============================================
-   年月選擇器（v101.10.0：改 event delegation）
+   年月選擇器
    ============================================ */
 function _renderYearMonth() {
   const box = document.getElementById('navbar-year-month');
@@ -91,14 +89,12 @@ function _renderYearMonth() {
   const { year, month } = AppState.getYearMonth();
   const years = getYearList();
 
-  // 年份選項
   let yearOpts = '';
   years.forEach((y) => {
     const sel = String(y) === String(year) ? 'selected' : '';
     yearOpts += `<option value="${y}" ${sel}>${y} 年</option>`;
   });
 
-  // 月份選項（含「全部」）
   let monthOpts = `<option value="all" ${month === 'all' ? 'selected' : ''}>全部</option>`;
   for (let m = 1; m <= 12; m++) {
     const mm = String(m).padStart(2, '0');
@@ -115,8 +111,6 @@ function _renderYearMonth() {
     </select>
   `;
 
-  // 🆕 v101.10.0：改用 event delegation
-  // 先移除舊監聽器（避免重複）
   if (_yearMonthChangeHandler) {
     box.removeEventListener('change', _yearMonthChangeHandler);
   }
@@ -182,7 +176,6 @@ function _renderUserInfo() {
    ============================================ */
 function _bindGlobalEvents() {
   document.addEventListener('click', (e) => {
-    /* ---------- 1. 漢堡按鈕 ---------- */
     if (e.target.closest('#hamburger-btn')) {
       e.preventDefault();
       e.stopPropagation();
@@ -190,13 +183,11 @@ function _bindGlobalEvents() {
       return;
     }
 
-    /* ---------- 2. 點 backdrop ---------- */
     if (e.target.classList.contains('sidebar-backdrop')) {
       _closeMobileSidebar();
       return;
     }
 
-    /* ---------- 3. 點 sidebar 內部連結 ---------- */
     const navLink = e.target.closest('.sidebar .nav-item');
     if (navLink) {
       if (window.innerWidth < 640) {
@@ -205,14 +196,12 @@ function _bindGlobalEvents() {
       return;
     }
 
-    /* ---------- 4. 點 sidebar 群組標題 ---------- */
     const groupToggle = e.target.closest('[data-group-toggle]');
     if (groupToggle) {
       return;
     }
   });
 
-  /* ---------- 監聽使用者變更 ---------- */
   if (_unsubscribeUserChange) { try { _unsubscribeUserChange(); } catch (err) { /* noop */ } }
   _unsubscribeUserChange = AppState.on('user-change', () => _renderUserInfo());
 
@@ -222,7 +211,6 @@ function _bindGlobalEvents() {
   if (_unsubscribeMemberAccountChange) { try { _unsubscribeMemberAccountChange(); } catch (err) { /* noop */ } }
   _unsubscribeMemberAccountChange = AppState.on('member-account-change', () => _renderUserInfo());
 
-  /* ---------- 監聽年月變更 ---------- */
   if (_unsubscribeYMChange) { try { _unsubscribeYMChange(); } catch (err) { /* noop */ } }
   _unsubscribeYMChange = AppState.on('ym-change', () => {
     if (!SHOW_YEAR_MONTH_PAGES.includes(_currentActiveHref)) return;
@@ -298,7 +286,6 @@ export function destroyNavbar() {
   if (_unsubscribeMemberAccountChange) { try { _unsubscribeMemberAccountChange(); } catch (err) { /* noop */ } _unsubscribeMemberAccountChange = null; }
   if (_unsubscribeYMChange) { try { _unsubscribeYMChange(); } catch (err) { /* noop */ } _unsubscribeYMChange = null; }
 
-  // 🆕 v101.10.0：清理年月選擇器的 change 監聽器
   if (_yearMonthChangeHandler) {
     const box = document.getElementById('navbar-year-month');
     if (box) {

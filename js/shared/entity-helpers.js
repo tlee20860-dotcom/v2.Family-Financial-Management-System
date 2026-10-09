@@ -1,14 +1,11 @@
 // ============================================
-// entity-helpers.js — 通用實體 CRUD 輔助（v101.6）
+// entity-helpers.js — 通用實體 CRUD 輔助（v102.0.0）
 // 位置：js/shared/entity-helpers.js
 // ============================================
-// v101.6 修正：
-//   ✅ 移除 fixedTemplate 相關處理
-//   ✅ listenEntity 支援 member / bank / category / item / payment / status / policy / fund
-//   ✅ getDynamicOptions 移除「cycles」（固定支出廢除）
-//   ✅ deleteEntity 支援 policy 的 memberId 參數
-//
-// API 凍結：v101.6 發布後只加不改
+// v102.0.0 修正：
+//   ✅ getDynamicOptions 新增 'paymentModes'
+//   ✅ 新增 'bankAccounts'（動態選項來源）
+//   ✅ 保留 v101.6 全部功能
 // ============================================
 
 import {
@@ -19,6 +16,7 @@ import {
   listenPaymentMethods,
   listenCategories, listenItems,
   listenStatuses,
+  listenBankAccounts,                          // 🆕 v102.0.0
   updateEntityStatus as dbUpdateEntityStatus,
 } from '../core/db.js';
 
@@ -130,6 +128,14 @@ export async function getDynamicOptions(source, context = {}) {
           .map((b) => ({ value: b.id, label: b.name }));
       }
 
+      // 🆕 v102.0.0：銀行帳號（用於支出 / 保險出帳選擇）
+      case 'bankAccounts': {
+        const list = await _getOnce('bank_accounts');
+        return list
+          .sort((a, b) => (a.order || 0) - (b.order || 0))
+          .map((b) => ({ value: b.id, label: b.name }));
+      }
+
       case 'statuses:personal':
         return _statusOptions('personal');
       case 'statuses:fixed':
@@ -143,6 +149,8 @@ export async function getDynamicOptions(source, context = {}) {
         return getOptions('policyTypes');
       case 'insurancePaymentTypes':
         return getOptions('insurancePaymentTypes');
+      case 'paymentModes':                          // 🆕 v102.0.0
+        return getOptions('paymentModes');
       case 'categoryOrder':
         return getOptions('categoryOrder');
 
@@ -265,13 +273,9 @@ export function getFieldDefaults(entityKey) {
 }
 
 /* ============================================
-   6. 監聽輔助（統一入口）
+   6. 監聽輔助
    ============================================ */
 
-/**
- * 監聽實體清單（依 entityKey 自動選擇 listener）
- * 支援：member / bank / category / item / payment / status / policy / fund / company
- */
 export function listenEntity(entityKey, cb, err) {
   switch (entityKey) {
     case 'member':   return listenMembers(cb, err);
@@ -283,6 +287,7 @@ export function listenEntity(entityKey, cb, err) {
     case 'company':  return listenInsuranceCompanies(cb, err);
     case 'policy':   return listenInsurancePolicies(cb, err);
     case 'fund':     return listenFunds(cb, err);
+    case 'bankAccount': return listenBankAccounts(cb, err);   // 🆕 v102.0.0
     default:
       console.warn(`[entity-helpers] listenEntity 不支援：${entityKey}`);
       return () => {};
@@ -290,7 +295,7 @@ export function listenEntity(entityKey, cb, err) {
 }
 
 /* ============================================
-   7. 便利函式：取得保單清單
+   7. 便利函式
    ============================================ */
 
 export async function getPoliciesOnce() {

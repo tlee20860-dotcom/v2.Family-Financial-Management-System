@@ -1,10 +1,11 @@
 // ============================================
-// settings.js — 系統設定（v101.8.4）
+// settings.js — 系統設定（v102.0.0）
 // 位置：js/pages/settings.js
 // ============================================
-// v101.8.4 新增：
-//   ✅ 「家庭成員」區塊（唯讀顯示當前家庭成員帳號）
-//   ✅ _renderFamilyMembers 函式
+// v102.0.0 新增：
+//   ✅ 「銀行帳號管理」Tab（整合 initBankAccountManager）
+//   ✅ Tab 順序：平台設定 / 銀行帳號 / 個人化
+//   ✅ 保留 v101.8.4 家庭成員區塊
 // ============================================
 
 import { showToast } from '../shared/toast.js';
@@ -18,6 +19,7 @@ import { initTabPanel } from '../shared/tab-panel.js';
 import { openConfirm } from '../shared/modal.js';
 import { registerPageCleanup } from '../core/app.js';
 import { STORAGE_KEYS } from '../config/constants.js';
+import { initBankAccountManager } from '../shared/bank-account-manager.js';   // 🆕 v102.0.0
 
 /* ============================================
    Module 狀態
@@ -27,12 +29,14 @@ let _uiFormApi = null;
 let _logoutHandler = null;
 let _saveStatsModeHandler = null;
 let _familyMembersData = [];
+let _bankManagerInstance = null;      // 🆕 v102.0.0
 
 /* ============================================
    主入口
    ============================================ */
 export function initSettingsPage() {
   const isSuper = AppState.isSuperAdmin;
+  const canInput = AppState.getCanInput();
 
   const tabs = [];
   if (isSuper) {
@@ -43,6 +47,13 @@ export function initSettingsPage() {
       panelId: 'settings-panel-platform',
     });
   }
+  // 🆕 v102.0.0：銀行帳號管理
+  tabs.push({
+    key: 'banks',
+    label: '銀行帳號',
+    icon: 'landmark',
+    panelId: 'settings-panel-banks',
+  });
   tabs.push({
     key: 'personal',
     label: '個人化',
@@ -53,7 +64,7 @@ export function initSettingsPage() {
   _tabPanel = initTabPanel({
     containerId: 'settings-tabs',
     tabs,
-    defaultKey: isSuper ? 'platform' : 'personal',
+    defaultKey: isSuper ? 'platform' : 'banks',   // 🆕 預設改為銀行帳號
     storageKey: 'settings-tab',
     onChange: (key) => _onTabChange(key),
   });
@@ -83,8 +94,13 @@ function _onTabChange(key) {
     _reloadUIConstants();
   }
   if (key === 'personal') {
-    // 重新載入家庭成員（可能已變更）
     _renderFamilyMembers();
+  }
+  // 🆕 v102.0.0：銀行帳號 Tab
+  if (key === 'banks' && !_bankManagerInstance) {
+    _bankManagerInstance = initBankAccountManager('bank-account-manager-root', {
+      canInput: AppState.getCanInput(),
+    });
   }
 }
 
@@ -97,7 +113,6 @@ function _renderAccountInfo() {
 
   const accountEl = document.getElementById('settings-account');
   if (accountEl) {
-    // 優先顯示 displayName（如媽媽），否則顯示帳號
     const displayName = AppState.getDisplayName();
     accountEl.value = displayName || getDisplayName(user);
   }
@@ -128,7 +143,7 @@ function _renderAccountInfo() {
 }
 
 /* ============================================
-   平台設定（superadmin）
+   平台設定
    ============================================ */
 function _renderPlatformPanel() {
   const formRoot = document.getElementById('settings-platform-form-root');
@@ -291,7 +306,7 @@ function _showReloadPrompt() {
 }
 
 /* ============================================
-   🆕 v101.8.4：家庭成員區塊
+   家庭成員區塊
    ============================================ */
 async function _renderFamilyMembers() {
   const root = document.getElementById('family-members-root');
@@ -354,6 +369,7 @@ async function _renderFamilyMembers() {
 function _destroy() {
   if (_tabPanel) { try { _tabPanel.destroy(); } catch (e) {} _tabPanel = null; }
   if (_uiFormApi) { try { _uiFormApi.destroy(); } catch (e) {} _uiFormApi = null; }
+  if (_bankManagerInstance) { try { _bankManagerInstance.destroy(); } catch (e) {} _bankManagerInstance = null; }
   if (_logoutHandler) {
     document.getElementById('settings-logout-btn')?.removeEventListener('click', _logoutHandler);
     _logoutHandler = null;

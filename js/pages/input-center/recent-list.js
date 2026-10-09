@@ -1,11 +1,11 @@
 // ============================================
-// recent-list.js — 輸入中心：最近 20 筆（v101.8.0）
+// recent-list.js — 輸入中心：最近 20 筆（v102.0.0）
 // 位置：js/pages/input-center/recent-list.js
 // ============================================
-// v101.8.0 修正：
-//   ✅ 依 AppState.canInput 隱藏編輯 / 刪除按鈕
-//   ✅ 唯讀模式下卡片 footer 不顯示
-//   ✅ 保留 v101.7.1 成員顯示修正
+// v102.0.0 修正：
+//   ✅ 顯示銀行欄位（若有 bankId）
+//   ✅ 編輯支出時支援「出帳銀行」變更
+//   ✅ 保留 v101.8.0 全部功能
 // ============================================
 
 import {
@@ -13,6 +13,7 @@ import {
   updateExpense, removeExpense,
   updateIncomeEntry, getIncomeOnce,
   getMembersOnce,
+  listenBankAccounts,
 } from '../../core/db.js';
 import { escapeHtml, formatHKD, setText } from '../../core/utils.js';
 import { getStatusesByCategory } from '../../config/app-config.js';
@@ -24,11 +25,17 @@ import { buildForm } from '../../shared/form-builder.js';
 import { createListenerGroup } from '../../shared/listener-group.js';
 import { renderDataTable } from '../../shared/data-table.js';
 import { initViewToggle } from '../../shared/view-toggle.js';
+import {
+  syncExpenseToBank,
+  cleanupExpenseBankTransaction,
+} from '../../shared/bank-helpers.js';
 
 let _expenses = [];
 let _incomes = [];
 let _members = [];
 let _membersMap = {};
+let _bankAccounts = [];
+let _banksMap = {};
 
 let _viewToggle = null;
 let _tableApi = null;
@@ -70,6 +77,14 @@ export function initRecentList(containerId, options = {}) {
 
   listenerGroup.add(listenAllIncome((list) => {
     _incomes = list || [];
+    _renderContent(containerId);
+  }));
+
+  // 🆕 v102.0.0：監聽銀行帳號
+  listenerGroup.add(listenBankAccounts((list) => {
+    _bankAccounts = list || [];
+    _banksMap = {};
+    _bankAccounts.forEach((b) => { _banksMap[b.id] = b.name; });
     _renderContent(containerId);
   }));
 
@@ -134,7 +149,6 @@ function _renderTable(contentEl, limited, totalCount) {
     <div id="recent-list-table-root"></div>
   `;
 
-  // 🆕 v101.8.0：依 canInput 決定是否提供編輯 / 刪除
   const userCanInput = AppState.getCanInput();
 
   _tableApi = renderDataTable({
@@ -148,6 +162,7 @@ function _renderTable(contentEl, limited, totalCount) {
         { id: 'ym',        label: '年月', defaultVisible: true, defaultWidth: 100 },
         { id: 'member',    label: '成員', defaultVisible: true, defaultWidth: 100 },
         { id: 'name',      label: '項目', defaultVisible: true, defaultWidth: 200 },
+        { id: 'bankName',  label: '出帳銀行', defaultVisible: true, defaultWidth: 100 },   // 🆕 v102.0.0
         { id: 'amount',    label: '金額', defaultVisible: true, defaultWidth: 120 },
         { id: 'date',      label: '日期', defaultVisible: true, defaultWidth: 110 },
       ],
@@ -156,6 +171,9 @@ function _renderTable(contentEl, limited, totalCount) {
         ym: (_, row) => `<span class="mono" style="font-size:12px;">${escapeHtml(row.year)}-${escapeHtml(row.month)}</span>`,
         member: (_, row) => `<span style="font-size:12px;">${escapeHtml(_memberName(row.memberId))}</span>`,
         name: (_, row) => escapeHtml(row.name),
+        bankName: (_, row) => row.bankId
+          ? `<span class="badge badge-info" style="font-size:11px;">${escapeHtml(_banksMap[row.bankId] || '—')}</span>`
+          : '<span class="text-muted">—</span>',
         amount: (val, row) => `<span class="text-${row.type === 'income' ? 'emerald' : 'red'}">${formatHKD(val)}</span>`,
         date: (val) => `<span class="mono" style="font-size:11px; color:var(--text-muted);">${escapeHtml(val || '—')}</span>`,
       },
@@ -172,11 +190,11 @@ function _renderTable(contentEl, limited, totalCount) {
           <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">項目</div><div>${escapeHtml(row.name)}</div></div>
           <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">金額</div><div class="mono text-${row.type === 'income' ? 'emerald' : 'red'}">${formatHKD(row.amount)}</div></div>
           <div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">日期</div><div>${escapeHtml(row.date || '—')}</div></div>
+          ${row.bankId ? `<div><div style="color:var(--text-muted); font-size:11px; margin-bottom:2px;">出帳銀行</div><div>${escapeHtml(_banksMap[row.bankId] || '—')}</div></div>` : ''}
         </div>
       `,
     },
     hooks: {
-      // 🆕 v101.8.0：依 canInput 決定是否提供操作按鈕
       customActions: userCanInput
         ? (row) => [
             { label: '編輯', icon: 'pencil', className: 'btn-ghost', action: 'edit-row', onClick: (r) => _handleEdit(r) },
@@ -222,7 +240,6 @@ function _renderCards(contentEl, limited, totalCount) {
 function _renderCard(it) {
   const memberName = _memberName(it.memberId);
   const amountCls = it.type === 'income' ? 'text-emerald' : 'text-red';
-  // 🆕 v101.8.0：依 canInput 決定是否顯示按鈕
   const userCanInput = AppState.getCanInput();
 
   const actionsHtml = userCanInput ? `
@@ -249,6 +266,7 @@ function _renderCard(it) {
         <div style="display:flex; justify-content:space-between;"><span class="text-muted">年月</span><span class="mono">${escapeHtml(it.year)}-${escapeHtml(it.month)}</span></div>
         <div style="display:flex; justify-content:space-between;"><span class="text-muted">成員</span><span>${escapeHtml(memberName)}</span></div>
         ${it.date ? `<div style="display:flex; justify-content:space-between;"><span class="text-muted">日期</span><span class="mono">${escapeHtml(it.date)}</span></div>` : ''}
+        ${it.bankId ? `<div style="display:flex; justify-content:space-between;"><span class="text-muted">出帳銀行</span><span>${escapeHtml(_banksMap[it.bankId] || '—')}</span></div>` : ''}
       </div>
       ${actionsHtml}
     </div>
@@ -268,6 +286,7 @@ function _mergeItems() {
       year: e.year, month: e.month, memberId: e.memberId,
       name: e.name || '（未命名支出）', amount: Number(e.amount) || 0,
       date: e.date || '', status: e.status || '',
+      bankId: e.bankId || '', txnId: e.txnId || '',      // 🆕 v102.0.0
       _ts: e.createdAt || 0, _raw: e,
     });
   });
@@ -276,11 +295,12 @@ function _mergeItems() {
     const ts = new Date(Number(inc.year), Number(inc.month) - 1, 1).getTime() + idx;
     const memberName = _memberName(inc.memberId);
     items.push({
-      type: 'income', typeLabel: '收入', typeBadge: 'badge-success',
+      type: 'income', typeLabel: '家用轉入', typeBadge: 'badge-success',
       id: `${inc.year}|${inc.month}|${inc.memberId}`,
       year: inc.year, month: inc.month, memberId: inc.memberId,
-      name: `${memberName} 收入`, amount: Number(inc.amount) || 0,
+      name: `${memberName} 家用轉入`, amount: Number(inc.amount) || 0,
       date: '', status: '',
+      bankId: '', txnId: '',
       _ts: ts, _raw: inc,
     });
   });
@@ -295,7 +315,7 @@ function _memberName(memberId) {
 }
 
 /* ============================================
-   編輯 / 刪除處理（僅 canInput 時可呼叫）
+   編輯 / 刪除處理
    ============================================ */
 async function _handleEdit(row) {
   if (!AppState.getCanInput()) return;
@@ -324,28 +344,80 @@ async function _openEditExpenseModal(row) {
   const statusList = getStatusesByCategory('personal');
 
   _createModal(MODAL_ID, '編輯支出');
-  buildForm({
+  const formApi = buildForm({
     containerId: `${MODAL_ID}-form-root`,
     fields: [
       { type: 'custom', id: 'info', html: `<div class="glass-card-hint" style="margin-bottom:12px;">成員：<b>${escapeHtml(memberName)}</b>　年月：<b>${escapeHtml(year)}-${escapeHtml(month)}</b></div>` },
       { type: 'text', id: 'name', label: '項目名稱', required: true, maxlength: 60 },
       { type: 'number', id: 'amount', label: '費用（HK$）', required: true, min: 0, step: 1 },
       { type: 'text', id: 'date', label: '支出日期', placeholder: 'YYYY-MM-DD', maxlength: 10 },
+      // 🆕 v102.0.0：出帳銀行
+      { type: 'select', id: 'bankId', label: '出帳銀行（選填）', includeEmpty: true, emptyText: '— 不關聯銀行 —' },
       { type: 'select', id: 'status', label: '狀態', includeEmpty: false, options: statusList.map((s) => ({ value: s.name, label: s.name })) },
     ],
     submitText: '儲存',
     showCancel: true,
     cancelText: '取消',
-    initialData: { name: expense.name || '', amount: expense.amount || 0, date: expense.date || '', status: expense.status || '未處理' },
+    initialData: {
+      name: expense.name || '',
+      amount: expense.amount || 0,
+      date: expense.date || '',
+      bankId: expense.bankId || '',
+      status: expense.status || '未處理',
+    },
     onSubmit: async (data) => {
-      await updateExpense(year, month, memberId, id, {
-        name: data.name, amount: Number(data.amount) || 0, date: data.date || '', status: data.status,
-      });
-      showToast('✅ 已更新支出', 'success');
-      closeModal(MODAL_ID);
+      try {
+        const oldBankId = expense.bankId || '';
+        const oldTxnId = expense.txnId || '';
+        const newBankId = data.bankId || '';
+
+        // 1. 同步銀行交易
+        const newTxnId = await syncExpenseToBank({
+          oldBankId,
+          oldTxnId,
+          newBankId,
+          expenseData: {
+            memberId,
+            amount: Number(data.amount) || 0,
+            date: data.date || '',
+            name: data.name,
+          },
+          expenseId: id,
+        });
+
+        // 2. 更新支出
+        await updateExpense(year, month, memberId, id, {
+          name: data.name,
+          amount: Number(data.amount) || 0,
+          date: data.date || '',
+          status: data.status,
+          bankId: newBankId,
+          txnId: newTxnId || '',
+        });
+
+        showToast('✅ 已更新支出', 'success');
+        closeModal(MODAL_ID);
+      } catch (err) {
+        console.error('[recent-list] 更新支出失敗：', err);
+        showToast('更新失敗：' + err.message, 'error');
+      }
     },
     onCancel: () => closeModal(MODAL_ID),
   });
+
+  // 動態載入銀行帳號
+  const unsubBank = listenBankAccounts((list) => {
+    formApi.updateOptions('bankId', list.map((b) => ({ value: b.id, label: b.name })), {
+      includeEmpty: true,
+      emptyText: '— 不關聯銀行 —',
+    });
+  });
+
+  const origDestroy = formApi.destroy;
+  formApi.destroy = () => {
+    try { unsubBank(); } catch (e) { /* noop */ }
+    origDestroy();
+  };
 
   openModal(MODAL_ID);
   if (window.lucide) window.lucide.createIcons();
@@ -360,8 +432,17 @@ async function _deleteExpense(row) {
 
   const ok = await openConfirm(`確定要刪除「${expense.name}」嗎？`, { title: '刪除支出', okText: '刪除', okClass: 'btn-danger' });
   if (!ok) return;
-  try { await removeExpense(year, month, memberId, id); showToast('✅ 已刪除', 'success'); }
-  catch (err) { showToast('刪除失敗：' + err.message, 'error'); }
+
+  try {
+    // 🆕 v102.0.0：清理銀行交易
+    if (expense.bankId && expense.txnId) {
+      await cleanupExpenseBankTransaction(expense.bankId, expense.txnId);
+    }
+    await removeExpense(year, month, memberId, id);
+    showToast('✅ 已刪除', 'success');
+  } catch (err) {
+    showToast('刪除失敗：' + err.message, 'error');
+  }
 }
 
 async function _openEditIncomeModal(row) {
@@ -378,7 +459,7 @@ async function _openEditIncomeModal(row) {
 
   const MODAL_ID = 'ic-edit-income-modal';
   _destroyModal(MODAL_ID);
-  _createModal(MODAL_ID, '編輯收入');
+  _createModal(MODAL_ID, '編輯家用轉入');
   buildForm({
     containerId: `${MODAL_ID}-form-root`,
     fields: [
@@ -391,7 +472,7 @@ async function _openEditIncomeModal(row) {
     initialData: { amount: currentAmount },
     onSubmit: async (data) => {
       await updateIncomeEntry(year, month, memberId, Number(data.amount) || 0);
-      showToast('✅ 已更新收入', 'success');
+      showToast('✅ 已更新家用轉入', 'success');
       closeModal(MODAL_ID);
     },
     onCancel: () => closeModal(MODAL_ID),
@@ -406,10 +487,14 @@ async function _deleteIncome(row) {
   const [year, month, memberId] = parts;
   const memberName = _memberName(memberId);
 
-  const ok = await openConfirm(`確定要刪除「${year}-${month} ${memberName}」的收入嗎？`, { title: '刪除收入', okText: '刪除', okClass: 'btn-danger' });
+  const ok = await openConfirm(`確定要刪除「${year}-${month} ${memberName}」的家用轉入嗎？`, { title: '刪除家用轉入', okText: '刪除', okClass: 'btn-danger' });
   if (!ok) return;
-  try { await updateIncomeEntry(year, month, memberId, 0); showToast('✅ 已刪除', 'success'); }
-  catch (err) { showToast('刪除失敗：' + err.message, 'error'); }
+  try {
+    await updateIncomeEntry(year, month, memberId, 0);
+    showToast('✅ 已刪除', 'success');
+  } catch (err) {
+    showToast('刪除失敗：' + err.message, 'error');
+  }
 }
 
 function _createModal(modalId, title) {

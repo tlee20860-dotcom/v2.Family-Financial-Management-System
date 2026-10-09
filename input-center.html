@@ -5,12 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>綜合輸入中心 | 家庭財務</title>
 
-  <!-- 🆕 v101.10.0：preconnect / dns-prefetch -->
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="dns-prefetch" href="https://family-fin-a6dd1-default-rtdb.asia-southeast1.firebasedatabase.app">
 
-  <!-- 🆕 v101.10.0：Critical CSS -->
   <style>
     :root{--bg-deep:#080B11;--bg-navy:#0F172A;--neon-cyan:#00F0FF;--neon-magenta:#D946EF;--neon-emerald:#10B981;--neon-red:#F43F5E;--glass-bg:rgba(15,23,42,0.6);--glass-border:rgba(0,240,255,0.2);--glass-blur:12px;--text-primary:#E2E8F0;--text-secondary:#94A3B8;--text-muted:#64748B;--radius-sm:6px;--font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang TC","Microsoft JhengHei","Noto Sans TC",sans-serif;--font-mono:"JetBrains Mono","SF Mono","Consolas","Menlo",monospace;--transition:0.25s cubic-bezier(0.4,0,0.2,1)}
     *{box-sizing:border-box;margin:0;padding:0}
@@ -33,8 +31,7 @@
     .glass-card{background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));border:1px solid var(--glass-border);border-radius:var(--radius-sm);padding:20px;transition:all var(--transition);position:relative;overflow:hidden}
     .btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;font-size:14px;font-weight:500;border-radius:var(--radius-sm);border:1px solid var(--glass-border);background:rgba(0,240,255,0.05);color:var(--neon-cyan);transition:all var(--transition);white-space:nowrap;font-family:inherit;cursor:pointer}
     .btn-primary{background:rgba(0,240,255,0.15);border-color:rgba(0,240,255,0.5)}
-    .banner{padding:12px 16px;border-radius:var(--radius-sm);border:1px solid var(--glass-border);background:rgba(0,240,255,0.05);font-size:13px;margin-bottom:16px;color:var(--text-secondary)}
-    .mb-16{margin-bottom:16px}
+    .btn-ghost{background:transparent;border-color:transparent;color:var(--text-secondary)}
     .content-min-height{min-height:calc(100vh - 64px - 48px)}
     @media(max-width:640px){.sidebar{position:fixed!important;top:0!important;left:-260px!important;height:100vh!important;width:260px!important;z-index:10001!important;transition:left .3s ease!important}.sidebar.mobile-open{left:0!important}.content{padding:16px}.navbar{padding:0 12px;gap:8px}.navbar-title{display:none!important}}
   </style>
@@ -67,10 +64,8 @@
     </div>
   </div>
 
-  <!-- 🆕 v101.10.0：Lucide 固定版本 + defer -->
   <script src="https://unpkg.com/lucide@0.462.0/dist/umd/lucide.min.js" defer></script>
 
-  <!-- 🆕 v101.10.0：modulepreload 首屏 JS -->
   <link rel="modulepreload" href="./js/core/app.js">
   <link rel="modulepreload" href="./js/core/state.js">
   <link rel="modulepreload" href="./js/core/auth-guard.js">
@@ -83,10 +78,10 @@
   <link rel="modulepreload" href="./js/config/constants.js">
   <link rel="modulepreload" href="./js/shared/sidebar.js">
   <link rel="modulepreload" href="./js/shared/navbar.js">
+  <link rel="modulepreload" href="./js/shared/bank-helpers.js">
   <link rel="modulepreload" href="./js/pages/input-center/index.js">
 
   <script type="module">
-    // 🆕 v101.10.0：判斷 initApp 回傳值
     import { initApp } from './js/core/app.js';
     import { initInputCenterPage } from './js/pages/input-center/index.js';
 

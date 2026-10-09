@@ -1,9 +1,9 @@
 /* ============================================
    components.css — 卡片、按鈕、表格、Modal、表單
    -------------------------------------------------
-   v101.10.0 更新：
-     ✅ 版本註解更新（無樣式變更）
-     ✅ 保留所有 v101.6.5 / v101.7.0 / .2 / .4 / v101.9.0 追加樣式
+   v102.0.0 更新：
+     ✅ 新增 .stats-integrated-cell 支援 grid-column: span 2
+     ✅ 保留 v101.10.0 全部樣式
    ============================================ */
 
 /* ================= GlassCard ================= */
@@ -180,7 +180,7 @@
   text-align: right;
 }
 
-/* ================= 霓虹進度條 ================= */
+/* ================= 進度條 ================= */
 .progress {
   height: 8px;
   background: rgba(0, 240, 255, 0.08);
@@ -354,7 +354,7 @@
 }
 
 /* ============================================
-   表單單欄直落
+   表單直落
    ============================================ */
 .form-stack {
   display: flex;
@@ -432,7 +432,7 @@
 }
 
 /* ============================================
-   View Toggle（卡片 / 表格切換）
+   View Toggle
    ============================================ */
 .view-toggle-group {
   display: inline-flex;
@@ -528,7 +528,7 @@
 }
 
 /* ============================================
-   保險表格視圖
+   保險表格
    ============================================ */
 .policy-table-wrapper {
   overflow: hidden;
@@ -736,59 +736,6 @@
 }
 
 /* ============================================
-   固定支出：每月 row
-   ============================================ */
-.fixed-month-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-}
-
-.fixed-month-row .fix-month-label {
-  width: 50px;
-  flex: 0 0 auto;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.fixed-month-row input.fix-amount {
-  width: 110px;
-  flex: 0 0 auto;
-  padding: 4px 8px;
-  font-size: 12px;
-  text-align: right;
-  background: rgba(8, 11, 17, 0.6);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-}
-
-.fixed-month-row input.fix-amount:focus {
-  outline: none;
-  border-color: var(--neon-cyan);
-}
-
-.fixed-month-row .fix-checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  white-space: nowrap;
-  cursor: pointer;
-  flex: 0 0 auto;
-  color: var(--text-secondary);
-}
-
-.fixed-month-row .fix-checkbox-label input[type="checkbox"] {
-  width: auto;
-  cursor: pointer;
-}
-
-/* ============================================
    已供滿保單區塊
    ============================================ */
 .completed-section {
@@ -816,16 +763,6 @@
 }
 .completed-body .policy-card {
   opacity: 0.85;
-}
-
-/* ============================================
-   固定支出：年度折疊
-   ============================================ */
-.fixed-year-header {
-  transition: background 0.2s ease;
-}
-.fixed-year-header:hover {
-  background: rgba(0, 240, 255, 0.08) !important;
 }
 
 .insurance-expand-btn {
@@ -941,7 +878,6 @@
   display: block;
 }
 
-/* 多行 Tab：使用 grid 3 欄（桌面）/ 2 欄（手機） */
 .tab-bar.tab-bar-wrap {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -965,7 +901,6 @@
     min-width: 80px;
   }
 
-  /* 手機版：多行 Tab 改為 2 欄 */
   .tab-bar.tab-bar-wrap {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -999,21 +934,11 @@
     font-size: 12px;
     word-break: break-all;
   }
-  .policy-name {
-    font-size: 14px;
-  }
-  .policy-company {
-    font-size: 10px;
-  }
+  .policy-name { font-size: 14px; }
+  .policy-company { font-size: 10px; }
 
-  .btn {
-    padding: 8px 12px;
-    font-size: 12px;
-  }
-  .btn-sm {
-    padding: 4px 8px;
-    font-size: 11px;
-  }
+  .btn { padding: 8px 12px; font-size: 12px; }
+  .btn-sm { padding: 4px 8px; font-size: 11px; }
 
   .badge {
     display: inline-block;
@@ -1025,17 +950,10 @@
     max-height: 85vh;
     overflow-y: auto;
   }
-  .modal-title {
-    font-size: 16px;
-  }
+  .modal-title { font-size: 16px; }
 
-  .policy-table {
-    min-width: 480px;
-  }
-
-  .policy-table .hide-mobile {
-    display: none;
-  }
+  .policy-table { min-width: 480px; }
+  .policy-table .hide-mobile { display: none; }
 
   .policy-table thead th:nth-child(1)  { width: 30px; padding: 8px 3px; }
   .policy-table thead th:nth-child(4)  { width: auto; min-width: 100px; }
@@ -1049,89 +967,40 @@
     padding: 8px 5px;
     font-size: 11px;
   }
-  .policy-table .num {
-    font-size: 11px;
-  }
+  .policy-table .num { font-size: 11px; }
   .policy-table .progress-text {
     font-size: 10px;
     white-space: nowrap;
     margin-bottom: 3px;
   }
-  .policy-table .progress {
-    height: 5px;
-  }
+  .policy-table .progress { height: 5px; }
   .policy-table .btn-sm {
     padding: 3px 5px;
     font-size: 10px;
     margin-right: 2px;
   }
 
-  .detail-wrapper {
-    padding: 8px;
-  }
-  .insurance-year-block {
-    min-width: 360px;
-  }
-  .insurance-year-header {
-    padding: 6px 8px;
-  }
-  .ins-year-title {
-    font-size: 11px;
-  }
-  .ins-paid-sum {
-    font-size: 10px;
-  }
+  .detail-wrapper { padding: 8px; }
+  .insurance-year-block { min-width: 360px; }
+  .insurance-year-header { padding: 6px 8px; }
+  .ins-year-title { font-size: 11px; }
+  .ins-paid-sum { font-size: 10px; }
 
   .insurance-month-row {
     gap: 8px;
     padding: 4px 0;
   }
-  .insurance-month-row .ins-date {
-    width: 60px;
-    font-size: 11px;
-  }
-  .insurance-month-row .ins-paid-label {
-    font-size: 11px;
-    gap: 4px;
-    min-width: 60px;
-  }
+  .insurance-month-row .ins-date { width: 60px; font-size: 11px; }
+  .insurance-month-row .ins-paid-label { font-size: 11px; gap: 4px; min-width: 60px; }
   .insurance-month-row input.ins-amount {
     width: 80px;
     padding: 3px 6px;
     font-size: 11px;
   }
-  .insurance-month-row .ins-paid {
-    transform: scale(0.9);
-  }
+  .insurance-month-row .ins-paid { transform: scale(0.9); }
 
-  .fixed-month-row {
-    gap: 6px;
-    padding: 4px 0;
-  }
-  .fixed-month-row .fix-month-label {
-    width: 40px;
-    font-size: 11px;
-  }
-  .fixed-month-row input.fix-amount {
-    width: 80px;
-    padding: 3px 6px;
-    font-size: 11px;
-  }
-  .fixed-month-row .fix-checkbox-label {
-    font-size: 10px;
-    gap: 3px;
-  }
-  .fixed-month-row .fix-checkbox-label input[type="checkbox"] {
-    transform: scale(0.9);
-  }
-
-  .collapsible-card .collapsible-header {
-    padding: 12px 16px;
-  }
-  .collapsible-card .collapsible-body {
-    padding: 0 16px 16px;
-    padding-top: 14px;
-  }
+  .collapsible-card .collapsible-header { padding: 12px 16px; }
+  .collapsible-card .collapsible-body { padding: 0 16px 16px; padding-top: 14px; }
 
   .input-center-table th,
   .input-center-table td {
@@ -1180,7 +1049,7 @@
 }
 
 /* ============================================
-   data-card 卡片樣式（桌面）
+   data-card 樣式（桌面）
    ============================================ */
 .data-card { padding: 16px; }
 .data-card-primary {
@@ -1222,7 +1091,7 @@
 }
 
 /* ============================================
-   data-table 橫排表格（無 mobile-cards）
+   橫排表格
    ============================================ */
 .data-table-scroll-wrapper {
   overflow-x: auto;
@@ -1254,7 +1123,7 @@
 }
 
 /* ============================================
-   data-table 可摺疊 + 每列展開
+   可摺疊表格
    ============================================ */
 .data-table-header {
   display: flex;
@@ -1361,6 +1230,11 @@
   position: relative;
 }
 
+/* 🆕 v102.0.0：支援跨欄（家庭總餘額摺疊卡） */
+.stats-integrated-cell[style*="grid-column: span 2"] {
+  grid-column: span 2;
+}
+
 .stats-integrated-grid > .stats-integrated-cell:nth-child(4n) {
   border-right: none;
 }
@@ -1443,7 +1317,7 @@
 }
 
 /* ============================================
-   響應式調整
+   響應式
    ============================================ */
 @media (max-width: 1024px) {
   .stats-integrated-grid {
@@ -1503,7 +1377,7 @@
 }
 
 /* ============================================
-   settings 個人化 Panel 佈局
+   settings 個人化 Panel
    ============================================ */
 .settings-personal-grid {
   display: grid;
@@ -1550,13 +1424,8 @@
   box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.1);
 }
 
-.navbar-ym-year {
-  min-width: 90px;
-}
-
-.navbar-ym-month {
-  min-width: 80px;
-}
+.navbar-ym-year { min-width: 90px; }
+.navbar-ym-month { min-width: 80px; }
 
 @media (max-width: 1024px) {
   .navbar-ym-year { min-width: 80px; }
@@ -1564,9 +1433,7 @@
 }
 
 @media (max-width: 640px) {
-  .navbar-title {
-    display: none !important;
-  }
+  .navbar-title { display: none !important; }
 
   .navbar-year-month {
     gap: 4px;
