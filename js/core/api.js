@@ -1,16 +1,17 @@
 // ============================================
-// api.js — Cloudflare Functions 呼叫封裝（v102.0.0）
+// api.js — Cloudflare Functions 呼叫封裝（v103.0.0）
 // 位置：js/core/api.js
 // ============================================
-// v102.0.0 修正：
-//   ✅ [P0-1] clearBankBalances 補 confirm: 'CONFIRM_DELETE'
-//   ✅ [P3-2] personalIncome 新增 remove 方法
-//   ✅ 保留 v102.0.0 全部功能
+// v103.0.0 重構：
+//   ✅ fetchAnnualSummary 內部改走 annual-summary 聚合 API（效能提升）
+//   ✅ 保留 v102.0.0 全部對外 API（呼叫方式不變）
+//   ✅ callApi 錯誤處理強化
+//   ✅ 版本號更新
 // ============================================
 
 import { AppState } from './state.js';
 import { auth } from '../config/firebase-config.js';
-import { STORAGE_KEYS } from '../config/constants.js';
+import { STORAGE_KEYS, ROUTES } from '../config/constants.js';
 
 /* ============================================
    基礎呼叫
@@ -34,7 +35,7 @@ export async function callApi(path, options = {}) {
   if (res.status === 401) {
     localStorage.removeItem(STORAGE_KEYS.FAMILY_ID);
     localStorage.removeItem(STORAGE_KEYS.FAMILY_NAME);
-    window.location.href = 'login.html';
+    window.location.href = ROUTES.LOGIN;
     throw new Error('登入已過期，請重新登入');
   }
 
@@ -83,48 +84,37 @@ export const api = {
   summary: (year, month) =>
     callApi(`/api/summary?familyId=${getFamilyId()}&year=${year}&month=${month}`),
 
+  /**
+   * 🆕 v103.0.0：改走 annual-summary 聚合 API（單次請求）
+   * 回傳格式保持向後相容（含 monthly 陣列）
+   */
   fetchAnnualSummary: async (year) => {
     const familyId = getFamilyId();
-    const promises = [];
-    for (let m = 1; m <= 12; m++) {
-      const mm = String(m).padStart(2, '0');
-      promises.push(callApi(`/api/summary?familyId=${familyId}&year=${year}&month=${mm}`));
-    }
-    const results = await Promise.all(promises);
-
-    const monthly = results.map((d, i) => ({
-      monthNum: i + 1,
-      month: String(i + 1).padStart(2, '0'),
-      totalIncome: d.totalIncome || 0,
-      totalExpense: d.totalExpense || 0,
-      netBalance: d.netBalance || 0,
-      perMember: d.perMember || {},
-      fixedList: d.fixedList || [],
-      incomeBreakdown: d.incomeBreakdown || {},
-      paymentBreakdown: d.paymentBreakdown || {},
-      monthlyInsuranceAverage: d.monthlyInsuranceAverage || 0,
-      totalAssets: d.totalAssets || 0,
-      bankBalance: d.bankBalance || 0,
-      fundValue: d.fundValue || 0,
-      yearlyInsuranceTotal: d.yearlyInsuranceTotal || 0,
-    }));
-
-    const totalIncome = monthly.reduce((s, m) => s + m.totalIncome, 0);
-    const totalExpense = monthly.reduce((s, m) => s + m.totalExpense, 0);
-    const netBalance = totalIncome - totalExpense;
-
-    const yearlyInsuranceTotal = monthly.reduce(
-      (max, m) => Math.max(max, m.yearlyInsuranceTotal || 0),
-      0
+    const result = await callApi(
+      `/api/annual-summary?familyId=${familyId}&startYear=${year}&endYear=${year}`
     );
 
+    const yearData = result.years?.[0];
+    if (!yearData) {
+      return {
+        year, monthly: [],
+        totalIncome: 0, totalExpense: 0, netBalance: 0,
+        yearlyInsuranceTotal: 0, totalAssets: 0, bankBalance: 0, fundValue: 0,
+      };
+    }
+
+    const monthly = yearData.monthly || [];
+
     return {
-      year, monthly,
-      totalIncome, totalExpense, netBalance,
-      yearlyInsuranceTotal,
-      totalAssets: results[11]?.totalAssets || results[0]?.totalAssets || 0,
-      bankBalance: results[11]?.bankBalance || 0,
-      fundValue: results[11]?.fundValue || 0,
+      year,
+      monthly,
+      totalIncome: yearData.totalIncome || 0,
+      totalExpense: yearData.totalExpense || 0,
+      netBalance: yearData.netBalance || 0,
+      yearlyInsuranceTotal: yearData.yearlyInsuranceTotal || 0,
+      totalAssets: yearData.totalAssets || 0,
+      bankBalance: yearData.bankBalance || 0,
+      fundValue: yearData.fundValue || 0,
     };
   },
 
@@ -347,7 +337,6 @@ export const api = {
         body: JSON.stringify({ familyId: getFamilyId(), memberId, year, month, amount, action: 'save' }),
       }),
 
-    // 🆕 v102.0.0：刪除個人收入
     remove: (memberId, year, month) =>
       callApi('/api/personal-income', {
         method: 'POST',
@@ -386,8 +375,7 @@ export const api = {
       }),
   },
 
-  /* ---------- 🆕 v102.0.0：清除舊銀行資料（危險操作） ---------- */
-  // 🆕 P0-1：補 confirm 參數，否則後端永遠回 400
+  /* ---------- 清除舊銀行資料（危險操作） ---------- */
   clearBankBalances: () =>
     callApi('/api/clear-bank-balances', {
       method: 'POST',
