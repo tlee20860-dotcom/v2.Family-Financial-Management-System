@@ -3,12 +3,13 @@
 // 位置：js/pages/input-center/holdings-list.js
 // ============================================
 // v102.0.0 修正：
+//   ✅ [P2-9] 移除舊 banks 監聽（v102.0.0 已廢除）
 //   ✅ 銀行 Tab 改用 bank_accounts（取代舊 banks）
 //   ✅ 保留 v101.10.0 骨架只建立一次
 // ============================================
 
 import {
-  listenInsurancePolicies, listenFunds, listenBanks, listenBankAccounts,
+  listenInsurancePolicies, listenFunds, listenBankAccounts,
 } from '../../core/db.js';
 import { escapeHtml, formatHKD } from '../../core/utils.js';
 import { ENTITY_KEYS } from '../../config/constants.js';
@@ -17,15 +18,13 @@ import { showToast } from '../../shared/toast.js';
 import { openConfirm } from '../../shared/modal.js';
 import { openEntityModal } from '../../shared/entity-modal.js';
 import { deleteEntity } from '../../shared/entity-helpers.js';
-import { api } from '../../core/api.js';
 import { createListenerGroup } from '../../shared/listener-group.js';
 import { renderDataTable } from '../../shared/data-table.js';
 import { initViewToggle } from '../../shared/view-toggle.js';
 
 let _policies = [];
 let _funds = [];
-let _banks = [];         // 🔄 v102.0.0：改為 bank_accounts
-let _legacyBanks = [];   // 保留舊 banks 相容
+let _banks = [];
 
 export function initHoldingsList(containerId, options = {}) {
   const root = document.getElementById(containerId);
@@ -54,14 +53,10 @@ export function initHoldingsList(containerId, options = {}) {
     }));
   }
   if (types.includes('bank')) {
-    // 🆕 v102.0.0：監聽 bank_accounts
+    // 🆕 P2-9：只監聽 bank_accounts，不再監聽已廢除的 banks
     listenerGroup.add(listenBankAccounts((list) => {
       _banks = list || [];
       _render(root, containerId, types, instances);
-    }));
-    // 相容：同時監聽舊 banks
-    listenerGroup.add(listenBanks((list) => {
-      _legacyBanks = list || [];
     }));
   }
 
@@ -219,7 +214,6 @@ function _getSectionConfig(key) {
       cardFields: () => [],
     };
     case 'bank': return {
-      // 🆕 v102.0.0：改為銀行帳號
       title: '銀行帳號', icon: 'landmark',
       getRows: () => _banks,
       columns: [
@@ -273,7 +267,6 @@ function _renderSectionTable(contentEl, rows, config, key, instances) {
   contentEl.innerHTML = `<div id="holdings-${key}-table-root"></div>`;
 
   const userCanInput = AppState.getCanInput();
-  // 銀行帳號為特殊實體，操作需導向設定頁
   const isBankAccount = key === 'bank';
 
   instances[key].tableApi = renderDataTable({
