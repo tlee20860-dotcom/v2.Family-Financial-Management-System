@@ -1,15 +1,9 @@
 // ============================================
-// app-shell.js — App Shell 初始化（v103.0.0）
+// app-shell.js — App Shell 初始化（v103.0.8）
 // 位置：js/layout/app-shell.js
 // ============================================
-// 來源：從 js/core/app.js 抽出（v103.0.0）
-//
-// 職責：
-//   1. 每個頁面的統一初始化流程
-//   2. 掛載 Sidebar / Navbar
-//   3. 載入 app-config（平台預設 + 家庭覆蓋）
-//   4. 初始化所有 Registry
-//   5. 頁面清理註冊（供 destroyApp 統一呼叫）
+// v103.0.8 修正：
+//   ✅ initApp 開頭呼叫 initDebug()（全站啟用 vConsole）
 // ============================================
 
 import { renderSidebar, destroySidebar } from './sidebar.js';
@@ -17,6 +11,7 @@ import { renderNavbar, destroyNavbar } from './navbar.js';
 import { requireLogin } from '../core/auth-guard.js';
 import { initPWA } from '../core/pwa.js';
 import { AppState } from '../core/state.js';
+import { initDebug } from '../core/debug.js';
 import {
   initAppConfig,
   watchPlatformDefaults,
@@ -37,17 +32,6 @@ let _initialized = false;
 /* ============================================
    主入口
    ============================================ */
-
-/**
- * 初始化 App Shell
- *
- * @param {Object} [options]
- * @param {string} [options.activeHref='']      - 當前頁面 href（用於 sidebar 高亮）
- * @param {string} [options.title='']           - 頁面標題
- * @param {boolean} [options.needAuth=true]     - 是否需要登入
- * @param {boolean} [options.requireFamily=true]- 是否必須選擇家庭
- * @returns {Promise<Object|null>} Firebase user 或 null
- */
 export async function initApp({
   activeHref = '',
   title = '',
@@ -59,6 +43,13 @@ export async function initApp({
     return null;
   }
   _initialized = true;
+
+  /* ---------- 0. Debug（vConsole） ---------- */
+  try {
+    initDebug();
+  } catch (err) {
+    console.warn('[app-shell] initDebug 失敗：', err);
+  }
 
   /* ---------- 1. PWA ---------- */
   try {
@@ -128,11 +119,6 @@ export async function initApp({
 /* ============================================
    頁面清理註冊
    ============================================ */
-
-/**
- * 註冊頁面銷毀回呼
- * @param {Function} fn
- */
 export function registerPageCleanup(fn) {
   if (typeof fn === 'function') {
     _pageCleanups.push(fn);
@@ -142,15 +128,7 @@ export function registerPageCleanup(fn) {
 /* ============================================
    銷毀
    ============================================ */
-
-/**
- * 銷毀 App Shell
- * - 執行所有頁面清理
- * - 銷毀 Sidebar / Navbar / Registry / AppConfig
- * - 重設 AppState
- */
 export function destroyApp() {
-  /* ---------- 1. 頁面清理 ---------- */
   _pageCleanups.forEach((fn) => {
     try { fn(); } catch (e) {
       console.error('[app-shell] cleanup error:', e);
@@ -158,17 +136,11 @@ export function destroyApp() {
   });
   _pageCleanups = [];
 
-  /* ---------- 2. Layout ---------- */
   try { destroySidebar(); } catch (e) { /* noop */ }
   try { destroyNavbar(); } catch (e) { /* noop */ }
-
-  /* ---------- 3. Config ---------- */
   try { disposeAppConfig(); } catch (e) { /* noop */ }
-
-  /* ---------- 4. Registry ---------- */
   try { destroyAllRegistries(); } catch (e) { /* noop */ }
 
-  /* ---------- 5. AppState ---------- */
   AppState.destroy();
 
   _initialized = false;
