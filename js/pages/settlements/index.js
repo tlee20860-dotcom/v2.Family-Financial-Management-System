@@ -1,12 +1,12 @@
 // ============================================
-// index.js — 結算清單入口（v102.1.0-hotfix2）
+// index.js — 結算清單入口（v102.1.0-hotfix3）
 // 位置：js/pages/settlements/index.js
 // ============================================
-// v102.1.0-hotfix2 修正：
-//   ✅ [BUG-2/3] _statusChangeHandler 改用 isDoneStatus（與 SSOT 一致）
-//   ✅ [BUG-2/3] 加入 console 診斷日誌
-//   ✅ [BUG-1] 處理 CANCELLED 例外（使用者取消 Modal 時不視為錯誤）
-//   ✅ 保留 v102.1.0 全部功能
+// v102.1.0-hotfix3 修正：
+//   ✅ [BUG] _statusChangeHandler 改為依 key 重新查找 row
+//       - 避免 row 物件引用失效（Firebase onValue 重繪產生新物件）
+//   ✅ 移除「修改 row.status」邏輯，完全交給 updateRowStatus + _reload
+//   ✅ 保留 v102.1.0-hotfix2 全部功能
 // ============================================
 
 import { AppState } from '../../core/state.js';
@@ -22,7 +22,7 @@ import {
   formatHKD, escapeHtml, setText,
 } from '../../core/utils.js';
 import { callApi } from '../../core/api.js';
-import { isDoneStatus } from '../../shared/entity-helpers.js';   // 🆕 hotfix2
+import { isDoneStatus } from '../../shared/entity-helpers.js';
 import { renderPageFilter } from '../../shared/page-filter.js';
 import { showToast } from '../../shared/toast.js';
 import { renderStatsCards } from '../../shared/stats-cards.js';
@@ -187,7 +187,11 @@ async function _loadOptionsCache() {
 }
 
 /* ============================================
-   🆕 hotfix2：狀態變更事件委派（改用 isDoneStatus）
+   🆕 hotfix3：狀態變更事件委派
+   -------------------------------------------------
+   核心修正：
+   - 不再直接修改 row 物件引用，改為呼叫 _reload 從 Firebase 重讀
+   - 避免 onValue 回呼與本地修改競態
    ============================================ */
 function _bindStatusChange() {
   const root = document.getElementById('settlement-table-root');
@@ -201,6 +205,8 @@ function _bindStatusChange() {
 
     const key = sel.dataset.key;
     const newStatus = sel.value;
+
+    // 🆕 hotfix3：依 key 重新查找最新的 row（避免舊引用）
     const row = _rows.find((r) => r.key === key);
     if (!row) {
       console.warn('[settlements] 找不到對應 row，key=', key);
@@ -209,31 +215,31 @@ function _bindStatusChange() {
 
     const oldStatus = row.status;
 
+    // 若新舊狀態相同 → 不需處理
+    if (oldStatus === newStatus) {
+      console.log('[settlements] 狀態未變更，略過');
+      return;
+    }
+
     try {
-      // 呼叫 SSOT 更新
       await updateRowStatus(row, newStatus);
 
-      // 🆕 hotfix2：使用 isDoneStatus（與 SSOT 一致）
-      row.status = newStatus;
-      row.isDone = isDoneStatus(newStatus, row.source);
-
+      // 🆕 hotfix3：不直接修改 row，改為呼叫 _reload 從 Firebase 重讀
+      //   - 這確保 UI 一定與 Firebase 資料一致
       showToast('✅ 狀態已更新', 'success');
       console.log('[settlements] 狀態變更成功：', { key, oldStatus, newStatus });
-      _render();
+      await _reload();
     } catch (err) {
-      // 🆕 hotfix2：使用者取消 Modal 時，不視為錯誤
+      // 使用者取消 Modal
       if (err && err.message === 'CANCELLED') {
         console.log('[settlements] 使用者取消狀態變更');
-        // 還原 select 顯示
         sel.value = oldStatus;
         return;
       }
 
       console.error('[settlements] 狀態變更失敗：', err);
       showToast('更新失敗：' + err.message, 'error');
-      // 還原 select 顯示
       sel.value = oldStatus;
-      _render();
     }
   };
 
