@@ -1,11 +1,11 @@
 // ============================================
-// auth.js — 自訂帳號登入 / 登出 封裝（v101）
+// auth.js — 自訂帳號登入 / 登出 封裝（v103.0.0）
 // 位置：js/core/auth.js
 // ============================================
-// v101 修正：
-//   ✅ DOMAIN / SUPERADMIN_EMAIL 改用 constants.js 常數
-//   ✅ localStorage keys 改用 STORAGE_KEYS
-//   ✅ 新增 getAccountFromEmail / getDisplayName 一致性
+// v103.0.0 重構：
+//   ✅ 版本號更新（無功能變更）
+//   ✅ 匯入 ROUTES 統一登入導向
+//   ✅ 保留 v101 全部功能
 // ============================================
 
 import { auth } from '../config/firebase-config.js';
@@ -18,6 +18,7 @@ import {
   SUPERADMIN_DOMAIN,
   SUPERADMIN_EMAIL,
   STORAGE_KEYS,
+  ROUTES,
 } from '../config/constants.js';
 
 /* ============================================
@@ -72,7 +73,7 @@ export async function logout() {
 
   localStorage.removeItem(STORAGE_KEYS.FAMILY_ID);
   localStorage.removeItem(STORAGE_KEYS.FAMILY_NAME);
-  window.location.href = 'login.html';
+  window.location.href = ROUTES.LOGIN;
 }
 
 /* ============================================
