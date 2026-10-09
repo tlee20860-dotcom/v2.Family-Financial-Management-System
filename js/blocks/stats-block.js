@@ -168,7 +168,23 @@ function _renderCompactCard(card) {
    解析卡片（支援表達式）
    ============================================ */
 function _resolveCards(block, ctx) {
-  const rawCards = block.cards || [];
+  let rawCards = block.cards;
+
+  /* 🆕 支援 block.cards 為表達式字串 */
+  if (typeof rawCards === 'string') {
+    try {
+      rawCards = resolveExpr(rawCards, ctx);
+    } catch (e) {
+      console.warn('[stats-block] cards 表達式解析失敗：', e);
+      return [];
+    }
+  }
+
+  if (!Array.isArray(rawCards)) {
+    console.warn('[stats-block] cards 解析後不是陣列：', rawCards);
+    return [];
+  }
+
   return rawCards.map((c) => ({
     ...c,
     value: _resolveValue(c.value, ctx),
