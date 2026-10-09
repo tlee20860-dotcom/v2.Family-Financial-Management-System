@@ -11,7 +11,7 @@
    0. 版本號
    ============================================ */
 export const APP_VERSION = 'v102.1.0-hotfix1';
-export const SW_VERSION = 'family-fin-v134';
+export const SW_VERSION = 'family-fin-v135';
 
 /* ============================================
    1. localStorage Keys
