@@ -1,13 +1,13 @@
 // ============================================
-// insurance.js — 保險清單表（v103.0.5 Page Schema）
+// insurance.js — 保險清單表（v103.0.6 Page Schema）
 // 位置：js/pages/insurance.js
 // ============================================
-// v103.0.5 修正：
-//   ✅ customMount 結尾立即渲染一次（不等 Firebase 回呼）
-//   ✅ render() 加 try/catch + 錯誤橫幅
+// v103.0.6 修正：
+//   ✅ esc 從 '../lib/format.js' 改為 '../lib/dom.js'
 // ============================================
 
-import { formatHKD, esc } from '../lib/format.js';
+import { formatHKD } from '../lib/format.js';
+import { esc } from '../lib/dom.js';
 import {
   computeEnrichedPolicies, calcProgress, getPolicyHolderId,
 } from '../lib/insurance.js';
@@ -21,28 +21,6 @@ import { openConfirm } from '../ui/modal.js';
 import { showToast } from '../ui/toast.js';
 import { renderStatsCards } from '../shared/stats-cards.js';
 import { ENTITY_KEYS } from '../config/constants.js';
-
-/* ============================================
-   錯誤橫幅（手機除錯用）
-   ============================================ */
-function _showError(msg) {
-  try {
-    let banner = document.getElementById('__insurance_error__');
-    if (!banner) {
-      banner = document.createElement('div');
-      banner.id = '__insurance_error__';
-      banner.style.cssText = `
-        position: fixed; top: 0; left: 0; right: 0;
-        background: #F43F5E; color: #fff;
-        padding: 12px 16px; font-size: 12px; font-family: monospace;
-        z-index: 99999; white-space: pre-wrap;
-        max-height: 40vh; overflow-y: auto;
-      `;
-      document.body.appendChild(banner);
-    }
-    banner.textContent += `[insurance] ${msg}\n`;
-  } catch (e) { /* noop */ }
-}
 
 export default {
   title: '保險清單表',
@@ -62,51 +40,41 @@ export default {
     let _clickHandler = null;
 
     const render = () => {
-      try {
-        const { year } = AppState.getYearMonth();
-        const targetYear = Number(year) || new Date().getFullYear();
-        _enriched = computeEnrichedPolicies(_policies, _paymentsCache, targetYear);
-        _renderStats(targetYear);
-        const completed = _enriched.filter((p) => p._isCompleted);
-        const active = _enriched.filter((p) => !p._isCompleted);
-        _renderCompletedSection(completed);
-        _renderActiveList(active);
-        if (window.lucide) window.lucide.createIcons();
-      } catch (err) {
-        _showError('render 失敗：' + err.message + '\n' + (err.stack || ''));
-        console.error('[insurance] render 失敗：', err);
-      }
+      const { year } = AppState.getYearMonth();
+      const targetYear = Number(year) || new Date().getFullYear();
+      _enriched = computeEnrichedPolicies(_policies, _paymentsCache, targetYear);
+
+      _renderStats(targetYear);
+
+      const completed = _enriched.filter((p) => p._isCompleted);
+      const active = _enriched.filter((p) => !p._isCompleted);
+
+      _renderCompletedSection(completed);
+      _renderActiveList(active);
+      if (window.lucide) window.lucide.createIcons();
     };
 
     const _renderStats = (year) => {
-      try {
-        const yearTotal = _enriched.reduce((s, p) => s + (p._currentAnnualPremium || 0), 0);
-        const activeCount = _enriched.filter((p) => !p._isCompleted).length;
-        const completedCount = _enriched.filter((p) => p._isCompleted).length;
-        if (_statsApi) { try { _statsApi.destroy(); } catch (e) { /* noop */ } }
-        _statsApi = renderStatsCards({
-          container: 'insurance-stats-root',
-          cards: [
-            { title: `${year} 年度保單總供款`, value: formatHKD(yearTotal), valueClass: 'cyan', hint: `共 ${_enriched.length} 張保單`, icon: 'wallet' },
-            { title: '供款中保單', value: `${activeCount} 張`, valueClass: 'emerald', hint: '未供滿的保單數量', icon: 'shield' },
-            { title: '已供滿保單', value: `${completedCount} 張`, valueClass: 'emerald', hint: '已完成供款年期', icon: 'check-circle' },
-          ],
-          columns: 3,
-        });
-      } catch (err) {
-        _showError('_renderStats 失敗：' + err.message);
-        console.error('[insurance] _renderStats 失敗：', err);
-      }
+      const yearTotal = _enriched.reduce((s, p) => s + (p._currentAnnualPremium || 0), 0);
+      const activeCount = _enriched.filter((p) => !p._isCompleted).length;
+      const completedCount = _enriched.filter((p) => p._isCompleted).length;
+      if (_statsApi) { try { _statsApi.destroy(); } catch (e) { /* noop */ } }
+      _statsApi = renderStatsCards({
+        container: 'insurance-stats-root',
+        cards: [
+          { title: `${year} 年度保單總供款`, value: formatHKD(yearTotal), valueClass: 'cyan', hint: `共 ${_enriched.length} 張保單`, icon: 'wallet' },
+          { title: '供款中保單', value: `${activeCount} 張`, valueClass: 'emerald', hint: '未供滿的保單數量', icon: 'shield' },
+          { title: '已供滿保單', value: `${completedCount} 張`, valueClass: 'emerald', hint: '已完成供款年期', icon: 'check-circle' },
+        ],
+        columns: 3,
+      });
     };
 
     const _renderCompletedSection = (completed) => {
       const section = document.getElementById('completed-section');
       const grid = document.getElementById('completed-grid');
       const countEl = document.getElementById('completed-count');
-      if (!section || !grid) {
-        _showError('找不到 #completed-section 或 #completed-grid');
-        return;
-      }
+      if (!section || !grid) return;
       if (completed.length === 0) { section.style.display = 'none'; return; }
       section.style.display = 'block';
       if (countEl) countEl.textContent = String(completed.length);
@@ -117,10 +85,7 @@ export default {
       const cardEl = document.getElementById('insurance-card-view');
       const tableEl = document.getElementById('insurance-table-view');
       const emptyEl = document.getElementById('insurance-empty-state');
-      if (!cardEl || !tableEl) {
-        _showError('找不到 #insurance-card-view 或 #insurance-table-view');
-        return;
-      }
+      if (!cardEl || !tableEl) return;
       if (_enriched.length === 0) {
         if (emptyEl) emptyEl.style.display = 'block';
         cardEl.style.display = 'none';
@@ -196,32 +161,19 @@ export default {
     };
     document.getElementById('insurance-card-view')?.addEventListener('click', _clickHandler);
 
-    /* ---------- 訂閱 ---------- */
     _unsubPolicies = listenInsurancePolicies(async (list) => {
+      _policies = list || [];
       try {
-        _policies = list || [];
-        try {
-          const snap = await Promise.all(_policies.map((p) => getInsurancePaymentsOnce(p.id)));
-          _paymentsCache = {};
-          _policies.forEach((p, i) => { _paymentsCache[p.id] = snap[i]; });
-        } catch (e) { _paymentsCache = {}; }
-        render();
-      } catch (err) {
-        _showError('listenInsurancePolicies 回呼失敗：' + err.message);
-        console.error('[insurance] listenInsurancePolicies 回呼失敗：', err);
-      }
+        const snap = await Promise.all(_policies.map((p) => getInsurancePaymentsOnce(p.id)));
+        _paymentsCache = {};
+        _policies.forEach((p, i) => { _paymentsCache[p.id] = snap[i]; });
+      } catch (e) { _paymentsCache = {}; }
+      render();
     });
 
-    _unsubMembers = listenMembers((list) => {
-      try {
-        _members = list || [];
-        render();
-      } catch (err) {
-        _showError('listenMembers 回呼失敗：' + err.message);
-      }
-    });
+    _unsubMembers = listenMembers((list) => { _members = list || []; render(); });
 
-    /* ---------- 🆕 立即渲染一次（不等 Firebase 回呼） ---------- */
+    /* 🆕 立即渲染一次 */
     render();
 
     return {
