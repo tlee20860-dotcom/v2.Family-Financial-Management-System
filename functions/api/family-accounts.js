@@ -1,10 +1,12 @@
 // ============================================
-// family-accounts.js — 家庭成員帳號管理 API（v101.8.4）
+// family-accounts.js — 家庭成員帳號管理 API（v102.0.0）
 // 位置：functions/api/family-accounts.js
 // ============================================
-// v101.8.4 新增：
-//   ✅ GET 支援 needFamily 權限（家庭成員可讀自己家庭）
-//   ✅ superadmin 可讀任何家庭，成員只能讀自己家庭
+// v102.0.0 修正：
+//   ✅ [P0-2] _handleCreate 自動匹配並寫入 memberId
+//   ✅ [P0-2] _handleRestore 自動匹配並寫入 memberId
+//   ✅ [P0-2] _handleUpdate 支援更新 memberId
+//   ✅ 保留 v101.8.4 全部功能
 // ============================================
 
 import {
@@ -27,10 +29,6 @@ import {
 
 /* ============================================
    GET — 列出家庭帳號
-   -------------------------------------------------
-   v101.8.4：
-   - superadmin 可讀任何家庭
-   - 家庭成員只能讀自己家庭
    ============================================ */
 export async function onRequestGet({ request }) {
   try {
@@ -48,14 +46,12 @@ export async function onRequestGet({ request }) {
 
     const token = extractToken(request);
 
-    // 🆕 v101.8.4：先嘗試 superadmin
     const superUser = await verifySuperAdmin(token);
     let authorized = false;
 
     if (superUser) {
       authorized = true;
     } else {
-      // 🆕 v101.8.4：非 superadmin → 檢查是否為該家庭成員
       const familyResult = await verifyFamilyAccess(token, familyId);
       if (familyResult) {
         authorized = true;
@@ -66,7 +62,6 @@ export async function onRequestGet({ request }) {
       return errorResponse('FORBIDDEN', '無權存取此家庭的帳號列表');
     }
 
-    // 讀取帳號列表
     const accountsSnap = await dbGet(
       `platform/families/${familyId}/memberAccounts`,
       token
@@ -129,7 +124,7 @@ export async function onRequestPost({ request }) {
    CREATE — 建立新成員帳號
    ============================================ */
 async function _handleCreate(body, token) {
-  const { familyId, account, password, displayName, role, canInput } = body;
+  const { familyId, account, password, displayName, role, canInput, memberId: inputMemberId } = body;
 
   const missing = requireFields(body, ['account', 'password', 'displayName']);
   if (missing) return errorResponse('MISSING_FIELDS', '缺少 account / password / displayName');
@@ -174,12 +169,17 @@ async function _handleCreate(body, token) {
   const newUid = signUpResult.uid;
   const now = Date.now();
 
+  // 🆕 v102.0.0：解析 memberId（優先使用呼叫端提供的，否則自動匹配）
+  const memberId = String(inputMemberId || '').trim()
+    || await _resolveMemberId(familyId, displayName, token);
+
   const accountData = {
     email,
     account: accountStr,
     displayName: String(displayName).trim(),
     role: roleStr,
     canInput: canInput !== false,
+    memberId,                                    // 🆕 v102.0.0
     createdAt: now,
   };
 
@@ -215,7 +215,7 @@ async function _handleCreate(body, token) {
    RESTORE — 復原孤兒帳號
    ============================================ */
 async function _handleRestore(body, token) {
-  const { familyId, account, password, displayName, role, canInput } = body;
+  const { familyId, account, password, displayName, role, canInput, memberId: inputMemberId } = body;
 
   const missing = requireFields(body, ['account', 'password', 'displayName']);
   if (missing) return errorResponse('MISSING_FIELDS', '缺少 account / password / displayName');
@@ -254,12 +254,18 @@ async function _handleRestore(body, token) {
   }
 
   const now = Date.now();
+
+  // 🆕 v102.0.0：解析 memberId
+  const memberId = String(inputMemberId || '').trim()
+    || await _resolveMemberId(familyId, displayName, token);
+
   const accountData = {
     email,
     account: accountStr,
     displayName: String(displayName).trim(),
     role: role === 'owner' ? 'owner' : 'member',
     canInput: canInput !== false,
+    memberId,                                    // 🆕 v102.0.0
     createdAt: now,
     restoredAt: now,
   };
@@ -286,7 +292,7 @@ async function _handleRestore(body, token) {
    UPDATE
    ============================================ */
 async function _handleUpdate(body, token) {
-  const { familyId, uid, displayName, role, canInput } = body;
+  const { familyId, uid, displayName, role, canInput, memberId: inputMemberId } = body;
 
   const missing = requireFields(body, ['uid']);
   if (missing) return errorResponse('MISSING_FIELDS', '缺少 uid');
@@ -316,6 +322,11 @@ async function _handleUpdate(body, token) {
 
   if (canInput !== undefined) {
     patch.canInput = canInput === true;
+  }
+
+  // 🆕 v102.0.0：支援更新 memberId
+  if (inputMemberId !== undefined) {
+    patch.memberId = String(inputMemberId || '').trim();
   }
 
   if (Object.keys(patch).length === 0) {
@@ -367,6 +378,29 @@ async function _handleRemove(body, token) {
     removedAccount: existing.account,
     note: 'Firebase Auth 帳號仍保留',
   });
+}
+
+/* ============================================
+   🆕 v102.0.0：內部工具 — 依 displayName 自動匹配 memberId
+   ============================================ */
+async function _resolveMemberId(familyId, displayName, token) {
+  const dn = String(displayName || '').trim();
+  if (!dn) return '';
+
+  try {
+    const members = await dbGet(`families/${familyId}/members`, token);
+    if (!members || typeof members !== 'object') return '';
+
+    const matched = Object.entries(members).find(([id, m]) => {
+      const name = String((m && m.name) || '').trim();
+      return name === dn;
+    });
+
+    return matched ? matched[0] : '';
+  } catch (err) {
+    console.warn('[family-accounts] 匹配 memberId 失敗：', err);
+    return '';
+  }
 }
 
 /* ============================================
