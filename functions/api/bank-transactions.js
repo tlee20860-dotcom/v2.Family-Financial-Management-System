@@ -1,19 +1,10 @@
 // ============================================
-// bank-transactions.js — 銀行交易 CRUD API（v102.0.0 🆕）
+// bank-transactions.js — 銀行交易 CRUD API（v102.0.0）
 // 位置：functions/api/bank-transactions.js
 // ============================================
-// 用途：
-//   管理銀行帳號下的交易記錄（入帳 / 出帳 / 內部轉帳）
-//
-// 請求：
-//   GET  /api/bank-transactions?familyId={uid}&bankId={id}&action=list
-//   GET  /api/bank-transactions?familyId={uid}&action=listAll
-//   POST /api/bank-transactions
-//     body: { familyId, bankId, action: 'create' | 'update' | 'remove', txnId?, data? }
-//
-// 權限：
-//   - superadmin：可讀寫任何家庭
-//   - 家庭成員：可讀寫自己家庭
+// v102.0.0 修正：
+//   ✅ [P2-4] _handleRemove 刪除前清理來源的 txnId（依 refId 反查）
+//   ✅ 保留 v102.0.0 全部功能
 // ============================================
 
 import { dbGet, dbPut, dbPush, dbDelete } from './_config.js';
@@ -48,7 +39,7 @@ export async function onRequestGet({ request }) {
     const { token } = auth;
 
     /* ============================================
-       listAll：所有銀行的交易（Dashboard 用）
+       listAll：所有銀行的交易
        ============================================ */
     if (action === 'listAll') {
       const allBanks = await dbGet(`families/${familyId}/bank_accounts`, token);
@@ -118,7 +109,6 @@ export async function onRequestPost({ request }) {
     if (auth instanceof Response) return auth;
     const { token } = auth;
 
-    // 驗證銀行帳號存在
     const bankSnap = await dbGet(
       `families/${familyId}/bank_accounts/${bankId}`,
       token
@@ -135,7 +125,7 @@ export async function onRequestPost({ request }) {
       case 'update':
         return await _handleUpdate(basePath, txnId, data, token);
       case 'remove':
-        return await _handleRemove(basePath, txnId, token);
+        return await _handleRemove(basePath, txnId, token, familyId, bankId);
       default:
         return errorResponse('BAD_REQUEST', `未知的 action：${action}`);
     }
@@ -225,16 +215,84 @@ async function _handleUpdate(basePath, txnId, data, token) {
 }
 
 /* ============================================
-   內部：REMOVE
+   🆕 v102.0.0：內部：REMOVE（含來源清理）
    ============================================ */
-async function _handleRemove(basePath, txnId, token) {
+async function _handleRemove(basePath, txnId, token, familyId, bankId) {
   if (!txnId) return errorResponse('MISSING_FIELDS', '缺少 txnId');
 
   const existing = await dbGet(`${basePath}/${txnId}`, token);
   if (!existing) return errorResponse('NOT_FOUND', '找不到此交易');
 
+  // 🆕 P2-4：依 category / refId 反查來源，清理 txnId 引用
+  let cleanedSource = null;
+  try {
+    cleanedSource = await _cleanupSourceRef({
+      familyId,
+      bankId,
+      txnId,
+      txn: existing,
+      token,
+    });
+  } catch (err) {
+    console.warn('[bank-transactions] 清理來源失敗：', err);
+  }
+
   const ok = await dbDelete(`${basePath}/${txnId}`, token);
   if (!ok) return errorResponse('INTERNAL', '刪除失敗');
 
-  return successResponse({ removedId: txnId });
+  return successResponse({
+    removedId: txnId,
+    cleanedSource,
+  });
+}
+
+/* ============================================
+   🆕 v102.0.0：內部工具 — 依 refId 反查並清理
+   -------------------------------------------------
+   依 category 對應來源：
+     - 'expense'       → expenses/{year}/{month}/member_expenses/{memberId}/{refId}
+     - 'insurance'     → insurance_payments/{refId}/{year}/{month}
+     - 'reimbursement' → insurance_payments/{refId}/{year}/{month}
+     - 'contribution'  → 無固定 refId（依 memberId + date）
+     - 'manual'        → 無
+   ============================================ */
+async function _cleanupSourceRef({ familyId, bankId, txnId, txn, token }) {
+  const { category, refId, memberId, date } = txn;
+  const base = `families/${familyId}`;
+
+  /* ---------- 支出 ---------- */
+  if (category === 'expense' && refId && memberId && date) {
+    const [y, m] = (date || '').split('-');
+    if (y && m) {
+      const mm = String(m).padStart(2, '0');
+      const path = `${base}/expenses/${y}/${mm}/member_expenses/${memberId}/${refId}`;
+      const src = await dbGet(path, token);
+      if (src && src.txnId === txnId) {
+        await dbPut(path, { ...src, txnId: '' }, token);
+        return { type: 'expense', path, clearedTxnId: true };
+      }
+    }
+  }
+
+  /* ---------- 保險 / 代墊還款 ---------- */
+  if ((category === 'insurance' || category === 'reimbursement') && refId && date) {
+    const [y, m] = (date || '').split('-');
+    if (y && m) {
+      const mm = String(m).padStart(2, '0');
+      const path = `${base}/insurance_payments/${refId}/${y}/${mm}`;
+      const src = await dbGet(path, token);
+      if (src && src.txnId === txnId) {
+        await dbPut(path, { ...src, txnId: '' }, token);
+        return { type: 'insurance_payment', path, clearedTxnId: true };
+      }
+    }
+  }
+
+  /* ---------- 家用轉入 ---------- */
+  if (category === 'contribution' && date) {
+    // 家用轉入無固定 refId，僅記錄清理事件
+    return { type: 'contribution', note: '來源為 income 節點，無需清理 refId' };
+  }
+
+  return null;
 }
