@@ -3,8 +3,8 @@
 // 位置：js/config/entity-definitions.js
 // ============================================
 // v102.0.0 修正：
-//   ✅ POLICY 新增 paymentMode / advanceHolderId 欄位
-//   ✅ POLICY 支援「代墊模式」
+//   ✅ [P0-3] POLICY beforeCreate → 自動建立 member_advances（代墊模式）
+//   ✅ POLICY 保留 paymentMode / advanceHolderId 欄位
 //   ✅ 保留 v101.10.0 monthlyPremium 修正
 // ============================================
 
@@ -17,9 +17,46 @@ import {
   addItem, updateItem, removeItem,
   addPaymentMethod, updatePaymentMethod, removePaymentMethod,
   addStatus, updateStatus, removeStatus,
+  addMemberAdvance,           // 🆕 P0-3
 } from '../core/db.js';
 
 import { ENTITY_KEYS, LIMITS } from './constants.js';
+
+/* ============================================
+   🆕 P0-3：POLICY 建立包裝（代墊模式自動建立 member_advances）
+   ============================================ */
+async function _createPolicyWithAdvance(policy) {
+  const policyId = await addInsurancePolicy(policy);
+  if (!policyId) return policyId;
+
+  // 代墊模式：自動建立 member_advances
+  if (
+    policy.paymentMode === 'advance' &&
+    policy.advanceHolderId &&
+    Number(policy.totalPremium) > 0
+  ) {
+    try {
+      const advanceId = await addMemberAdvance(policy.advanceHolderId, {
+        policyId,
+        totalAmount: Number(policy.totalPremium) || 0,
+        remainingAmount: Number(policy.totalPremium) || 0,
+        startYear: String(policy.firstStartYear || ''),
+        startMonth: String(policy.firstStartMonth || '01').padStart(2, '0'),
+        note: `代墊：${policy.name || ''}`,
+      });
+
+      if (advanceId) {
+        // 寫回保單的 advanceId（供未來查詢）
+        await updateInsurancePolicy(policyId, { advanceId });
+      }
+    } catch (err) {
+      // 保單已建立，但代墊建立失敗 → 記錄警告，不回滾保單
+      console.warn('[entity-definitions] 建立代墊記錄失敗：', err);
+    }
+  }
+
+  return policyId;
+}
 
 /* ============================================
    實體定義表（8 個）
@@ -121,7 +158,7 @@ const ENTITY_DEFS = {
   },
 
   /* ============================================
-     3. 保單（🆕 v102.0.0：新增 paymentMode）
+     3. 保單（🆕 v102.0.0：paymentMode + 代墊自動建立）
      ============================================ */
   [ENTITY_KEYS.POLICY]: {
     key: ENTITY_KEYS.POLICY,
@@ -130,7 +167,7 @@ const ENTITY_DEFS = {
     icon: 'shield',
 
     db: {
-      create: addInsurancePolicy,
+      create: _createPolicyWithAdvance,        // 🆕 P0-3：包裝函式
       update: updateInsurancePolicy,
       remove: removeInsurancePolicy,
       delete: deleteInsurancePolicyAndData,
@@ -143,7 +180,6 @@ const ENTITY_DEFS = {
       { id: 'name', label: '保單名稱', type: 'text', required: true, maxlength: 60, placeholder: '例如：危疾+住院' },
       { id: 'company', label: '保險公司', type: 'select', required: false, optionsSource: 'companies' },
 
-      // 🆕 v102.0.0：付款模式
       { id: 'paymentMode', label: '付款模式', type: 'select', required: true, optionsSource: 'paymentModes', defaultValue: 'direct' },
       { id: 'advanceHolderId', label: '代墊成員（若為代墊模式）', type: 'select', required: false, optionsSource: 'members', emptyText: '— 請選擇 —', hint: '僅在「代墊模式」時需要' },
 
@@ -181,15 +217,12 @@ const ENTITY_DEFS = {
       const annualPremium = Number(data.annualPremium) || 0;
       const paymentMode = data.paymentMode || 'direct';
 
-      // 基金保險必須填月供
       if (type === 'fund_insurance' && monthlyPremium <= 0) {
         return { field: 'monthlyPremium', message: '基金保險請填寫月供金額（大於 0）' };
       }
-      // 普通保險必須填年繳
       if (type === 'normal' && annualPremium <= 0) {
         return { field: 'annualPremium', message: '普通保險請填寫年繳保費（大於 0）' };
       }
-      // 代墊模式必須指定代墊成員
       if (paymentMode === 'advance' && !data.advanceHolderId) {
         return { field: 'advanceHolderId', message: '代墊模式需指定代墊成員' };
       }
@@ -223,8 +256,8 @@ const ENTITY_DEFS = {
         name: data.name,
         company: data.company || '',
         paymentType: data.paymentType || '年繳',
-        paymentMode,                                              // 🆕 v102.0.0
-        advanceHolderId: paymentMode === 'advance' ? (data.advanceHolderId || '') : '',  // 🆕 v102.0.0
+        paymentMode,
+        advanceHolderId: paymentMode === 'advance' ? (data.advanceHolderId || '') : '',
         firstStartYear: startYear,
         firstStartMonth: startMonth,
         totalPolicyYears: totalYears,
@@ -244,8 +277,8 @@ const ENTITY_DEFS = {
         ...row,
         annualPremium: curPeriod ? curPeriod.annualPremium : (row.annualPremium || 0),
         monthlyPremium: row.monthlyPremium || 0,
-        paymentMode: row.paymentMode || 'direct',                 // 🆕 v102.0.0
-        advanceHolderId: row.advanceHolderId || '',               // 🆕 v102.0.0
+        paymentMode: row.paymentMode || 'direct',
+        advanceHolderId: row.advanceHolderId || '',
       };
     },
   },
