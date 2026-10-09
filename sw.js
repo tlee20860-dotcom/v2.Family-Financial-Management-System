@@ -1,14 +1,11 @@
 // ============================================
-// sw.js — Service Worker（v102.0.0）
+// sw.js — Service Worker（v102.1.0）
 // ============================================
-// v102.0.0 更新：
-//   ✅ CACHE_NAME = family-fin-v132（v131 → v132）
-//   ✅ 新增快取：
-//      - js/shared/bank-helpers.js
-//      - js/shared/bank-account-manager.js
+// v102.1.0 更新：
+//   ✅ CACHE_NAME = family-fin-v133（v132 → v133）
 // ============================================
 
-const CACHE_NAME = 'family-fin-v132';
+const CACHE_NAME = 'family-fin-v133';
 
 /* ============================================
    預快取清單
@@ -59,8 +56,8 @@ const STATIC_ASSETS = [
   './js/shared/entity-list-page.js',
   './js/shared/form-handler.js',
   './js/shared/listener-group.js',
-  './js/shared/bank-helpers.js',              // 🆕 v102.0.0
-  './js/shared/bank-account-manager.js',      // 🆕 v102.0.0
+  './js/shared/bank-helpers.js',
+  './js/shared/bank-account-manager.js',
 
   './js/pages/dashboard.js',
   './js/pages/portfolio.js',
