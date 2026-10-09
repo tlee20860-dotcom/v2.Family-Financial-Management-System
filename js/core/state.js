@@ -1,34 +1,42 @@
 // ============================================
-// state.js — 全域狀態中心（v102.0.0）
+// state.js — 全域狀態中心（v103.0.0）
 // 位置：js/core/state.js
 // ============================================
-// v102.0.0 修正：
-//   ✅ [P2-5] setMemberAccount(null) 重置 role / canInput / displayName / currentMemberId
-//   ✅ getCurrentMemberId()（判斷當前登入者的成員 ID）
-//   ✅ 保留 v101.8.0 全部功能
+// v103.0.0 重構：
+//   ✅ 版本號 → v103.0.0
+//   ✅ getMemberName() 便利方法（不依賴 registry，純 fallback）
+//   ✅ getRoleLabel() / getCanInputLabel() 便利方法
+//   ✅ destroy() 補強（清空所有事件監聽 + 狀態）
+//   ✅ 保留 v102.0.0 全部功能
 // ============================================
 
-import { STORAGE_KEYS } from '../config/constants.js';
+import { STORAGE_KEYS, ROLES } from '../config/constants.js';
 
 export const AppState = {
+  /* ---------- 使用者 ---------- */
   currentUser: null,
   isSuperAdmin: false,
 
+  /* ---------- 家庭 ---------- */
   currentFamilyId: '',
   currentFamilyName: '',
   familyOwnerUid: '',
 
+  /* ---------- 帳號 ---------- */
   role: '',
   canInput: false,
   displayName: '',
   memberAccount: null,
   currentMemberId: '',
 
+  /* ---------- 年月 ---------- */
   year: '',
   month: '',
 
+  /* ---------- 檢視模式 ---------- */
   currentView: 'table',
 
+  /* ---------- 內部狀態 ---------- */
   _listeners: {},
   _initialized: false,
 
@@ -44,11 +52,8 @@ export const AppState = {
     const savedFamilyId = localStorage.getItem(STORAGE_KEYS.FAMILY_ID);
     const savedFamilyName = localStorage.getItem(STORAGE_KEYS.FAMILY_NAME);
 
-    if (savedYear) this.year = savedYear;
-    else this.year = String(new Date().getFullYear());
-
-    if (savedMonth) this.month = savedMonth;
-    else this.month = 'all';
+    this.year = savedYear || String(new Date().getFullYear());
+    this.month = savedMonth || 'all';
 
     if (savedFamilyId) {
       this.currentFamilyId = savedFamilyId;
@@ -57,8 +62,10 @@ export const AppState = {
   },
 
   destroy() {
+    /* 清空事件監聽 */
     this._listeners = {};
-    this._initialized = false;
+
+    /* 重設所有狀態 */
     this.currentUser = null;
     this.isSuperAdmin = false;
     this.currentFamilyId = '';
@@ -70,6 +77,8 @@ export const AppState = {
     this.memberAccount = null;
     this.currentMemberId = '';
     this.currentView = 'table';
+
+    this._initialized = false;
   },
 
   /* ============================================
@@ -83,7 +92,7 @@ export const AppState = {
   setSuperAdmin(isSuper) {
     this.isSuperAdmin = !!isSuper;
     if (this.isSuperAdmin) {
-      this.role = 'superadmin';
+      this.role = ROLES.SUPERADMIN;
       this.canInput = true;
     }
     this.emit('superadmin-change', this.isSuperAdmin);
@@ -126,7 +135,7 @@ export const AppState = {
   },
 
   /* ============================================
-     帳號資訊
+     帳號
      ============================================ */
   setRole(role) {
     this.role = role || '';
@@ -149,9 +158,6 @@ export const AppState = {
 
   getDisplayName() { return this.displayName; },
 
-  /**
-   * 🆕 P2-5：setMemberAccount 支援 null 重置
-   */
   setMemberAccount(account) {
     this.memberAccount = account || null;
 
@@ -163,7 +169,7 @@ export const AppState = {
         this.currentMemberId = account.memberId;
       }
     } else {
-      // 🆕 P2-5：重置為預設值（避免切換家庭時殘留前位使用者資訊）
+      /* 重置為預設值（避免切換家庭時殘留前位使用者資訊） */
       this.role = '';
       this.canInput = false;
       this.displayName = '';
@@ -175,9 +181,6 @@ export const AppState = {
 
   getMemberAccount() { return this.memberAccount; },
 
-  /**
-   * 取得當前登入者對應的成員 ID
-   */
   getCurrentMemberId() {
     if (this.currentMemberId) return this.currentMemberId;
     if (this.memberAccount?.memberId) return this.memberAccount.memberId;
@@ -189,12 +192,25 @@ export const AppState = {
     this.emit('current-member-change', this.currentMemberId);
   },
 
-  /**
-   * 一鍵設定所有帳號相關資訊
-   */
   setAccountContext({ familyId, familyName, memberAccount, ownerUid }) {
     this.setFamily(familyId, familyName, ownerUid);
     this.setMemberAccount(memberAccount);
+  },
+
+  /* ============================================
+     便利：角色 / 權限文字
+     ============================================ */
+  getRoleLabel() {
+    switch (this.role) {
+      case ROLES.SUPERADMIN: return '超級管理員';
+      case ROLES.OWNER:      return '家庭擁有者';
+      case ROLES.MEMBER:     return '家庭成員';
+      default:               return '成員';
+    }
+  },
+
+  getCanInputLabel() {
+    return this.canInput ? '可輸入' : '唯讀';
   },
 
   /* ============================================
@@ -210,6 +226,16 @@ export const AppState = {
 
   getYearMonth() { return { year: this.year, month: this.month }; },
   isAnnualMode() { return this.month === 'all'; },
+
+  /**
+   * 🆕 v103.0.0：取得年月顯示文字
+   * @param {string} [sep=' ']
+   * @returns {string}
+   */
+  getYearMonthLabel(sep = ' ') {
+    if (this.month === 'all') return `${this.year} 年 全年`;
+    return `${this.year} 年${sep}${this.month} 月`;
+  },
 
   /* ============================================
      當前檢視模式
