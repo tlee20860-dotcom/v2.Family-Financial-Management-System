@@ -2,39 +2,33 @@
 // state.js — 全域狀態中心（v102.0.0）
 // 位置：js/core/state.js
 // ============================================
-// v102.0.0 新增：
+// v102.0.0 修正：
+//   ✅ [P2-5] setMemberAccount(null) 重置 role / canInput / displayName / currentMemberId
 //   ✅ getCurrentMemberId()（判斷當前登入者的成員 ID）
-//   ✅ currentMemberId（從 memberAccount 或 fallback UID）
 //   ✅ 保留 v101.8.0 全部功能
 // ============================================
 
 import { STORAGE_KEYS } from '../config/constants.js';
 
 export const AppState = {
-  // ---------- 使用者 ----------
   currentUser: null,
   isSuperAdmin: false,
 
-  // ---------- 家庭 ----------
   currentFamilyId: '',
   currentFamilyName: '',
   familyOwnerUid: '',
 
-  // ---------- 帳號資訊 ----------
-  role: '',                 // 'owner' | 'member' | 'superadmin'
-  canInput: false,          // 是否可以輸入 / 編輯
-  displayName: '',          // 顯示名稱
-  memberAccount: null,      // 完整帳號物件 { email, displayName, role, canInput }
-  currentMemberId: '',      // 🆕 v102.0.0：當前登入者對應的成員 ID
+  role: '',
+  canInput: false,
+  displayName: '',
+  memberAccount: null,
+  currentMemberId: '',
 
-  // ---------- 年月 ----------
   year: '',
   month: '',
 
-  // ---------- 檢視模式 ----------
   currentView: 'table',
 
-  // ---------- 事件總線 ----------
   _listeners: {},
   _initialized: false,
 
@@ -155,28 +149,34 @@ export const AppState = {
 
   getDisplayName() { return this.displayName; },
 
+  /**
+   * 🆕 P2-5：setMemberAccount 支援 null 重置
+   */
   setMemberAccount(account) {
     this.memberAccount = account || null;
+
     if (account) {
       this.role = account.role || this.role;
       this.canInput = account.canInput !== false;
       this.displayName = account.displayName || this.displayName;
-      // 🆕 v102.0.0：若 memberAccount 有 memberId，設定之
       if (account.memberId) {
         this.currentMemberId = account.memberId;
       }
+    } else {
+      // 🆕 P2-5：重置為預設值（避免切換家庭時殘留前位使用者資訊）
+      this.role = '';
+      this.canInput = false;
+      this.displayName = '';
+      this.currentMemberId = '';
     }
+
     this.emit('member-account-change', this.memberAccount);
   },
 
   getMemberAccount() { return this.memberAccount; },
 
   /**
-   * 🆕 v102.0.0：取得當前登入者對應的成員 ID
-   * 優先順序：
-   *   1. memberAccount.memberId
-   *   2. currentMemberId
-   *   3. fallback：若 displayName 與某成員名稱相同則使用該成員（由呼叫端處理）
+   * 取得當前登入者對應的成員 ID
    */
   getCurrentMemberId() {
     if (this.currentMemberId) return this.currentMemberId;
@@ -184,9 +184,6 @@ export const AppState = {
     return '';
   },
 
-  /**
-   * 🆕 v102.0.0：手動設定當前成員 ID
-   */
   setCurrentMemberId(memberId) {
     this.currentMemberId = memberId || '';
     this.emit('current-member-change', this.currentMemberId);
