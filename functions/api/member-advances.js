@@ -1,18 +1,11 @@
 // ============================================
-// member-advances.js — 成員代墊 API（v102.0.0 🆕）
+// member-advances.js — 成員代墊 API（v102.1.0）
 // 位置：functions/api/member-advances.js
 // ============================================
-// 用途：
-//   管理成員代墊保險費用的記錄
-//
-// 請求：
-//   GET  /api/member-advances?familyId={uid}&memberId={id}&action=list
-//   GET  /api/member-advances?familyId={uid}&action=listAll
-//   POST /api/member-advances
-//     body: { familyId, memberId, action: 'create' | 'update' | 'remove', advanceId?, data? }
-//
-// 權限：
-//   - 家庭成員：可讀寫所有代墊記錄（透明化）
+// v102.1.0 修正：
+//   ✅ [P3-13] _handleUpdate 不再允許直接修改 remainingAmount
+//       remainingAmount 只能由 insurance-sync.js 系統自動更新
+//   ✅ 保留 v102.0.0 全部功能
 // ============================================
 
 import { dbGet, dbPut, dbPush, dbDelete } from './_config.js';
@@ -43,9 +36,6 @@ export async function onRequestGet({ request }) {
     if (auth instanceof Response) return auth;
     const { token } = auth;
 
-    /* ============================================
-       listAll：所有成員代墊
-       ============================================ */
     if (action === 'listAll') {
       const all = await dbGet(`families/${familyId}/member_advances`, token);
       const flat = [];
@@ -62,9 +52,6 @@ export async function onRequestGet({ request }) {
       });
     }
 
-    /* ============================================
-       list：指定成員的代墊
-       ============================================ */
     if (action !== 'list') {
       return errorResponse('BAD_REQUEST', 'GET 僅支援 action=list 或 action=listAll');
     }
@@ -141,10 +128,11 @@ async function _handleCreate(basePath, data, token) {
   const clean = {
     policyId: String(data.policyId),
     totalAmount,
-    remainingAmount: roundInt(data.remainingAmount != null ? data.remainingAmount : totalAmount),
+    remainingAmount: totalAmount,
     startYear: String(data.startYear || ''),
     startMonth: String(data.startMonth || '').padStart(2, '0'),
     note: data.note || '',
+    paidMonths: {},
     createdAt: Date.now(),
   };
 
@@ -155,7 +143,7 @@ async function _handleCreate(basePath, data, token) {
 }
 
 /* ============================================
-   內部：UPDATE
+   🆕 P3-13：內部：UPDATE（限制 remainingAmount）
    ============================================ */
 async function _handleUpdate(basePath, advanceId, data, token) {
   if (!advanceId) return errorResponse('MISSING_FIELDS', '缺少 advanceId');
@@ -166,10 +154,35 @@ async function _handleUpdate(basePath, advanceId, data, token) {
   const existing = await dbGet(`${basePath}/${advanceId}`, token);
   if (!existing) return errorResponse('NOT_FOUND', '找不到此代墊記錄');
 
+  // 🆕 P3-13：拒絕直接修改 remainingAmount
+  if (data.remainingAmount !== undefined) {
+    return errorResponse(
+      'FORBIDDEN',
+      'remainingAmount 為系統自動計算欄位，不可直接修改。' +
+      '若需調整，請透過保險結算（扣款 / 取消扣款）由系統自動處理。',
+      403
+    );
+  }
+
   const clean = {};
   if (data.policyId !== undefined) clean.policyId = String(data.policyId);
-  if (data.totalAmount !== undefined) clean.totalAmount = roundInt(data.totalAmount);
-  if (data.remainingAmount !== undefined) clean.remainingAmount = roundInt(data.remainingAmount);
+  if (data.totalAmount !== undefined) {
+    const total = roundInt(data.totalAmount);
+    if (total <= 0) {
+      return errorResponse('BAD_REQUEST', 'totalAmount 必須大於 0');
+    }
+    clean.totalAmount = total;
+
+    // 若更新 totalAmount，remainingAmount 需同步重算（= total - 已扣減總額）
+    const paidMonths = (existing.paidMonths && typeof existing.paidMonths === 'object')
+      ? existing.paidMonths
+      : {};
+    const paidCount = Object.keys(paidMonths).length;
+    const oldTotal = roundInt(existing.totalAmount);
+    const oldRemaining = roundInt(existing.remainingAmount);
+    const paidSum = Math.max(0, oldTotal - oldRemaining);
+    clean.remainingAmount = Math.max(0, total - paidSum);
+  }
   if (data.startYear !== undefined) clean.startYear = String(data.startYear);
   if (data.startMonth !== undefined) {
     clean.startMonth = String(data.startMonth).padStart(2, '0');
