@@ -1,24 +1,25 @@
 // ============================================
-// auth-guard.js — 路由守衛（v101.10.0）
+// auth-guard.js — 路由守衛（v103.0.0）
 // 位置：js/core/auth-guard.js
 // ============================================
-// v101.10.0 修正：
-//   ✅ [P1-4] fallback 策略改為「僅網路錯誤」時使用
-//       - NOT_FOUND / FORBIDDEN → 拒絕存取
-//       - 網路錯誤 / 5xx → fallback 到 UID = familyId
-//   ✅ [效能] sessionStorage 快取 lookupFamily 結果（TTL 5 分鐘）
-//       - 切頁時不再重複呼叫 lookupFamily API
-//   ✅ 匯出 clearAuthContextCache(uid) 供登出使用
+// v103.0.0 重構：
+//   ✅ 版本號更新（無功能變更）
+//   ✅ 匯入 ROUTES 統一導向
+//   ✅ 保留 v101.10.0 全部功能
+//      - sessionStorage 快取 lookupFamily（TTL 5 分鐘）
+//      - fallback 策略（僅網路錯誤時使用）
+//      - clearAuthContextCache / clearAllAuthContexts
 // ============================================
 
 import { watchAuth, isSuperAdmin } from './auth.js';
 import { AppState } from './state.js';
 import { api } from './api.js';
+import { SESSION_KEYS, ROUTES, ROLES } from '../config/constants.js';
 
 /* ============================================
    快取設定
    ============================================ */
-const AUTH_CONTEXT_CACHE_PREFIX = 'fin_auth_context_';
+const AUTH_CONTEXT_CACHE_PREFIX = SESSION_KEYS.AUTH_CONTEXT_PREFIX;
 const AUTH_CONTEXT_TTL_MS = 5 * 60 * 1000;   // 5 分鐘
 
 /* ============================================
@@ -39,7 +40,6 @@ export function requireLogin({ requireFamily = true } = {}) {
       if (resolved) return;
       resolved = true;
 
-      // 取消監聽
       try { unsubscribe(); } catch (e) { /* noop */ }
 
       /* ============================================
@@ -47,12 +47,11 @@ export function requireLogin({ requireFamily = true } = {}) {
          ============================================ */
       if (!user) {
         _clearAllAuthContexts();
-        window.location.href = 'login.html';
+        window.location.href = ROUTES.LOGIN;
         resolve(null);
         return;
       }
 
-      // 設定使用者狀態
       AppState.setUser(user);
       const superAdmin = isSuperAdmin(user);
       AppState.setSuperAdmin(superAdmin);
@@ -61,12 +60,12 @@ export function requireLogin({ requireFamily = true } = {}) {
          2. superadmin
          ============================================ */
       if (superAdmin) {
-        AppState.setRole('superadmin');
+        AppState.setRole(ROLES.SUPERADMIN);
         AppState.setCanInput(true);
         AppState.setDisplayName('超級管理員');
 
         if (requireFamily && !AppState.getFamilyId()) {
-          window.location.href = 'admin.html';
+          window.location.href = ROUTES.ADMIN;
           resolve(null);
           return;
         }
@@ -114,7 +113,7 @@ export function requireLogin({ requireFamily = true } = {}) {
           return;
         }
 
-        // 4b. 明確拒絕（v101.10.0：不再 fallback）
+        // 4b. 明確拒絕
         if (
           status === 403 || code === 'FORBIDDEN' ||
           status === 404 || code === 'NOT_FOUND'
@@ -124,7 +123,7 @@ export function requireLogin({ requireFamily = true } = {}) {
             '無法查詢您的家庭資訊。\n\n' +
             '若您認為這是錯誤，請聯繫平台管理員。'
           );
-          window.location.href = 'login.html';
+          window.location.href = ROUTES.LOGIN;
           resolve(null);
           return;
         }
@@ -156,13 +155,13 @@ function _applyAuthContext(ctx) {
 
 function _applyFallbackContext(user) {
   AppState.setFamily(user.uid, '我的家庭', user.uid);
-  AppState.setRole('owner');
+  AppState.setRole(ROLES.OWNER);
   AppState.setCanInput(true);
   AppState.setDisplayName(user.email?.split('@')[0] || '成員');
   AppState.setMemberAccount({
     email: user.email || '',
     displayName: AppState.getDisplayName(),
-    role: 'owner',
+    role: ROLES.OWNER,
     canInput: true,
   });
 }
@@ -179,7 +178,6 @@ function _readAuthContextCache(uid) {
     const data = JSON.parse(raw);
     if (!data || !data.cachedAt) return null;
 
-    // TTL 檢查
     if (Date.now() - data.cachedAt > AUTH_CONTEXT_TTL_MS) {
       sessionStorage.removeItem(`${AUTH_CONTEXT_CACHE_PREFIX}${uid}`);
       return null;
@@ -213,7 +211,7 @@ function _clearAllAuthContexts() {
 }
 
 /**
- * v101.10.0：清除指定 UID 的 auth-context 快取
+ * 清除指定 UID 的 auth-context 快取
  * 供登出、帳號被移除 / 更新時呼叫
  */
 export function clearAuthContextCache(uid) {
@@ -224,7 +222,7 @@ export function clearAuthContextCache(uid) {
 }
 
 /**
- * v101.10.0：清除所有 auth-context 快取
+ * 清除所有 auth-context 快取
  * 供強制重新登入時使用
  */
 export function clearAllAuthContexts() {
@@ -248,5 +246,5 @@ export function canInput() {
 }
 
 export function isFamilyOwner() {
-  return AppState.role === 'owner';
+  return AppState.role === ROLES.OWNER;
 }
