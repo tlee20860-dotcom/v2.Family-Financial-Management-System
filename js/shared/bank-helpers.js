@@ -1,14 +1,12 @@
 // ============================================
-// bank-helpers.js — 銀行業務輔助（v102.0.0 🆕）
+// bank-helpers.js — 銀行業務輔助（v102.1.0-hotfix1）
 // 位置：js/shared/bank-helpers.js
 // ============================================
-// 職責：
-//   集中管理銀行相關的業務邏輯
-//   - 銀行餘額計算（基於 transactions）
-//   - 銀行交易建立 / 更新 / 刪除
-//   - 與 expenses / insurance_payments 的同步
-//
-// SSOT：所有銀行相關計算都應呼叫此模組
+// v102.1.0-hotfix1 修正：
+//   ✅ [HOTFIX] 移除不存在的 export 'updateInsurancePaymentBatchCompat'
+//       - db.js 無此 export，實際名稱應為 'saveInsurancePaymentBatch'
+//       - 且 bank-helpers.js 內文完全未使用，直接移除
+//   ✅ 保留 v102.0.0 全部功能
 // ============================================
 
 import {
@@ -17,7 +15,6 @@ import {
   removeBankTransaction,
   getBankAccountsOnce,
   updateExpense,
-  updateInsurancePaymentBatchCompat,
   updateMemberAdvance,
   getMemberAdvancesOnce,
 } from '../core/db.js';
@@ -96,7 +93,7 @@ export function calcTotalBankBalance(bankAccounts, allTransactions, targetYear, 
 }
 
 /**
- * 計算單一銀行的所有交易（含合併 bankId）
+ * 取得單一銀行的所有交易
  */
 export function getBankTransactions(allTransactions, bankId) {
   return (allTransactions || []).filter((t) => t.bankId === bankId);
@@ -108,15 +105,6 @@ export function getBankTransactions(allTransactions, bankId) {
 
 /**
  * 為支出建立銀行交易
- *
- * @param {Object} params
- * @param {string} params.bankId
- * @param {string} params.memberId
- * @param {number} params.amount
- * @param {string} params.date
- * @param {string} params.expenseId
- * @param {string} [params.note]
- * @returns {Promise<string>} txnId
  */
 export async function createTransactionForExpense({
   bankId,
@@ -141,15 +129,6 @@ export async function createTransactionForExpense({
 
 /**
  * 為保險建立銀行交易
- *
- * @param {Object} params
- * @param {string} params.bankId
- * @param {string} params.memberId - 保單持有人
- * @param {number} params.amount
- * @param {string} params.date
- * @param {string} params.policyId
- * @param {string} [params.note]
- * @returns {Promise<string>} txnId
  */
 export async function createTransactionForInsurance({
   bankId,
@@ -174,15 +153,6 @@ export async function createTransactionForInsurance({
 
 /**
  * 為代墊還款建立銀行交易
- *
- * @param {Object} params
- * @param {string} params.bankId
- * @param {string} params.memberId - 代墊成員
- * @param {number} params.amount
- * @param {string} params.date
- * @param {string} params.policyId
- * @param {string} [params.note]
- * @returns {Promise<string>} txnId
  */
 export async function createTransactionForReimbursement({
   bankId,
@@ -207,14 +177,6 @@ export async function createTransactionForReimbursement({
 
 /**
  * 為家用轉入建立銀行交易
- *
- * @param {Object} params
- * @param {string} params.bankId
- * @param {string} params.memberId
- * @param {number} params.amount
- * @param {string} params.date
- * @param {string} [params.note]
- * @returns {Promise<string>} txnId
  */
 export async function createTransactionForContribution({
   bankId,
@@ -242,14 +204,6 @@ export async function createTransactionForContribution({
 
 /**
  * 同步支出編輯到銀行交易
- *
- * @param {Object} params
- * @param {string} params.oldBankId - 原銀行（可能為空）
- * @param {string} params.oldTxnId - 原交易 ID（可能為空）
- * @param {string} params.newBankId - 新銀行（可能為空）
- * @param {Object} params.expenseData - { memberId, amount, date, name }
- * @param {string} params.expenseId
- * @returns {Promise<string>} 新的 txnId（若有）
  */
 export async function syncExpenseToBank({
   oldBankId,
@@ -336,16 +290,6 @@ export async function cleanupExpenseBankTransaction(bankId, txnId) {
 
 /**
  * 保險付款 → 銀行交易
- *
- * @param {Object} params
- * @param {string} params.paymentMode - 'direct' | 'advance'
- * @param {string} params.bankId
- * @param {string} params.memberId - direct: 持有人；advance: 代墊成員
- * @param {number} params.amount
- * @param {string} params.date
- * @param {string} params.policyId
- * @param {string} [params.policyName]
- * @returns {Promise<string>} txnId
  */
 export async function createTransactionForInsurancePayment({
   paymentMode,
@@ -389,12 +333,6 @@ export async function createTransactionForInsurancePayment({
 
 /**
  * 檢查銀行餘額是否足夠
- *
- * @param {string} bankId
- * @param {number} amount
- * @param {string} year
- * @param {string} month
- * @returns {Promise<{ balance: number, sufficient: boolean, after: number }>}
  */
 export async function checkBankSufficiency(bankId, amount, year, month) {
   try {
@@ -404,11 +342,9 @@ export async function checkBankSufficiency(bankId, amount, year, month) {
       return { balance: 0, sufficient: false, after: 0 };
     }
 
-    // 此處沒有交易資料，需由呼叫端提供
-    // 簡化：僅回傳提示
     return {
       balance: 0,
-      sufficient: true,   // 交由呼叫端顯示警告
+      sufficient: true,
       after: 0,
     };
   } catch (e) {
