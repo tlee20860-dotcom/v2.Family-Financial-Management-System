@@ -1,14 +1,12 @@
 // ============================================
-// db.js — Firebase RTDB 讀寫封裝（v102.0.0）
+// db.js — Firebase RTDB 讀寫封裝（v103.0.0）
 // 位置：js/core/db.js
 // ============================================
-// v102.0.0 新增：
-//   ✅ 銀行帳號 CRUD（listenBankAccounts / addBankAccount / updateBankAccount / removeBankAccount）
-//   ✅ 銀行交易 CRUD（listenBankTransactions / addBankTransaction / updateBankTransaction / removeBankTransaction）
-//   ✅ 個人收入 CRUD（listenPersonalIncome / savePersonalIncome / getPersonalIncomeOnce）
-//   ✅ 代墊 CRUD（listenMemberAdvances / addMemberAdvance / updateMemberAdvance / removeMemberAdvance）
-//   ✅ 銀行帳號初始餘額讀取
-//   ✅ 保留 v101.6.11 全部功能
+// v103.0.0 重構：
+//   ✅ buildLinkedKey 改用 constants.js 統一版本
+//   ✅ addExpense / batchUpdateExpenses 內建 status 正規化
+//   ✅ 銀行帳號 / 交易 / 個人收入 / 代墊 / 銀行結餘（舊）保留
+//   ✅ 保留 v102.0.0 全部對外 API
 // ============================================
 
 import { db } from '../config/firebase-config.js';
@@ -18,6 +16,7 @@ import {
   LINKED_PREFIX,
   buildLinkedKey,
 } from '../config/constants.js';
+import { normalize as normalizeStatus } from '../config/status-registry.js';
 import {
   ref, onValue, push, set, update, remove, get,
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
@@ -183,7 +182,7 @@ export async function deleteBankAndBalances(bankId) {
 }
 
 /* ============================================
-   🆕 v102.0.0：銀行帳號
+   銀行帳號（v102.0.0+）
    ============================================ */
 
 export function listenBankAccounts(cb, err) {
@@ -227,7 +226,7 @@ export async function removeBankAccount(id) {
 }
 
 /* ============================================
-   🆕 v102.0.0：銀行交易
+   銀行交易（v102.0.0+）
    ============================================ */
 
 export function listenBankTransactions(bankId, cb, err) {
@@ -300,7 +299,7 @@ export async function removeBankTransaction(bankId, txnId) {
 }
 
 /* ============================================
-   🆕 v102.0.0：個人收入
+   個人收入
    ============================================ */
 
 export function listenPersonalIncome(memberId, cb, err) {
@@ -338,7 +337,7 @@ export async function removePersonalIncomeEntry(memberId, year, month) {
 }
 
 /* ============================================
-   🆕 v102.0.0：成員代墊
+   成員代墊
    ============================================ */
 
 export function listenMemberAdvances(memberId, cb, err) {
@@ -442,10 +441,6 @@ export async function getPrevMonthBankTotal(year, month) {
   const val = snap.val() || {};
   return Object.values(val).reduce((s, b) => s + roundInt(b.amount), 0);
 }
-
-/* ============================================
-   🆕 v102.0.0：清除舊銀行資料
-   ============================================ */
 
 export async function clearAllBankBalances() {
   const familyId = AppState.getFamilyId();
@@ -839,13 +834,13 @@ export async function addExpense(year, month, memberId, expense) {
   await set(newRef, {
     name: expense.name || '',
     amount: roundInt(expense.amount),
-    status: expense.status || '未處理',
+    status: normalizeStatus(expense.status || '未處理'),
     date: expense.date || '',
     categoryId: expense.categoryId || '',
     itemId: expense.itemId || '',
     paymentMethodId: expense.paymentMethodId || '',
-    bankId: expense.bankId || '',           // 🆕 v102.0.0
-    txnId: expense.txnId || '',             // 🆕 v102.0.0
+    bankId: expense.bankId || '',
+    txnId: expense.txnId || '',
     isAutoLinked: expense.isAutoLinked || false,
     policyId: expense.policyId || '',
     createdAt: Date.now(),
@@ -860,6 +855,7 @@ export async function updateExpense(year, month, memberId, expId, patch) {
   }
   const clean = { ...patch };
   if (clean.amount != null) clean.amount = roundInt(clean.amount);
+  if (clean.status !== undefined) clean.status = normalizeStatus(clean.status);
   await update(familyRef(`${expensePath(year, month, memberId)}/${expId}`), clean);
 }
 
@@ -873,7 +869,7 @@ export async function removeExpense(year, month, memberId, expId) {
 
 export async function markMemberExpenseRepaid(year, month, memberId, expId, statusName) {
   await update(familyRef(`${expensePath(year, month, memberId)}/${expId}`), {
-    status: statusName,
+    status: normalizeStatus(statusName),
     repaidDate: statusName && statusName.startsWith('已')
       ? new Date().toISOString().slice(0, 10)
       : '',
@@ -892,6 +888,8 @@ export async function batchUpdateExpenses(updates) {
     const newMonth = data.month || oldMonth;
     const newMemberId = data.memberId || oldMemberId;
 
+    const normalizedStatus = normalizeStatus(data.status || '未處理');
+
     const pathChanged =
       newYear !== oldYear || newMonth !== oldMonth || newMemberId !== oldMemberId;
 
@@ -907,7 +905,7 @@ export async function batchUpdateExpenses(updates) {
       ] = {
         name: data.name || '',
         amount: roundInt(data.amount),
-        status: data.status || '未處理',
+        status: normalizedStatus,
         date: data.date || '',
         categoryId: data.categoryId || '',
         itemId: data.itemId || '',
@@ -923,7 +921,7 @@ export async function batchUpdateExpenses(updates) {
       ] = {
         name: data.name || '',
         amount: roundInt(data.amount),
-        status: data.status || '未處理',
+        status: normalizedStatus,
         date: data.date || '',
         categoryId: data.categoryId || '',
         itemId: data.itemId || '',
@@ -962,17 +960,17 @@ export async function addInsurancePolicy(policy) {
     name: policy.name || '',
     company: policy.company || '',
     paymentType: policy.paymentType || '年繳',
-    paymentMode: policy.paymentMode || 'direct',       // 🆕 v102.0.0
-    advanceHolderId: policy.advanceHolderId || '',     // 🆕 v102.0.0
-    advanceId: policy.advanceId || '',                 // 🆕 v102.0.0
+    paymentMode: policy.paymentMode || 'direct',
+    advanceHolderId: policy.advanceHolderId || '',
+    advanceId: policy.advanceId || '',
     firstStartYear: Number(policy.firstStartYear) || 0,
     firstStartMonth: String(policy.firstStartMonth || '01').padStart(2, '0'),
     totalPolicyYears: Number(policy.totalPolicyYears) || 0,
     totalPolicyPeriods: Number(policy.totalPolicyPeriods) || 0,
     totalPremium: roundInt(policy.totalPremium),
     currentPeriodIndex: Number(policy.currentPeriodIndex) || 1,
-    monthlyPremium: roundInt(policy.monthlyPremium),   // v101.10.0
-    annualPremium: roundInt(policy.annualPremium),     // v101.10.0
+    monthlyPremium: roundInt(policy.monthlyPremium),
+    annualPremium: roundInt(policy.annualPremium),
     account: policy.account || '',
     periods: policy.periods || {},
     createdAt: Date.now(),
@@ -1062,11 +1060,11 @@ export async function getInsurancePaymentsOnce(policyId) {
 
 export async function saveInsurancePaymentBatch(policyId, year, month, data) {
   await set(familyRef(`insurance_payments/${policyId}/${year}/${month}`), {
-    status: data.status || '已扣款',
+    status: normalizeStatus(data.status || '已扣款'),
     amount: roundInt(data.amount),
     date: data.date || new Date().toISOString().slice(0, 10),
-    bankId: data.bankId || '',   // 🆕 v102.0.0
-    txnId: data.txnId || '',     // 🆕 v102.0.0
+    bankId: data.bankId || '',
+    txnId: data.txnId || '',
   });
 }
 
@@ -1075,7 +1073,7 @@ export async function removeInsurancePaymentBatch(policyId, year, month) {
 }
 
 /* ============================================
-   收入（舊：家用轉入，向後相容）
+   收入（家用轉入）
    ============================================ */
 
 export function listenIncome(year, month, cb, err) {
@@ -1209,6 +1207,7 @@ export async function updateEntityStatus(source, row, newStatus, isDone) {
 async function updateFixedExpenseCompat(year, month, id, patch) {
   const clean = { ...patch };
   if (clean.amount != null) clean.amount = roundInt(clean.amount);
+  if (clean.status !== undefined) clean.status = normalizeStatus(clean.status);
   await update(familyRef(`fixed_expenses/${year}/${month}/${id}`), clean);
 }
 
