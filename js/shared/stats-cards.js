@@ -2,9 +2,9 @@
 // stats-cards.js — 統計卡片渲染（v102.0.0）
 // 位置：js/shared/stats-cards.js
 // ============================================
-// v102.0.0 新增：
+// v102.0.0 修正：
+//   ✅ [P2-1] compact 模式 customFirstCell 用 glass-card 包裹，避免巢狀衝突
 //   ✅ options.customFirstCell（自訂第一格 HTML）
-//       - 用於「家庭總餘額」摺疊展開卡片
 //   ✅ 保留 v101.7.2 全部功能
 // ============================================
 
@@ -22,7 +22,7 @@ export function renderStatsCards(options) {
     cards = [],
     columns = 3,
     mb = 20,
-    customFirstCell = null,   // 🆕 v102.0.0
+    customFirstCell = null,
   } = options;
 
   const root = _resolveElement(container);
@@ -52,10 +52,6 @@ export function renderStatsCards(options) {
     if (window.lucide) window.lucide.createIcons();
   }
 
-  function _renderCurrent() {
-    _render();
-  }
-
   _render();
 
   if (_getStatsMode() === 'auto') {
@@ -66,7 +62,7 @@ export function renderStatsCards(options) {
 
   return {
     container: root,
-    refresh: _renderCurrent,
+    refresh: _render,
     destroy: () => {
       if (_unsubViewChange) {
         try { _unsubViewChange(); } catch (e) { /* noop */ }
@@ -101,7 +97,7 @@ function _resolveDisplayMode(mode) {
 }
 
 /* ============================================
-   方案 C：整合卡（🆕 v102.0.0：支援 customFirstCell）
+   方案 C：整合卡
    ============================================ */
 function _renderIntegrated(root, cards, mb, customFirstCell) {
   const cellsHtml = [
@@ -149,17 +145,33 @@ function _renderIntegratedCell(card) {
 }
 
 /* ============================================
-   方案 B：緊湊獨立卡（🆕 v102.0.0：支援 customFirstCell）
+   方案 B：緊湊獨立卡
+   🆕 P2-1：customFirstCell 用 glass-card + stats-compact-card 包裹，
+            並用 grid-column: span 2 讓它橫跨兩欄，
+            內部若帶 stats-integrated-cell 樣式則會被外層 glass-card 覆蓋。
    ============================================ */
 function _renderCompact(root, cards, columns, mb, customFirstCell) {
   const cols = columns || 3;
   const count = cards.length + (customFirstCell ? 1 : 0);
-
   const effectiveCols = Math.min(cols, count);
 
-  const firstHtml = customFirstCell
-    ? `<div class="glass-card stats-compact-card" style="grid-column: span 2;">${customFirstCell}</div>`
-    : '';
+  // 🆕 P2-1：清掉 customFirstCell 中的 inline grid-column 避免與 wrapper 衝突
+  let firstHtml = '';
+  if (customFirstCell) {
+    const sanitized = String(customFirstCell)
+      .replace(/style="([^"]*)"/g, (m, s) => {
+        // 移除 inline 中的 grid-column，由 wrapper 控制
+        const cleaned = s.replace(/grid-column\s*:\s*span\s*\d+\s*;?/g, '').trim();
+        return cleaned ? `style="${cleaned}"` : '';
+      })
+      .replace(/class="stats-integrated-cell"/g, 'class="stats-compact-cell"');
+
+    firstHtml = `
+      <div class="glass-card stats-compact-card" style="grid-column: span 2; padding:0; overflow:hidden;">
+        ${sanitized}
+      </div>
+    `;
+  }
 
   root.innerHTML = `
     <div class="stats-compact-grid stats-compact-grid-${effectiveCols}" style="margin-bottom:${mb}px;">
@@ -204,7 +216,7 @@ function _renderCompactCard(card) {
    ============================================ */
 function _formatValue(value) {
   if (value == null) return '—';
-  if (typeof value === 'string') return escapeHtml(value);
+  if (typeof value === 'string') return value;   // 允許 HTML（customFirstCell 已 escape）
   return escapeHtml(String(value));
 }
 
