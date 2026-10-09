@@ -1,12 +1,12 @@
 // ============================================
-// index.js — 結算清單入口（v102.0.0）
+// index.js — 結算清單入口（v102.1.0-hotfix2）
 // 位置：js/pages/settlements/index.js
 // ============================================
-// v102.0.0 修正：
-//   ✅ 支援支出編輯時的出帳銀行變更（含銀行交易同步）
-//   ✅ 保險結算時彈出「選擇銀行」Modal
-//   ✅ 保單 paymentMode='advance' 時，還款給代墊成員
-//   ✅ 保留 v101.10.0 全部功能（聚合 API + 單次讀取）
+// v102.1.0-hotfix2 修正：
+//   ✅ [BUG-2/3] _statusChangeHandler 改用 isDoneStatus（與 SSOT 一致）
+//   ✅ [BUG-2/3] 加入 console 診斷日誌
+//   ✅ [BUG-1] 處理 CANCELLED 例外（使用者取消 Modal 時不視為錯誤）
+//   ✅ 保留 v102.1.0 全部功能
 // ============================================
 
 import { AppState } from '../../core/state.js';
@@ -22,6 +22,7 @@ import {
   formatHKD, escapeHtml, setText,
 } from '../../core/utils.js';
 import { callApi } from '../../core/api.js';
+import { isDoneStatus } from '../../shared/entity-helpers.js';   // 🆕 hotfix2
 import { renderPageFilter } from '../../shared/page-filter.js';
 import { showToast } from '../../shared/toast.js';
 import { renderStatsCards } from '../../shared/stats-cards.js';
@@ -186,7 +187,7 @@ async function _loadOptionsCache() {
 }
 
 /* ============================================
-   狀態變更事件委派
+   🆕 hotfix2：狀態變更事件委派（改用 isDoneStatus）
    ============================================ */
 function _bindStatusChange() {
   const root = document.getElementById('settlement-table-root');
@@ -201,16 +202,37 @@ function _bindStatusChange() {
     const key = sel.dataset.key;
     const newStatus = sel.value;
     const row = _rows.find((r) => r.key === key);
-    if (!row) return;
+    if (!row) {
+      console.warn('[settlements] 找不到對應 row，key=', key);
+      return;
+    }
+
+    const oldStatus = row.status;
 
     try {
+      // 呼叫 SSOT 更新
       await updateRowStatus(row, newStatus);
+
+      // 🆕 hotfix2：使用 isDoneStatus（與 SSOT 一致）
       row.status = newStatus;
-      row.isDone = newStatus.startsWith('已');
+      row.isDone = isDoneStatus(newStatus, row.source);
+
       showToast('✅ 狀態已更新', 'success');
+      console.log('[settlements] 狀態變更成功：', { key, oldStatus, newStatus });
       _render();
     } catch (err) {
+      // 🆕 hotfix2：使用者取消 Modal 時，不視為錯誤
+      if (err && err.message === 'CANCELLED') {
+        console.log('[settlements] 使用者取消狀態變更');
+        // 還原 select 顯示
+        sel.value = oldStatus;
+        return;
+      }
+
+      console.error('[settlements] 狀態變更失敗：', err);
       showToast('更新失敗：' + err.message, 'error');
+      // 還原 select 顯示
+      sel.value = oldStatus;
       _render();
     }
   };
@@ -392,13 +414,13 @@ function _buildInsuranceRow(policy, payment, year, month) {
     memberId: policy.memberId,
     policyHolderId: policy.policyHolderId || policy.memberId,
     type: policy.type,
-    paymentMode: policy.paymentMode || 'direct',              // 🆕 v102.0.0
-    advanceHolderId: policy.advanceHolderId || '',            // 🆕 v102.0.0
+    paymentMode: policy.paymentMode || 'direct',
+    advanceHolderId: policy.advanceHolderId || '',
     status: payment.status || '已扣款',
     amount: Number(payment.amount) || 0,
     date: payment.date || '',
-    bankId: payment.bankId || '',                             // 🆕 v102.0.0
-    txnId: payment.txnId || '',                               // 🆕 v102.0.0
+    bankId: payment.bankId || '',
+    txnId: payment.txnId || '',
   };
 }
 
