@@ -1,19 +1,14 @@
 // ============================================
-// column-registry.js — 表格欄位 SSOT（v103.0.0）
+// column-registry.js — 表格欄位 SSOT（v103.0.11）
 // 位置：js/config/column-registry.js
 // ============================================
-// 職責：
-//   1. 集中定義所有表格的欄位結構
-//   2. 集中定義欄位值轉換函式（RESOLVERS）
-//   3. 提供 getColumns / getResolvers 查詢 API
-//
-// 設計原則：
-//   - 所有表格欄位只存在此處
-//   - 欄位與 resolver 分開，方便列印 / 匯出重用
-//   - resolver 為純函式，不依賴外部狀態
+// v103.0.11 修正：
+//   ✅ [H08] formatHKD / formatNumber 改從 lib/format.js 導入
+//   ✅ [H08] escapeHtml 改從 lib/dom.js 導入（別名 esc）
 // ============================================
 
-import { formatHKD, formatNumber, escapeHtml } from '../core/utils.js';
+import { formatHKD, formatNumber } from '../lib/format.js';
+import { esc as escapeHtml } from '../lib/dom.js';
 import {
   BANK_TXN_TYPE_LABELS,
   BANK_TXN_CATEGORY_LABELS,
@@ -24,15 +19,6 @@ import { badgeClass as statusBadgeClass, label as statusLabel } from './status-r
 
 /* ============================================
    1. 欄位定義（COLUMNS）
-   -------------------------------------------------
-   每個欄位結構：
-   {
-     id: 唯一識別,
-     label: 顯示文字,
-     defaultVisible: 預設是否顯示（可省略 = true）,
-     defaultWidth: 預設寬度 px（可省略）,
-     type: 'text' | 'number' | 'date' | 'select' | 'actions',
-   }
    ============================================ */
 export const COLUMNS = {
 
@@ -165,23 +151,18 @@ export const COLUMNS = {
 
 /* ============================================
    2. 值轉換函式（RESOLVERS）
-   -------------------------------------------------
-   每個 resolver 簽名：(value, row) => string(HTML)
    ============================================ */
 export const RESOLVERS = {
 
-  /* ---------- 成員 ---------- */
   members: {
     role: (val) => escapeHtml(String(val || '—')),
     order: (val) => formatNumber(val),
   },
 
-  /* ---------- 銀行 ---------- */
   banks: {
     order: (val) => formatNumber(val),
   },
 
-  /* ---------- 銀行帳號 ---------- */
   bankAccounts: {
     name: (val) => escapeHtml(val || '—'),
     type: (val) => {
@@ -193,12 +174,10 @@ export const RESOLVERS = {
     initialYM: (_, row) => `<span class="mono" style="font-size:12px; color:var(--text-muted);">${escapeHtml(row.initialYear || '—')}-${escapeHtml(row.initialMonth || '—')}</span>`,
   },
 
-  /* ---------- 支出類別 ---------- */
   categories: {
     order: (val) => formatNumber(val),
   },
 
-  /* ---------- 支出項目 ---------- */
   items: {
     categoryId: (val) => {
       const name = val || '—';
@@ -206,12 +185,10 @@ export const RESOLVERS = {
     },
   },
 
-  /* ---------- 支付方式 ---------- */
   payments: {
     order: (val) => formatNumber(val),
   },
 
-  /* ---------- 狀態 ---------- */
   statuses: {
     category: (val) => {
       const map = { personal: '個人支出', fixed: '固定支出', insurance: '保險' };
@@ -223,12 +200,10 @@ export const RESOLVERS = {
     order: (val) => formatNumber(val),
   },
 
-  /* ---------- 保險公司 ---------- */
   companies: {
     name: (val) => escapeHtml(val || '—'),
   },
 
-  /* ---------- 基金 ---------- */
   funds: {
     name: (val) => escapeHtml(val || '（未命名）'),
     cost: (val) => `<span class="mono">${formatHKD(val)}</span>`,
@@ -237,7 +212,6 @@ export const RESOLVERS = {
     note: (val) => escapeHtml(val || '—'),
   },
 
-  /* ---------- 保險保單 ---------- */
   insurance: {
     name: (val) => escapeHtml(val || '（未命名）'),
     company: (val) => escapeHtml(val || '—'),
@@ -255,7 +229,6 @@ export const RESOLVERS = {
     },
   },
 
-  /* ---------- 結算清單 ---------- */
   settlements: {
     source: (_, row) => {
       const map = {
@@ -276,7 +249,6 @@ export const RESOLVERS = {
     },
   },
 
-  /* ---------- 銀行交易 ---------- */
   bankTransactions: {
     date: (val) => `<span class="mono" style="font-size:12px;">${escapeHtml(val || '—')}</span>`,
     bankName: (val) => escapeHtml(val || '—'),
@@ -297,7 +269,6 @@ export const RESOLVERS = {
     note: (val) => escapeHtml(val || '—'),
   },
 
-  /* ---------- 儀表板：年度總覽 ---------- */
   dashboardAnnual: {
     year: (val, row) => `${val} 年${row.isCurrent ? ' <span class="badge badge-info" style="font-size:10px;">今年</span>' : ''}`,
     totalIncome: (val) => `<span class="text-emerald">${formatHKD(val)}</span>`,
@@ -307,7 +278,6 @@ export const RESOLVERS = {
     avg: (val) => formatHKD(val),
   },
 
-  /* ---------- 年度報表：全年總合 ---------- */
   annualSummary: {
     name: (val, row) => {
       if (row.__isTotal) return `<b style="color:var(--neon-cyan);">${escapeHtml(val)}</b>`;
@@ -320,7 +290,6 @@ export const RESOLVERS = {
     net: (val) => `<span class="${val >= 0 ? 'text-emerald' : 'text-red'}">${formatHKD(val)}</span>`,
   },
 
-  /* ---------- 成員報表 ---------- */
   memberReport: {
     name: (val, row) => escapeHtml(val) + (row.isShared ? ' <span class="badge badge-muted" style="font-size:10px;">🏠</span>' : ''),
     income: (_, row) => row.isShared ? '<span class="text-muted">—</span>' : `<span class="text-emerald">${formatHKD(row.income)}</span>`,
@@ -335,11 +304,6 @@ export const RESOLVERS = {
    3. 對外 API
    ============================================ */
 
-/**
- * 取得欄位定義（回傳複本）
- * @param {string} key - COLUMNS 的 key
- * @returns {Array}
- */
 export function getColumns(key) {
   const cols = COLUMNS[key];
   if (!cols) {
@@ -349,23 +313,12 @@ export function getColumns(key) {
   return cols.map((c) => ({ ...c }));
 }
 
-/**
- * 取得欄位值轉換函式（回傳複本）
- * @param {string} key - RESOLVERS 的 key
- * @returns {Object}
- */
 export function getResolvers(key) {
   const res = RESOLVERS[key];
   if (!res) return {};
   return { ...res };
 }
 
-/**
- * 便利函式：動態追加欄位（如 cat_xxx）
- * @param {string} key
- * @param {Array} extraColumns
- * @returns {Array}
- */
 export function getColumnsWith(key, extraColumns = []) {
   return [...getColumns(key), ...extraColumns];
 }

@@ -1,27 +1,19 @@
 // ============================================
-// column-settings.js — 表格欄位設定 SSOT（v101.6.8）
+// column-settings.js — 表格欄位設定（v103.0.11）
 // 位置：js/shared/column-settings.js
 // ============================================
-// v101.6.8 修正：
-//   ✅ [問題] _loadFromStorage 自動補上 defaultVisible=true 但不在 visible 的新欄位
-//       - 讓新加入的 __actions__ 欄位在使用者已有舊 localStorage 時仍能顯示
-//   ✅ 保留 v101.6.1 的「上移 / 下移」按鈕（無拖拽）
-//
-// 儲存格式：
-//   localStorage['fin_ui_columns_{tableId}'] = JSON.stringify({
-//     visible: ['name', 'order'],
-//     order: ['name', 'order'],
-//     widths: { name: 200, order: 80 },
-//   })
+// v103.0.11 修正：
+//   ✅ [H04] escapeHtml 改從 lib/dom.js 導入
+//   ✅ [H05] 改用 ui/modal.js 的 openModal / closeModal
 // ============================================
 
 import { buildColumnSettingsKey } from '../config/constants.js';
-import { escapeHtml } from '../core/utils.js';
+import { esc as escapeHtml } from '../lib/dom.js';
+import { openModal, closeModal } from '../ui/modal.js';
 
 /* ============================================
    主函式
    ============================================ */
-
 export function initColumnSettings(options) {
   const {
     tableId,
@@ -34,7 +26,6 @@ export function initColumnSettings(options) {
 
   const storageKey = buildColumnSettingsKey(tableId);
 
-  // 計算預設值
   const _defaultVisible = defaultVisible
     || columns.filter((c) => c.defaultVisible !== false).map((c) => c.id);
   const _defaultOrder = columns.map((c) => c.id);
@@ -43,28 +34,23 @@ export function initColumnSettings(options) {
     if (c.defaultWidth != null) _defaultWidths[c.id] = c.defaultWidth;
   });
 
-  // 當前狀態
   let _visible = [..._defaultVisible];
   let _order = [..._defaultOrder];
   let _widths = { ..._defaultWidths };
 
-  // 從 localStorage 讀取
   _loadFromStorage();
 
   /* ============================================
      內部工具
      ============================================ */
-
   function _loadFromStorage() {
     try {
       const raw = localStorage.getItem(storageKey);
       if (!raw) return;
       const data = JSON.parse(raw);
 
-      // 🆕 v101.6.8：visible 過濾 + 自動補上 defaultVisible=true 但未包含的新欄位
       if (Array.isArray(data.visible)) {
         _visible = data.visible.filter((id) => columns.some((c) => c.id === id));
-        // 自動補上：defaultVisible !== false 但不在 visible 的欄位（例如新加入的 __actions__）
         columns.forEach((c) => {
           if (c.defaultVisible !== false && !_visible.includes(c.id)) {
             _visible.push(c.id);
@@ -72,7 +58,6 @@ export function initColumnSettings(options) {
         });
       }
 
-      // order 過濾 + 自動補上未包含的新欄位
       if (Array.isArray(data.order)) {
         const validOrder = data.order.filter((id) => columns.some((c) => c.id === id));
         columns.forEach((c) => {
@@ -104,7 +89,6 @@ export function initColumnSettings(options) {
   /* ============================================
      對外 API
      ============================================ */
-
   function getVisibleColumns() {
     return _order
       .filter((id) => _visible.includes(id))
@@ -164,16 +148,15 @@ export function initColumnSettings(options) {
   }
 
   /* ============================================
-     設定面板渲染
+     設定面板渲染（改走 ui/modal.js）
      ============================================ */
-
   function _renderPanel(onChange) {
     const MODAL_ID = `column-settings-panel-${tableId}`;
     let overlay = document.getElementById(MODAL_ID);
     if (overlay) overlay.remove();
 
     overlay = document.createElement('div');
-    overlay.className = 'modal-overlay active';
+    overlay.className = 'modal-overlay';
     overlay.id = MODAL_ID;
     overlay.innerHTML = `
       <div class="modal" style="max-width:480px; max-height:90vh; overflow-y:auto;">
@@ -204,7 +187,6 @@ export function initColumnSettings(options) {
         return `
           <div class="column-settings-row" data-id="${escapeHtml(c.id)}" data-index="${i}"
                style="display:flex; align-items:center; gap:8px; padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.05);">
-
             <div style="display:flex; flex-direction:column; gap:2px; flex-shrink:0;">
               <button type="button" class="btn btn-sm btn-ghost" data-role="move-up"
                       ${isFirst ? 'disabled' : ''}
@@ -217,13 +199,11 @@ export function initColumnSettings(options) {
                 <i data-lucide="chevron-down" style="width:14px;height:14px;"></i>
               </button>
             </div>
-
             <label style="display:flex; align-items:center; gap:8px; flex:1; cursor:pointer; min-width:0;">
               <input type="checkbox" data-role="visible" ${c.visible ? 'checked' : ''}
                      style="width:auto; cursor:pointer; flex-shrink:0;">
               <span style="font-size:13px; word-break:break-word;">${escapeHtml(c.label)}</span>
             </label>
-
             <input type="number" data-role="width" value="${c.width ?? ''}"
                    placeholder="自動" min="40" max="500" step="10"
                    style="width:70px; padding:4px 8px; font-size:12px; background:rgba(8,11,17,0.6); border:1px solid var(--glass-border); border-radius:var(--radius-sm); color:var(--text-primary); flex-shrink:0;">
@@ -237,9 +217,6 @@ export function initColumnSettings(options) {
 
     renderList();
 
-    /* ============================================
-       事件：勾選 / 寬度
-       ============================================ */
     listEl.addEventListener('change', (e) => {
       const checkbox = e.target.closest('input[data-role="visible"]');
       if (checkbox) {
@@ -249,7 +226,6 @@ export function initColumnSettings(options) {
         if (item) item.visible = checkbox.checked;
         return;
       }
-
       const widthInput = e.target.closest('input[data-role="width"]');
       if (widthInput) {
         const row = widthInput.closest('.column-settings-row');
@@ -259,9 +235,6 @@ export function initColumnSettings(options) {
       }
     });
 
-    /* ============================================
-       事件：上移 / 下移
-       ============================================ */
     listEl.addEventListener('click', (e) => {
       const btn = e.target.closest('button[data-role]');
       if (!btn) return;
@@ -282,9 +255,6 @@ export function initColumnSettings(options) {
       }
     });
 
-    /* ============================================
-       事件：按鈕
-       ============================================ */
     overlay.addEventListener('click', (e) => {
       const btn = e.target.closest('.modal-actions button[data-action]');
       if (btn) {
@@ -300,6 +270,7 @@ export function initColumnSettings(options) {
         }
 
         if (action === 'cancel') {
+          closeModal(MODAL_ID);
           overlay.remove();
           return;
         }
@@ -308,6 +279,7 @@ export function initColumnSettings(options) {
           setVisible(tempState.filter((c) => c.visible).map((c) => c.id));
           setOrder(tempState.map((c) => c.id));
           tempState.forEach((c) => setWidth(c.id, c.width));
+          closeModal(MODAL_ID);
           overlay.remove();
           if (typeof onChange === 'function') onChange();
           return;
@@ -315,9 +287,13 @@ export function initColumnSettings(options) {
       }
 
       if (e.target === overlay) {
+        closeModal(MODAL_ID);
         overlay.remove();
       }
     });
+
+    openModal(MODAL_ID);
+    if (window.lucide) window.lucide.createIcons();
   }
 
   return {

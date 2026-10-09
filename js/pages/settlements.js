@@ -2,11 +2,15 @@
 // settlements.js — 結算清單（v103.0.11 Page Schema）
 // 位置：js/pages/settlements.js
 // ============================================
+// v103.0.11 修正：
+//   ✅ [B06] 移除 .settlement-status-select 死代碼（表格用 badge 顯示，非 select）
+//   ✅ [B07] 統一版本號 v103.0.11
+// ============================================
 
 import { formatHKD } from '../lib/format.js';
 import { esc } from '../lib/dom.js';
 import { mergeSettlementData } from '../lib/merge.js';
-import { listenAllMemberExpenses, updateEntityStatus, removeExpense } from '../core/db.js';
+import { listenAllMemberExpenses, removeExpense } from '../core/db.js';
 import { AppState } from '../core/state.js';
 import { showToast } from '../ui/toast.js';
 import { openConfirm } from '../ui/modal.js';
@@ -30,7 +34,6 @@ export default {
     let _statsApi = null;
     let _tableApi = null;
     let _filterInstance = null;
-    let _statusHandler = null;
     let _sortHandler = null;
     let _monthlyUnsub = null;
 
@@ -104,31 +107,6 @@ export default {
           }] : () => [],
         },
       });
-
-      if (_statusHandler) {
-        tableRoot.removeEventListener('change', _statusHandler);
-      }
-      _statusHandler = async (e) => {
-        const sel = e.target.closest('.settlement-status-select');
-        if (!sel) return;
-        const row = _rows.find((r) => r.key === sel.dataset.key);
-        if (!row) return;
-        const newStatus = sel.value;
-        try {
-          await updateEntityStatus(
-            row.source,
-            row,
-            newStatus,
-            row.source === 'insurance' ? newStatus === '已扣款' : newStatus === '已處理'
-          );
-          showToast('✅ 狀態已更新', 'success');
-          reload();
-        } catch (err) {
-          showToast('更新失敗：' + err.message, 'error');
-          sel.value = row.status;
-        }
-      };
-      tableRoot.addEventListener('change', _statusHandler);
     };
 
     const renderStats = () => {
@@ -148,6 +126,7 @@ export default {
       });
     };
 
+    /* 初次設定 */
     const { year, month } = AppState.getYearMonth();
     ctx.state.filters.year = String(year);
     ctx.state.filters.month = month === 'all' ? '' : String(month);
@@ -185,9 +164,6 @@ export default {
         if (_filterInstance) { try { _filterInstance.destroy(); } catch (e) { /* noop */ } }
         if (_statsApi) { try { _statsApi.destroy(); } catch (e) { /* noop */ } }
         if (_tableApi) { try { _tableApi.destroy(); } catch (e) { /* noop */ } }
-        if (_statusHandler) {
-          document.getElementById('settlement-table-root')?.removeEventListener('change', _statusHandler);
-        }
         if (_sortHandler) {
           document.getElementById('settlement-sort')?.removeEventListener('change', _sortHandler);
         }
@@ -196,6 +172,9 @@ export default {
   },
 };
 
+/* ============================================
+   Helpers
+   ============================================ */
 function _applyFilters(list, filters) {
   return list.filter((r) => {
     if (filters.year && r.year !== filters.year) return false;

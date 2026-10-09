@@ -1,30 +1,27 @@
 // ============================================
-// listener-group.js — 訂閱管理（v101.6 🆕）
+// listener-group.js — 訂閱管理（v103.0.11）
 // 位置：js/shared/listener-group.js
 // ============================================
-// 職責：
-//   統一管理 Firebase 訂閱（onValue）
-//   集中銷毀，避免記憶體洩漏
-//
-// 使用方式：
-//   const group = createListenerGroup();
-//   group.add(listenMembers(cb));
-//   group.add(listenBanks(cb));
-//   group.destroy();  // 一次清理全部
-//
-// API 凍結：v101.6 發布後只加不改
+// v103.0.11 重構：
+//   ✅ [H06] 標記 @deprecated，內部實作改走 lib/lifecycle.js
+//   ✅ 對外 API 保持 100% 相容（add / addAll / remove / count / destroy）
+//   ✅ 未來版本將完全移除，呼叫端請改用 lib/lifecycle.js
 // ============================================
 
+import { createCleanupRegistry } from '../lib/lifecycle.js';
+
 /* ============================================
-   主函式
+   主函式（相容層）
    ============================================ */
 
 /**
+ * @deprecated v103.0.11 — 請改用 `lib/lifecycle.js` 的 `createCleanupRegistry`
+ *
  * 建立訂閱群組
  * @returns {Object} { add, addAll, remove, count, destroy }
  */
 export function createListenerGroup() {
-  const _listeners = [];
+  const registry = createCleanupRegistry();
   let _destroyed = false;
 
   return {
@@ -38,9 +35,7 @@ export function createListenerGroup() {
         console.warn('[listener-group] 群組已銷毀，忽略新增訂閱');
         return () => {};
       }
-      if (typeof unsubscribe === 'function') {
-        _listeners.push(unsubscribe);
-      }
+      registry.add(unsubscribe);
       return unsubscribe;
     },
 
@@ -49,41 +44,32 @@ export function createListenerGroup() {
      * @param {Function[]} unsubscribeList
      */
     addAll(unsubscribeList = []) {
-      unsubscribeList.forEach((fn) => this.add(fn));
+      if (_destroyed) return;
+      registry.addAll(unsubscribeList);
     },
 
     /**
-     * 移除指定訂閱
+     * 移除指定訂閱（不執行，只移除）
      * @param {Function} unsubscribe
      */
     remove(unsubscribe) {
-      const idx = _listeners.indexOf(unsubscribe);
-      if (idx >= 0) {
-        _listeners.splice(idx, 1);
-        try { unsubscribe(); } catch (e) { /* noop */ }
-      }
+      registry.remove(unsubscribe);
     },
 
     /**
      * 目前訂閱數量
      */
     count() {
-      return _listeners.length;
+      return registry.size();
     },
 
     /**
-     * 銷毀所有訂閱
+     * 銷毀所有訂閱（執行每個 unsubscribe）
      */
     destroy() {
       if (_destroyed) return;
       _destroyed = true;
-
-      _listeners.forEach((fn) => {
-        try { fn(); } catch (e) {
-          console.warn('[listener-group] 訂閱取消失敗：', e);
-        }
-      });
-      _listeners.length = 0;
+      registry.run();
     },
   };
 }
@@ -93,6 +79,8 @@ export function createListenerGroup() {
    ============================================ */
 
 /**
+ * @deprecated v103.0.11 — 請改用 `createCleanupRegistry()` + 手動包裝 onDestroy
+ *
  * 建立「自動銷毀」的訂閱群組（用於頁面）
  * @param {Function} onDestroy - 額外清理回呼（選填）
  * @returns {Object}

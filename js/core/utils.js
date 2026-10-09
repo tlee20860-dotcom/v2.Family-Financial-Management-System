@@ -1,91 +1,44 @@
 // ============================================
-// utils.js — 通用工具函式（v103.0.0）
+// utils.js — 通用工具（v103.0.11）
 // 位置：js/core/utils.js
 // ============================================
-// v103.0.0 重構：
-//   ✅ 移除 deprecated calculateBankBalance / calculateTotalBankBalance
-//      （SSOT 已統一至 js/shared/bank-helpers.js 的 calcBankBalance）
-//   ✅ 保留 v102.1.0 全部其他功能
-//   ✅ 版本號更新
+// v103.0.11 重構：
+//   ✅ [H02] 格式化函式改為從 lib/format.js re-export
+//   ✅ [H03] escapeHtml 改為從 lib/dom.js re-export（別名 esc）
+//   ✅ [M07] getMemberDisplayName 回傳 '（未命名）'（與 label-registry 一致）
+//   ✅ 標記為「過渡期轉接層」，v104 完全廢除
 // ============================================
 
 import {
   LIMITS, RESERVED_IDS,
-  BANK_TXN_TYPE_LABELS, BANK_TXN_CATEGORY_LABELS, BANK_TXN_CATEGORY_BADGES,
 } from '../config/constants.js';
 
 /* ============================================
-   金額格式化
+   SSOT 轉接層（v103.0.11 過渡期）
+   -------------------------------------------------
+   ⚠️ 格式化相關 → lib/format.js
+   ⚠️ HTML 逸出 → lib/dom.js（別名 esc → escapeHtml）
+   本檔案不再「定義」這些函式，只 re-export。
    ============================================ */
 
-export function formatHKD(amount) {
-  if (amount == null || isNaN(amount)) return 'HK$ 0';
-  const rounded = Math.round(Number(amount));
-  return 'HK$ ' + rounded.toLocaleString('zh-HK');
-}
+/* ---------- 格式化（來自 lib/format.js） ---------- */
+export {
+  formatHKD,
+  formatNumber,
+  roundHKD,
+  clampAmount,
+  formatPercent,
+  formatCellValue,
+  formatTransactionType,
+  formatTransactionCategory,
+  getCategoryBadgeClass,
+} from '../lib/format.js';
 
-export function formatNumber(amount) {
-  if (amount == null || isNaN(amount)) return '0';
-  const rounded = Math.round(Number(amount));
-  return rounded.toLocaleString('zh-HK');
-}
-
-export function roundHKD(value) {
-  const n = Number(value);
-  return isNaN(n) ? 0 : Math.round(n);
-}
-
-export function clampAmount(value) {
-  const n = roundHKD(value);
-  if (n < 0) return 0;
-  if (n > LIMITS.AMOUNT_MAX) return LIMITS.AMOUNT_MAX;
-  return n;
-}
-
-export function formatPercent(value, digits = 2) {
-  const n = Number(value);
-  if (isNaN(n)) return '0%';
-  return `${n.toFixed(digits)}%`;
-}
+/* ---------- HTML 逸出（來自 lib/dom.js，舊名相容） ---------- */
+export { esc as escapeHtml } from '../lib/dom.js';
 
 /* ============================================
-   統一的 cell 值格式化（SSOT）
-   ============================================ */
-export function formatCellValue(val, type) {
-  if (val == null || val === '') return '<span class="text-muted">—</span>';
-
-  switch (type) {
-    case 'number':
-      return formatHKD(val);
-    case 'number-plain':
-      return formatNumber(val);
-    case 'date':
-      return escapeHtml(String(val));
-    case 'select':
-    case 'text':
-    default:
-      return escapeHtml(String(val));
-  }
-}
-
-/* ============================================
-   銀行交易格式化
-   ============================================ */
-
-export function formatTransactionType(type) {
-  return BANK_TXN_TYPE_LABELS[type] || type || '未知';
-}
-
-export function formatTransactionCategory(category) {
-  return BANK_TXN_CATEGORY_LABELS[category] || category || '未分類';
-}
-
-export function getCategoryBadgeClass(category) {
-  return BANK_TXN_CATEGORY_BADGES[category] || 'badge-muted';
-}
-
-/* ============================================
-   日期工具
+   日期工具（保留）
    ============================================ */
 
 export function todayISO() {
@@ -117,18 +70,8 @@ export function parseDate(str) {
 }
 
 /* ============================================
-   字串工具
+   字串工具（保留）
    ============================================ */
-
-export function escapeHtml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  }[c]));
-}
 
 export function truncate(name, maxLen) {
   if (!name) return '';
@@ -154,7 +97,7 @@ export function safeParseFloat(value, fallback = 0) {
 }
 
 /* ============================================
-   DOM 工具
+   DOM 工具（保留）
    ============================================ */
 
 export function qs(sel, parent = document) {
@@ -175,14 +118,20 @@ export function renderEmptyState(container, message, options = {}) {
   if (!el) return;
 
   const { icon, actionHtml } = options;
+
+  // 使用 lib/dom.js 的 esc（透過 re-export 的 escapeHtml 別名）
+  const escFn = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+
   const iconHtml = icon
-    ? `<i data-lucide="${escapeHtml(icon)}" style="width:48px;height:48px;opacity:0.4;"></i>`
+    ? `<i data-lucide="${escFn(icon)}" style="width:48px;height:48px;opacity:0.4;"></i>`
     : '';
 
   el.innerHTML = `
     <div class="empty-state">
       ${iconHtml}
-      <p style="margin-top:12px;">${escapeHtml(message)}</p>
+      <p style="margin-top:12px;">${escFn(message)}</p>
       ${actionHtml || ''}
     </div>
   `;
@@ -191,7 +140,7 @@ export function renderEmptyState(container, message, options = {}) {
 }
 
 /* ============================================
-   成員排序
+   成員排序（保留）
    ============================================ */
 
 export function sortMembers(members) {
@@ -211,15 +160,19 @@ export function isSharedMember(memberId) {
   return memberId === RESERVED_IDS.SHARED_MEMBER;
 }
 
+/**
+ * 🆕 v103.0.11 [M07]：
+ *   回傳「（未命名）」與 label-registry 的 common.unnamed 一致
+ */
 export function getMemberDisplayName(memberId, members = []) {
   if (isExtraIncome(memberId)) return '額外收入';
   if (isSharedMember(memberId)) return '家庭共用';
   const m = members.find((x) => x.id === memberId);
-  return m ? m.name : '（未知）';
+  return m ? m.name : '（未命名）';
 }
 
 /* ============================================
-   效能工具
+   效能工具（保留）
    ============================================ */
 
 export function debounce(fn, wait = 300) {
@@ -242,7 +195,7 @@ export function throttle(fn, wait = 300) {
 }
 
 /* ============================================
-   雜項
+   雜項（保留）
    ============================================ */
 
 export function deepClone(obj) {

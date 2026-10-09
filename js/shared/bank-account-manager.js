@@ -1,16 +1,15 @@
 // ============================================
-// bank-account-manager.js — 銀行帳號管理元件（v103.0.2）
+// bank-account-manager.js — 銀行帳號管理元件（v103.0.11）
 // 位置：js/shared/bank-account-manager.js
 // ============================================
-// v103.0.2 修正：
-//   ✅ 從 './toast.js' 改為 '../ui/toast.js'
-//   ✅ 從 './modal.js' 改為 '../ui/modal.js'
-//   ✅ 從 './form-builder.js' 改為 '../ui/form-builder.js'
+// v103.0.11 修正：
+//   ✅ [H04] escapeHtml / formatHKD 改從 lib/ 導入
 // ============================================
 
 import { api } from '../core/api.js';
 import { AppState } from '../core/state.js';
-import { escapeHtml, formatHKD } from '../core/utils.js';
+import { esc as escapeHtml } from '../lib/dom.js';
+import { formatHKD } from '../lib/format.js';
 import { showToast } from '../ui/toast.js';
 import { openModal, closeModal, openConfirm } from '../ui/modal.js';
 import { buildForm } from '../ui/form-builder.js';
@@ -249,7 +248,7 @@ async function _openEditModal(account) {
   document.getElementById(EDIT_MODAL_ID)?.remove();
 
   const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay active';
+  overlay.className = 'modal-overlay';
   overlay.id = EDIT_MODAL_ID;
   overlay.innerHTML = `
     <div class="modal" style="max-width:520px; max-height:90vh; overflow-y:auto;">
@@ -402,7 +401,7 @@ function _showConflictModal(account, message) {
   document.getElementById(MODAL_ID)?.remove();
 
   const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay active';
+  overlay.className = 'modal-overlay';
   overlay.id = MODAL_ID;
   overlay.style.zIndex = '1100';
   overlay.innerHTML = `

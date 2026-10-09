@@ -1,24 +1,17 @@
 // ============================================
-// tab-panel.js — Tab 切換元件（v103.0.0）
+// tab-panel.js — Tab 切換元件（v103.0.11）
 // 位置：js/ui/tab-panel.js
 // ============================================
-// v103.0.0 重構：
-//   ✅ 從 js/shared/tab-panel.js 移入 js/ui/
-//   ✅ 逸出改用 lib/dom.js 的 esc()
-//   ✅ 保留 v101 全部功能
+// v103.0.11 修正：
+//   ✅ [M05] localStorage key 前綴改用 STORAGE_PREFIXES.UI
 // ============================================
 
 import { esc } from '../lib/dom.js';
+import { STORAGE_PREFIXES } from '../config/constants.js';
 
 /* ============================================
    主函式
    ============================================ */
-
-/**
- * 初始化 Tab 面板
- * @param {Object} options
- * @returns {Object|null}
- */
 export function initTabPanel(options) {
   const {
     containerId,
@@ -64,9 +57,6 @@ export function initTabPanel(options) {
 
   if (window.lucide) window.lucide.createIcons();
 
-  /* ============================================
-     對外 API
-     ============================================ */
   let _currentKey = initialKey;
 
   function switchTo(key) {
@@ -88,8 +78,7 @@ export function initTabPanel(options) {
 
     if (storageKey) {
       try {
-        const k = storageKey.startsWith('fin_ui_') ? storageKey : `fin_ui_${storageKey}`;
-        localStorage.setItem(k, key);
+        localStorage.setItem(_fullKey(storageKey), key);
       } catch (e) { /* noop */ }
     }
 
@@ -147,11 +136,20 @@ function _renderTabBtn(tab, isActive) {
   `;
 }
 
+/**
+ * 🆕 v103.0.11：統一使用 STORAGE_PREFIXES.UI
+ */
+function _fullKey(storageKey) {
+  if (!storageKey) return `${STORAGE_PREFIXES.UI}tab-default`;
+  return storageKey.startsWith(STORAGE_PREFIXES.UI)
+    ? storageKey
+    : `${STORAGE_PREFIXES.UI}${storageKey}`;
+}
+
 function _resolveInitialKey(tabs, defaultKey, storageKey) {
   if (storageKey) {
     try {
-      const k = storageKey.startsWith('fin_ui_') ? storageKey : `fin_ui_${storageKey}`;
-      const saved = localStorage.getItem(k);
+      const saved = localStorage.getItem(_fullKey(storageKey));
       if (saved && tabs.some((t) => t.key === saved)) return saved;
     } catch (e) { /* noop */ }
   }

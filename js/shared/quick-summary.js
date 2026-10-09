@@ -1,44 +1,19 @@
 // ============================================
-// quick-summary.js — 快速摘要卡（v101）
+// quick-summary.js — 快速摘要卡（v103.0.12）
 // 位置：js/shared/quick-summary.js
 // ============================================
-// 用途：
-//   填補頁面底部空白，顯示該頁最相關的速覽資訊
-//
-// 支援 5 種類型：
-//   1. top-categories   本月 Top N 支出類別（水平條）
-//   2. recent-activity  最近 N 筆活動
-//   3. member-trend     成員近 N 月趨勢
-//   4. pending-fixed    本月未付款固定支出
-//   5. asset-pie        資產配置圓餅（純 CSS）
-//
-// 用法：
-//   renderQuickSummary({
-//     containerId: 'quick-summary-root',
-//     type: 'top-categories',
-//     data: [...],
-//     title: '本月 Top 5 支出類別',
-//   });
+// v103.0.12 修正：
+//   ✅ [L03] _renderAssetPie → _renderAssetBar（實際為條狀圖，命名更精確）
+//   ✅ [H04] escapeHtml / formatHKD 從 lib/ 導入
 // ============================================
 
-import { escapeHtml, formatHKD } from '../core/utils.js';
+import { esc as escapeHtml } from '../lib/dom.js';
+import { formatHKD } from '../lib/format.js';
 import { QUICK_SUMMARY_TYPES } from '../config/constants.js';
 
 /* ============================================
    主函式
    ============================================ */
-
-/**
- * 渲染快速摘要卡
- * @param {Object} options
- * @param {string} options.containerId - 容器 ID
- * @param {string} options.type - QUICK_SUMMARY_TYPES 之一
- * @param {string} [options.title] - 卡片標題
- * @param {string} [options.icon] - Lucide icon
- * @param {*} options.data - 依 type 不同
- * @param {Function} [options.onClick] - (item) => {} 點擊某列回呼
- * @returns {Object|null}
- */
 export function renderQuickSummary(options) {
   const {
     containerId,
@@ -77,7 +52,8 @@ export function renderQuickSummary(options) {
       break;
     case QUICK_SUMMARY_TYPES.ASSET_PIE:
       titleText = titleText || '資產配置';
-      bodyHtml = _renderAssetPie(data);
+      /* 🆕 [L03] 函式名稱改為 _renderAssetBar（實作為水平堆疊條） */
+      bodyHtml = _renderAssetBar(data);
       break;
     default:
       titleText = titleText || '摘要';
@@ -98,7 +74,6 @@ export function renderQuickSummary(options) {
 
   if (window.lucide) window.lucide.createIcons();
 
-  // 綁定點擊
   if (typeof onClick === 'function') {
     root.querySelectorAll('[data-summary-key]').forEach((el) => {
       el.style.cursor = 'pointer';
@@ -111,9 +86,6 @@ export function renderQuickSummary(options) {
   return { container: root };
 }
 
-/**
- * 清除摘要卡
- */
 export function clearQuickSummary(containerId) {
   const root = document.getElementById(containerId);
   if (root) root.innerHTML = '';
@@ -122,10 +94,6 @@ export function clearQuickSummary(containerId) {
 /* ============================================
    1. Top 分類
    ============================================ */
-
-/**
- * @param {Array} data - [{ name, amount, categoryId? }, ...]（已排序，Top N）
- */
 function _renderTopCategories(data) {
   const list = (data || []).filter((x) => (Number(x.amount) || 0) > 0);
   if (list.length === 0) {
@@ -156,10 +124,6 @@ function _renderTopCategories(data) {
 /* ============================================
    2. 最近活動
    ============================================ */
-
-/**
- * @param {Array} data - [{ title, subtitle, amount, date, badge? }, ...]
- */
 function _renderRecentActivity(data) {
   const list = (data || []).slice(0, 5);
   if (list.length === 0) {
@@ -190,14 +154,8 @@ function _renderRecentActivity(data) {
 }
 
 /* ============================================
-   3. 成員趨勢（近 N 月）
+   3. 成員趨勢
    ============================================ */
-
-/**
- * @param {Object} data
- * @param {Array} data.months - ['2026-07', '2026-08', '2026-09']
- * @param {Array} data.members - [{ name, values: [100, 200, 300] }, ...]
- */
 function _renderMemberTrend(data) {
   if (!data || !data.members || data.members.length === 0) {
     return '<div class="text-muted text-sm">尚無趨勢資料</div>';
@@ -237,10 +195,6 @@ function _renderMemberTrend(data) {
 /* ============================================
    4. 待處理固定支出
    ============================================ */
-
-/**
- * @param {Array} data - [{ name, amount, month, status, id }, ...]
- */
 function _renderPendingFixed(data) {
   const list = (data || []).filter((x) => x.status !== '已付款' && x.status !== '不適用');
   if (list.length === 0) {
@@ -271,14 +225,11 @@ function _renderPendingFixed(data) {
 }
 
 /* ============================================
-   5. 資產圓餅（純 CSS 條狀）
+   5. 資產配置（水平堆疊條）
+   -------------------------------------------------
+   🆕 v103.0.12 [L03]：原 _renderAssetPie 改名為 _renderAssetBar
    ============================================ */
-
-/**
- * @param {Object} data
- * @param {Array} data.items - [{ name, amount, color }, ...]
- */
-function _renderAssetPie(data) {
+function _renderAssetBar(data) {
   if (!data || !data.items || data.items.length === 0) {
     return '<div class="text-muted text-sm">尚無資產資料</div>';
   }
@@ -297,14 +248,12 @@ function _renderAssetPie(data) {
     '#818cf8',
   ];
 
-  // 水平堆疊條
   const bar = items.map((x, i) => {
     const pct = (Number(x.amount) / total) * 100;
     const color = x.color || defaultColors[i % defaultColors.length];
     return `<div style="width:${pct}%; height:100%; background:${color};" title="${escapeHtml(x.name)} ${pct.toFixed(1)}%"></div>`;
   }).join('');
 
-  // 圖例
   const legend = items.map((x, i) => {
     const pct = ((Number(x.amount) / total) * 100).toFixed(1);
     const color = x.color || defaultColors[i % defaultColors.length];
@@ -335,14 +284,6 @@ function _renderAssetPie(data) {
 /* ============================================
    便捷：資料輔助產生器
    ============================================ */
-
-/**
- * 從 perMember + categories 產生 Top 分類資料
- * @param {Object} perMember - { memberId: { items: [...] } }
- * @param {Array} categories - [{ id, name }]
- * @param {number} [topN=5]
- * @returns {Array}
- */
 export function buildTopCategoriesData(perMember, categories, topN = 5) {
   const catMap = {};
   categories.forEach((c) => { catMap[c.id] = c.name; });
@@ -362,15 +303,6 @@ export function buildTopCategoriesData(perMember, categories, topN = 5) {
     .slice(0, topN);
 }
 
-/**
- * 產生「最近活動」資料（從多個來源混合）
- * @param {Object} params
- * @param {Array} [params.expenses]
- * @param {Array} [params.fixedExpenses]
- * @param {Array} [params.incomes]
- * @param {number} [limit=5]
- * @returns {Array}
- */
 export function buildRecentActivityData({ expenses = [], fixedExpenses = [], incomes = [] }, limit = 5) {
   const activities = [];
 

@@ -1,11 +1,11 @@
 // ============================================
-// page-engine.js — 頁面引擎（v103.0.4）
+// page-engine.js — 頁面引擎（v103.0.11）
 // 位置：js/engines/page-engine.js
 // ============================================
-// v103.0.4 修正：
-//   ✅ [關鍵 BUG] _subscribeAllData 的 _onKeyChange 補上 'data.' 前綴
-//   ✅ 加入頁面錯誤橫幅（手機除錯用）
-//   ✅ 加入詳細 console 日誌
+// v103.0.11 修正：
+//   ✅ [B04] _computeOne 補上 undefined 依賴檢查（合併 v103.0.7 P07 修正）
+//   ✅ 保留 v103.0.4 的 data. 前綴修正（P05）
+//   ✅ 保留 customMount 支援（P04）
 // ============================================
 
 import {
@@ -158,7 +158,6 @@ function _subscribeAllData(ctx, schema) {
         }
         ctx.data[key] = data;
         console.log(`[page-engine] data.${key} 更新：`, data);
-        // ✅ v103.0.4 修正：加上 'data.' 前綴
         _onKeyChange(ctx, schema, 'data.' + key);
       });
       ctx._unsubs.push(unsub);
@@ -239,7 +238,7 @@ function _markDirty(ctx, key, dirtySet) {
 function _computeAllDerived(ctx, schema) {
   const derivedDef = schema.derived || {};
   const ordered = _topoSort(Object.keys(derivedDef), derivedDef);
-  ordered.forEach((name) => _computeOne(ctx, name, derivedDef[name]));
+  ordered.forEach((name) => _computeOne(ctx, schema, name, derivedDef[name]));
   console.log('[page-engine] derived 全部計算完成：', Object.keys(ctx.derived));
 }
 
@@ -247,13 +246,35 @@ function _recomputeDerivedSubset(ctx, schema, dirtySet) {
   const derivedDef = schema.derived || {};
   const ordered = _topoSort(Object.keys(derivedDef), derivedDef);
   ordered.forEach((name) => {
-    if (dirtySet.has(name)) _computeOne(ctx, name, derivedDef[name]);
+    if (dirtySet.has(name)) _computeOne(ctx, schema, name, derivedDef[name]);
   });
 }
 
-function _computeOne(ctx, name, cfg) {
+/**
+ * 🆕 v103.0.11 [B04]：
+ *   補上 undefined 依賴檢查——任何 data.* 或 derived.* 依賴為 undefined
+ *   時，跳過計算並保持 derived[name] = undefined，等資料到達後由
+ *   _onKeyChange 觸發重算。
+ */
+function _computeOne(ctx, schema, name, cfg) {
+  const deps = cfg.deps || [];
+  const derivedDef = schema.derived || {};
+
   try {
-    const args = (cfg.deps || []).map((dep) => _resolveDep(ctx, dep));
+    const args = deps.map((dep) => _resolveDep(ctx, dep));
+
+    // 🆕 檢查是否有 undefined 依賴
+    const hasUndefinedDep = deps.some((dep, i) => {
+      if (dep.startsWith('data.')) return args[i] === undefined;
+      if (dep in derivedDef) return args[i] === undefined;
+      return false;
+    });
+
+    if (hasUndefinedDep) {
+      ctx.derived[name] = undefined;
+      return;
+    }
+
     ctx.derived[name] = cfg.compute(...args);
   } catch (err) {
     _showError(`derived.${name} 計算失敗：${err.message}`);

@@ -1,14 +1,18 @@
 // ============================================
-// form-handler.js — 提交封裝（v103.0.2）
+// form-handler.js — 提交封裝（v103.0.11）
 // 位置：js/shared/form-handler.js
 // ============================================
-// v103.0.2 修正：
-//   ✅ 從 './toast.js' 改為 '../ui/toast.js'
+// v103.0.11 重構：
+//   ✅ [H07] 標記 @deprecated，內部實作改走 lib/async.js 的 withToast
+//   ✅ 對外 API 保持 100% 相容（handleSubmit / submitAndToast / submitSilent）
+//   ✅ 未來版本將完全移除，呼叫端請改用 lib/async.js
 // ============================================
 
-import { showToast } from '../ui/toast.js';
+import { withToast } from '../lib/async.js';
 
 /**
+ * @deprecated v103.0.11 — 請改用 `lib/async.js` 的 `withToast`
+ *
  * 提交封裝
  * @param {Object} options
  * @param {Function} options.action - 執行函式（async）
@@ -34,40 +38,35 @@ export async function handleSubmit(options) {
     return { success: false, error: new Error('action 必須是函式') };
   }
 
-  try {
-    const result = await action();
-
-    if (!silent && successMessage) {
-      showToast(successMessage, 'success');
+  const { ok, result, error } = await withToast(
+    silent ? null : successMessage,
+    action,
+    {
+      silent,
+      errorMsg: errorMessage,
     }
+  );
+
+  if (ok) {
     if (typeof onSuccess === 'function') {
       try { onSuccess(result); } catch (e) {
         console.error('[form-handler] onSuccess 失敗：', e);
       }
     }
-
     return { success: true, result };
-  } catch (err) {
-    console.error('[form-handler] 操作失敗：', err);
-
-    if (!silent) {
-      const msg = errorMessage
-        ? `${errorMessage}：${err.message || err}`
-        : `操作失敗：${err.message || err}`;
-      showToast(msg, 'error');
-    }
-
-    if (typeof onError === 'function') {
-      try { onError(err); } catch (e) {
-        console.error('[form-handler] onError 失敗：', e);
-      }
-    }
-
-    return { success: false, error: err };
   }
+
+  if (typeof onError === 'function') {
+    try { onError(error); } catch (e) {
+      console.error('[form-handler] onError 失敗：', e);
+    }
+  }
+  return { success: false, error };
 }
 
 /**
+ * @deprecated v103.0.11 — 請改用 `withToast('✅ 已儲存', fn)`
+ *
  * 提交並顯示成功訊息（簡化版）
  */
 export function submitAndToast(action, message = '✅ 已儲存') {
@@ -75,6 +74,8 @@ export function submitAndToast(action, message = '✅ 已儲存') {
 }
 
 /**
+ * @deprecated v103.0.11 — 請改用 `withToast(null, fn, { silent: true })`
+ *
  * 提交並靜默（不顯示 Toast）
  */
 export function submitSilent(action) {

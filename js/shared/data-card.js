@@ -1,23 +1,20 @@
 // ============================================
-// data-card.js — 通用卡片渲染（v101.6.9）
+// data-card.js — 通用卡片渲染（v103.0.11）
 // 位置：js/shared/data-card.js
 // ============================================
-// v103.0.2 修正：
-//   ✅ 從 '../config/entity-definitions.js' 改為 '../entity/entity-definitions.js'
+// v103.0.11 修正：
+//   ✅ [H04] escapeHtml / formatCellValue 改從 lib/ 導入
 // ============================================
 
 import { getEntityDef, getEntityUi } from '../entity/entity-definitions.js';
-import { escapeHtml, formatCellValue } from '../core/utils.js';
+import { esc as escapeHtml } from '../lib/dom.js';
+import { formatCellValue } from '../lib/format.js';
 
-/* ============================================
-   監聽器儲存 key（避免累積）
-   ============================================ */
 const LISTENER_KEY = '__dcClickListener';
 
 /* ============================================
    主函式
    ============================================ */
-
 export function renderDataCard(options) {
   const {
     container,
@@ -235,9 +232,7 @@ export function renderDataCard(options) {
 
   return {
     container: root,
-
     refresh: () => _render(),
-
     destroy: () => {
       const oldListener = root[LISTENER_KEY];
       if (oldListener) {
@@ -252,7 +247,6 @@ export function renderDataCard(options) {
 /* ============================================
    內部工具
    ============================================ */
-
 function _resolveElement(target) {
   if (typeof target === 'string') return document.getElementById(target);
   if (target instanceof HTMLElement) return target;

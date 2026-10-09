@@ -1,16 +1,10 @@
 // ============================================
-// data-engine.js — 資料引擎（v103.0.0）
+// data-engine.js — 資料引擎（v103.0.11）
 // 位置：js/engines/data-engine.js
 // ============================================
-// 職責：
-//   1. Firebase 訂閱（含路徑佔位符解析）
-//   2. 響應式狀態（Proxy 深層代理）
-//   3. 一次性讀取（get）
-//   4. 路徑 / 值工具
-//
-// 設計原則：
-//   - 純資料層，不涉及 UI
-//   - 訂閱 / 讀取一律走此處，統一錯誤處理
+// v103.0.11 修正：
+//   ✅ [B03] resolvePath 支援 {__all__} 佔位符（自動移除該段路徑）
+//   ✅ [B03] 新增 type: 'raw'（保留原始物件，不轉 list）
 // ============================================
 
 import {
@@ -27,6 +21,7 @@ import { AppState } from '../core/state.js';
  * 解析路徑為完整 Firebase 路徑
  * - 自動加上 `families/{familyId}/` 前綴
  * - 替換 `{key}` 佔位符（從 params 取值）
+ * - `{__all__}` 特殊佔位符：移除該段路徑（含前導 /）
  *
  * @param {string} rawPath - 如 'members' / 'expenses/{year}/{month}/member_expenses'
  * @param {Object} [params={}] - 佔位符對應值
@@ -38,7 +33,11 @@ export function resolvePath(rawPath, params = {}) {
 
   if (!rawPath) throw new Error('路徑為必填');
 
-  const resolved = String(rawPath).replace(/\{(\w+)\}/g, (_, key) => {
+  // 🆕 先處理 {__all__}（移除該段，含前導 /）
+  let cleaned = String(rawPath).replace(/\/?\{__all__\}/g, '');
+
+  // 再處理一般佔位符
+  const resolved = cleaned.replace(/\{(\w+)\}/g, (_, key) => {
     if (params[key] == null || params[key] === '') {
       console.warn(`[data-engine] 路徑佔位符 {${key}} 未提供值`);
       return '';
@@ -57,8 +56,8 @@ export function resolvePath(rawPath, params = {}) {
  * 訂閱一個 Firebase 路徑
  *
  * @param {Object} cfg
- * @param {string} cfg.path - 相對路徑（可含 {key} 佔位符）
- * @param {'list'|'object'|'value'} [cfg.type='object']
+ * @param {string} cfg.path - 相對路徑（可含 {key} / {__all__} 佔位符）
+ * @param {'list'|'object'|'value'|'raw'} [cfg.type='object']
  * @param {Function} [cfg.transform] - (data) => newData
  * @param {Object} [cfg.params={}] - 佔位符對應值
  * @param {Function} callback - ({ type, data, raw, error }) => void
@@ -88,7 +87,10 @@ export function subscribe(cfg, callback) {
     (snap) => {
       let data = snap.val();
 
-      if (type === 'list') {
+      // 🆕 raw 模式：不轉換
+      if (type === 'raw') {
+        // 保留原始物件
+      } else if (type === 'list') {
         data = _toList(data);
       }
 
@@ -124,7 +126,7 @@ export function subscribe(cfg, callback) {
  *
  * @param {Object} cfg
  * @param {string} cfg.path
- * @param {'list'|'object'|'value'} [cfg.type='object']
+ * @param {'list'|'object'|'value'|'raw'} [cfg.type='object']
  * @param {Function} [cfg.transform]
  * @param {Object} [cfg.params={}]
  * @returns {Promise<*>}
@@ -141,7 +143,9 @@ export async function fetchOnce(cfg) {
   const snap = await get(ref(db, resolvedPath));
 
   let data = snap.val();
-  if (type === 'list') {
+  if (type === 'raw') {
+    // 保留
+  } else if (type === 'list') {
     data = _toList(data);
   }
   if (typeof transform === 'function') {
@@ -173,7 +177,6 @@ export function makeReactive(obj, onChange, pathPrefix = '') {
 
       if (oldValue === value) return true;
 
-      // 若新值為物件 → 遞迴代理
       if (value != null && typeof value === 'object' && !Array.isArray(value)) {
         target[key] = _deepProxy(value, onChange, keyPath);
       } else {
@@ -245,7 +248,6 @@ function _deepProxy(obj, onChange, pathPrefix, customHandler) {
     },
   };
 
-  // 對巢狀物件預先代理
   if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
     Object.keys(obj).forEach((key) => {
       const val = obj[key];

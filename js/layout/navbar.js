@@ -1,13 +1,10 @@
 // ============================================
-// navbar.js — 頂部導覽列（v103.0.0）
+// navbar.js — 頂部導覽列（v103.0.12）
 // 位置：js/layout/navbar.js
 // ============================================
-// v103.0.0 重構：
-//   ✅ 從 js/shared/navbar.js 移入 js/layout/
-//   ✅ 逸出改用 lib/dom.js 的 esc()
-//   ✅ SHOW_YEAR_MONTH_PAGES 改從 constants.js 讀取（SSOT）
-//   ✅ Sidebar 開關改呼叫 layout/sidebar.js 暴露的方法
-//   ✅ admin 導向改使用 ROUTES 常數
+// v103.0.12 修正：
+//   ✅ [L01] 移除 _bindGlobalEvents 中的空 return 分支
+//   ✅ 保留 hamburger 按鈕的實際綁定
 // ============================================
 
 import { AppState } from '../core/state.js';
@@ -27,6 +24,7 @@ let _unsubscribeMemberAccountChange = null;
 let _unsubscribeYMChange = null;
 let _currentActiveHref = '';
 let _yearMonthChangeHandler = null;
+let _hamburgerHandler = null;
 
 /* ============================================
    渲染頂部導覽列
@@ -67,8 +65,10 @@ export function renderNavbar(containerId = 'navbar-root', title = '', activeHref
 
   if (!_eventBound) {
     _eventBound = true;
-    _bindGlobalEvents();
+    _bindGlobalEvents(root);
   }
+
+  if (window.lucide) window.lucide.createIcons();
 }
 
 /* ============================================
@@ -119,8 +119,6 @@ function _renderYearMonth() {
   };
 
   box.addEventListener('change', _yearMonthChangeHandler);
-
-  if (window.lucide) window.lucide.createIcons();
 }
 
 /* ============================================
@@ -165,37 +163,22 @@ function _renderUserInfo() {
 
 /* ============================================
    全域事件
+   -------------------------------------------------
+   🆕 [L01]：只保留 hamburger 按鈕的實際綁定；
+            其他事件（backdrop、nav-item、group-toggle）
+            由 sidebar.js 自行處理，此處不再攔截。
    ============================================ */
-function _bindGlobalEvents() {
-  document.addEventListener('click', (e) => {
-    /* ---------- Hamburger：切換 Sidebar ---------- */
-    if (e.target.closest('#hamburger-btn')) {
-      e.preventDefault();
-      e.stopPropagation();
-      toggleSidebar();
-      return;
-    }
+function _bindGlobalEvents(root) {
+  /* Hamburger：切換 Sidebar（委派至 root） */
+  _hamburgerHandler = (e) => {
+    if (!e.target.closest('#hamburger-btn')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    toggleSidebar();
+  };
+  root.addEventListener('click', _hamburgerHandler);
 
-    /* ---------- Sidebar backdrop：關閉行動版 ---------- */
-    if (e.target.classList.contains('sidebar-backdrop')) {
-      /* 由 sidebar.js 內部處理 */
-      return;
-    }
-
-    /* ---------- 點擊 Sidebar 內的 nav-item（手機自動關閉） ---------- */
-    const navLink = e.target.closest('.sidebar .nav-item');
-    if (navLink) {
-      return;
-    }
-
-    /* ---------- 群組展開（由 sidebar.js 內部處理） ---------- */
-    const groupToggle = e.target.closest('[data-group-toggle]');
-    if (groupToggle) {
-      return;
-    }
-  });
-
-  /* ---------- AppState 事件訂閱 ---------- */
+  /* AppState 事件訂閱 */
   if (_unsubscribeUserChange) { try { _unsubscribeUserChange(); } catch (err) { /* noop */ } }
   _unsubscribeUserChange = AppState.on('user-change', () => _renderUserInfo());
 
@@ -243,4 +226,14 @@ export function destroyNavbar() {
     }
     _yearMonthChangeHandler = null;
   }
+
+  if (_hamburgerHandler) {
+    const root = document.getElementById('navbar-root');
+    if (root) {
+      try { root.removeEventListener('click', _hamburgerHandler); } catch (e) { /* noop */ }
+    }
+    _hamburgerHandler = null;
+  }
+
+  _eventBound = false;
 }

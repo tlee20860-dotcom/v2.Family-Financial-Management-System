@@ -1,15 +1,10 @@
 // ============================================
-// debug.js — 手機除錯工具（v103.0.8）
+// debug.js — 手機除錯工具（v103.0.12）
 // 位置：js/core/debug.js
 // ============================================
-// 用途：
-//   動態載入 vConsole，讓手機瀏覽器也能看 Console
-//   由 app-shell.js 的 initApp 統一呼叫
-//
-// 控制方式：
-//   - 預設啟用（開發階段）
-//   - 訪問任意頁面加 ?debug=0 可關閉
-//   - 訪問任意頁面加 ?debug=1 可強制啟用
+// v103.0.12 修正：
+//   ✅ [M16] 預設關閉 vConsole（正式上線狀態）
+//           訪問頁面加 ?debug=1 才啟用
 // ============================================
 
 let _initialized = false;
@@ -23,17 +18,14 @@ export function initDebug() {
 
   if (window.__vconsole_loaded__) return;
 
-  // 判斷是否啟用
   const params = new URLSearchParams(location.search);
   const debugParam = params.get('debug');
 
-  if (debugParam === '0') return;  // 明確關閉
-
-  // 若 localStorage 記錄為關閉，也跳過（除 ?debug=1 強制）
+  /* 🆕 v103.0.12 [M16]：
+     正式階段：只有 ?debug=1 才啟用
+     若 localStorage 記錄為關閉，一律不啟用（除 ?debug=1 強制） */
   if (debugParam !== '1') {
-    try {
-      if (localStorage.getItem('__debug_off__') === '1') return;
-    } catch (e) { /* noop */ }
+    return;
   }
 
   window.__vconsole_loaded__ = true;
@@ -49,7 +41,7 @@ export function initDebug() {
   // 動態載入 vConsole
   const script = document.createElement('script');
   script.src = 'https://cdn.jsdelivr.net/npm/vconsole@3.15.0/dist/vconsole.min.js';
-  script.async = false;   // 保持順序
+  script.async = false;
   script.onload = () => {
     try {
       if (window.VConsole) {

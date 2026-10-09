@@ -1,16 +1,17 @@
 // ============================================
-// constants.js — 全站常數集中管理（v103.0.3）
+// constants.js — 全站常數集中管理（v103.0.11）
 // 位置：js/config/constants.js
 // ============================================
-// v103.0.3 修正：
-//   ✅ SIDEBAR_GROUPS 所有 href 加上 .html（避免 CF Pages 匹配 .js）
+// v103.0.11 修正：
+//   ✅ [H01] APP_VERSION / SW_VERSION 統一至最新版
+//   ✅ 保留 v103.0.3 的 SIDEBAR_GROUPS href 修正
 // ============================================
 
 /* ============================================
    0. 版本號
    ============================================ */
-export const APP_VERSION = 'v103.0.3';
-export const SW_VERSION = 'family-fin-v137';
+export const APP_VERSION = 'v103.0.11';
+export const SW_VERSION = 'family-fin-v139';
 
 /* ============================================
    1. localStorage Keys
@@ -356,9 +357,6 @@ export const DEFAULT_PAYMENTS = [
 
 /* ============================================
    19. 側邊欄分類群組
-   -------------------------------------------------
-   🔧 v103.0.3：所有 href 加上 .html
-       避免 CF Pages 路由匹配到 .js 檔案
    ============================================ */
 export const SIDEBAR_GROUPS = [
   {

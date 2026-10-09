@@ -1,8 +1,12 @@
 // ============================================
-// member-report.js — 成員收支明細（v103.0.0 Page Schema）
+// member-report.js — 成員收支明細（v103.0.11 Page Schema）
 // 位置：js/pages/member-report.js
 // ============================================
-import { createPage } from '../engines/page-engine.js';
+// v103.0.11 修正：
+//   ✅ [M12] personalIncome 從 personal_income 節點實際讀取
+//   ✅ [M12] data 改用 type: 'raw' 讀取 object 結構
+// ============================================
+
 import { formatHKD } from '../lib/format.js';
 import { AppState } from '../core/state.js';
 import { RESERVED_IDS } from '../config/constants.js';
@@ -11,9 +15,10 @@ export default {
   title: '成員與家庭收入與支出明細',
 
   data: {
-    members:        { type: 'list', path: 'members' },
-    allIncome:      { type: 'list', path: 'income/{__all__}', transform: _flatIncome },
-    allExpenses:    { type: 'list', path: 'expenses/{__all__}', transform: _flatExpenses },
+    members:           { type: 'list', path: 'members' },
+    allIncome:         { type: 'raw',  path: 'income' },
+    allExpenses:       { type: 'raw',  path: 'expenses' },
+    allPersonalIncome: { type: 'raw',  path: 'personal_income' },
   },
 
   state: {
@@ -24,7 +29,7 @@ export default {
 
   derived: {
     rows: {
-      deps: ['data.members', 'data.allIncome', 'data.allExpenses', 'state.currentYear'],
+      deps: ['data.members', 'data.allIncome', 'data.allExpenses', 'data.allPersonalIncome', 'state.currentYear'],
       compute: _buildRows,
     },
     statsCards: {
@@ -35,61 +40,129 @@ export default {
 
   blocks: [
     { type: 'stats', container: 'member-report-stats-root', cards: '$.statsCards' },
-    { type: 'list', container: 'member-list-root', rows: '$.rows',
-      columns: 'memberReport', tableId: 'member-report-table',
-      view: 'table', emptyText: '尚無成員' },
+    {
+      type: 'list',
+      container: 'member-list-root',
+      rows: '$.rows',
+      columns: 'memberReport',
+      tableId: 'member-report-table',
+      view: 'table',
+      emptyText: '尚無成員',
+    },
   ],
 };
 
-function _flatIncome(raw) {
-  const flat = [];
-  Object.entries(raw || {}).forEach(([year, months]) => {
-    Object.entries(months || {}).forEach(([month, data]) => {
-      Object.entries(data || {}).forEach(([memberId, amount]) => {
-        flat.push({ year, month, memberId, amount: Number(amount) || 0 });
-      });
-    });
-  });
-  return flat;
-}
+/* ============================================
+   Helpers
+   ============================================ */
 
-function _flatExpenses(raw) {
-  const flat = [];
-  Object.entries(raw || {}).forEach(([year, months]) => {
-    Object.entries(months || {}).forEach(([month, mData]) => {
-      Object.entries(mData?.member_expenses || {}).forEach(([memberId, items]) => {
-        Object.entries(items || {}).forEach(([id, e]) => {
-          flat.push({ id, memberId, year, month, ...e });
-        });
-      });
-    });
-  });
-  return flat;
-}
+/**
+ * 🆕 [M12] 從 raw object 結構計算每位成員的年度收支
+ */
+function _buildRows(members, allIncome, allExpenses, allPersonalIncome, year) {
+  const yearStr = String(year || '');
+  const incomeYear = (allIncome || {})[yearStr] || {};
+  const expenseYear = (allExpenses || {})[yearStr] || {};
 
-function _buildRows(members, allIncome, allExpenses, year) {
-  const list = members.map((m) => ({ id: m.id, name: m.name, isShared: false }));
-  list.push({ id: RESERVED_IDS.SHARED_MEMBER, name: '家庭共用', isShared: true });
+  const list = (members || []).map((m) => ({
+    id: m.id,
+    name: m.name,
+    isShared: false,
+  }));
+  list.push({
+    id: RESERVED_IDS.SHARED_MEMBER,
+    name: '家庭共用',
+    isShared: true,
+  });
 
   return list.map((m) => {
-    const income = allIncome.filter((i) => i.year === year && i.memberId === m.id)
-      .reduce((s, i) => s + i.amount, 0);
-    const exps = allExpenses.filter((e) => e.year === year && e.memberId === m.id);
-    const expense = exps.filter((e) => !e.isAutoLinked).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-    const insurance = exps.filter((e) => e.isAutoLinked).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-    return { ...m, income, expense, insurance, personalIncome: 0, net: income - expense - insurance };
+    /* 家用轉入 */
+    let income = 0;
+    if (!m.isShared) {
+      Object.values(incomeYear).forEach((monthData) => {
+        income += Number(monthData && monthData[m.id]) || 0;
+      });
+    }
+
+    /* 個人收入 */
+    let personalIncome = 0;
+    if (!m.isShared) {
+      const memberPersonal = (allPersonalIncome || {})[m.id] || {};
+      const yearPersonal = memberPersonal[yearStr] || {};
+      Object.values(yearPersonal).forEach((amt) => {
+        personalIncome += Number(amt) || 0;
+      });
+    }
+
+    /* 支出（分為一般支出 / 保險連動） */
+    let expense = 0;
+    let insurance = 0;
+    Object.values(expenseYear).forEach((monthData) => {
+      const memberExps = (monthData && monthData.member_expenses && monthData.member_expenses[m.id]) || {};
+      Object.values(memberExps).forEach((e) => {
+        const amt = Number(e && e.amount) || 0;
+        if (e && e.isAutoLinked) {
+          insurance += amt;
+        } else {
+          expense += amt;
+        }
+      });
+    });
+
+    return {
+      ...m,
+      income: Math.round(income),
+      expense: Math.round(expense),
+      insurance: Math.round(insurance),
+      personalIncome: Math.round(personalIncome),
+      net: Math.round(income + personalIncome - expense - insurance),
+    };
   });
 }
 
 function _buildStats(rows, year) {
-  const totalIncome = rows.reduce((s, r) => s + r.income, 0);
-  const totalExpense = rows.reduce((s, r) => s + r.expense, 0);
-  const totalInsurance = rows.reduce((s, r) => s + r.insurance, 0);
-  const net = totalIncome - totalExpense - totalInsurance;
+  const list = rows || [];
+  const totalIncome = list.reduce((s, r) => s + r.income, 0);
+  const totalPersonalIncome = list.reduce((s, r) => s + r.personalIncome, 0);
+  const totalExpense = list.reduce((s, r) => s + r.expense, 0);
+  const totalInsurance = list.reduce((s, r) => s + r.insurance, 0);
+  const net = totalIncome + totalPersonalIncome - totalExpense - totalInsurance;
+
   return [
-    { title: `${year} 家庭收入`, value: formatHKD(totalIncome), valueClass: 'emerald', hint: '家用轉入加總', icon: 'trending-up' },
-    { title: `${year} 年度總支出`, value: formatHKD(totalExpense), valueClass: 'red', hint: '含家庭共用支出', icon: 'trending-down' },
-    { title: `${year} 年度保險平攤`, value: formatHKD(totalInsurance), valueClass: 'magenta', hint: '保險自動分攤加總', icon: 'shield' },
-    { title: `${year} 年度淨餘額`, value: formatHKD(net), valueClass: net >= 0 ? 'emerald' : 'red', hint: '收入 − 支出 − 保險', icon: 'wallet' },
+    {
+      title: `${year} 家庭收入`,
+      value: formatHKD(totalIncome),
+      valueClass: 'emerald',
+      hint: '家用轉入加總',
+      icon: 'trending-up',
+    },
+    {
+      title: `${year} 個人收入`,
+      value: formatHKD(totalPersonalIncome),
+      valueClass: 'cyan',
+      hint: '成員個人收入加總',
+      icon: 'wallet',
+    },
+    {
+      title: `${year} 年度總支出`,
+      value: formatHKD(totalExpense),
+      valueClass: 'red',
+      hint: '含家庭共用支出',
+      icon: 'trending-down',
+    },
+    {
+      title: `${year} 年度保險平攤`,
+      value: formatHKD(totalInsurance),
+      valueClass: 'magenta',
+      hint: '保險自動分攤加總',
+      icon: 'shield',
+    },
+    {
+      title: `${year} 年度淨餘額`,
+      value: formatHKD(net),
+      valueClass: net >= 0 ? 'emerald' : 'red',
+      hint: '收入 + 個人 − 支出 − 保險',
+      icon: 'calculator',
+    },
   ];
 }

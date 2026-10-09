@@ -1,27 +1,11 @@
 // ============================================
-// form-block.js — 表單 Modal 區 Block（v103.0.0）
+// form-block.js — 表單 Modal 區 Block（v103.0.12）
 // 位置：js/blocks/form-block.js
 // ============================================
-// 職責：
-//   1. 提供「新增」按鈕，點擊開啟 entity-modal
-//   2. 支援「編輯」按鈕（透過 block.editFrom = '$.selectedRow'）
-//   3. 成功後呼叫 ctx.invalidate() 重算
-//
-// Block 定義：
-//   {
-//     type: 'form',
-//     container: 'xxx-form',
-//     entity: 'member',                // entityKey（必填）
-//     mode: 'add' | 'edit',            // 預設 add
-//     editRow: '$.selectedRow',        // edit 模式用：表達式指向 row
-//     buttonLabel: '新增成員',
-//     buttonClass: 'btn-primary',
-//     icon: 'plus',
-//     allRows: '$.filtered',            // 供 validate 用
-//   }
+// v103.0.12 修正：
+//   ✅ [L05] 移除未使用的 esc import
 // ============================================
 
-import { esc } from '../lib/dom.js';
 import { resolveExpr } from '../engines/render-engine.js';
 import { openEntityModal } from '../entity/entity-modal.js';
 import { getEntityDef } from '../entity/entity-definitions.js';
@@ -67,8 +51,8 @@ export function mount(block, ctx) {
     const icon = block.icon || (mode === 'edit' ? 'pencil' : 'plus');
 
     container.innerHTML = `
-      <button type="button" class="btn ${esc(cls)}" data-form-action="open">
-        <i data-lucide="${esc(icon)}"></i> ${esc(label)}
+      <button type="button" class="btn ${cls}" data-form-action="open">
+        <i data-lucide="${icon}"></i> ${label}
       </button>
     `;
 
@@ -133,7 +117,6 @@ async function _openModal(block, ctx) {
     initialData,
     allRows,
     onSuccess: () => {
-      /* 觸發重算（若 ctx 提供 invalidate） */
       try {
         if (typeof ctx.invalidate === 'function') {
           ctx.invalidate('__form_saved__');
@@ -150,7 +133,6 @@ async function _openModal(block, ctx) {
    ============================================ */
 function _resolveEditRow(block, ctx) {
   if (!block.editRow) {
-    /* fallback：從 ctx.state.selectedRow 取 */
     try {
       return ctx.state?.selectedRow || null;
     } catch (e) {

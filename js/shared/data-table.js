@@ -1,13 +1,14 @@
 // ============================================
-// data-table.js — 通用表格渲染（v101.7.0）
+// data-table.js — 通用表格渲染（v103.0.11）
 // 位置：js/shared/data-table.js
 // ============================================
-// v103.0.2 修正：
-//   ✅ 從 '../config/entity-definitions.js' 改為 '../entity/entity-definitions.js'
+// v103.0.11 修正：
+//   ✅ [H04] escapeHtml / formatCellValue 改從 lib/ 導入
 // ============================================
 
 import { getEntityDef, getEntityUi } from '../entity/entity-definitions.js';
-import { escapeHtml, formatCellValue } from '../core/utils.js';
+import { esc as escapeHtml } from '../lib/dom.js';
+import { formatCellValue } from '../lib/format.js';
 import { initColumnSettings } from './column-settings.js';
 
 const LISTENER_KEY = '__dtClickListener';

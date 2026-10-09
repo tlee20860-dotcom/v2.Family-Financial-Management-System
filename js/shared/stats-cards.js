@@ -1,21 +1,18 @@
 // ============================================
-// stats-cards.js — 統計卡片渲染（v102.0.0）
+// stats-cards.js — 統計卡片渲染（v103.0.11）
 // 位置：js/shared/stats-cards.js
 // ============================================
-// v102.0.0 修正：
-//   ✅ [P2-1] compact 模式 customFirstCell 用 glass-card 包裹，避免巢狀衝突
-//   ✅ options.customFirstCell（自訂第一格 HTML）
-//   ✅ 保留 v101.7.2 全部功能
+// v103.0.11 修正：
+//   ✅ [H04] escapeHtml 改從 lib/dom.js 導入
 // ============================================
 
-import { escapeHtml } from '../core/utils.js';
+import { esc as escapeHtml } from '../lib/dom.js';
 import { AppState } from '../core/state.js';
 import { STORAGE_KEYS } from '../config/constants.js';
 
 /* ============================================
    主函式
    ============================================ */
-
 export function renderStatsCards(options) {
   const {
     container,
@@ -80,7 +77,6 @@ export function renderStatsCards(options) {
 /* ============================================
    模式解析
    ============================================ */
-
 function _getStatsMode() {
   try {
     const saved = localStorage.getItem(STORAGE_KEYS.STATS_MODE);
@@ -146,21 +142,16 @@ function _renderIntegratedCell(card) {
 
 /* ============================================
    方案 B：緊湊獨立卡
-   🆕 P2-1：customFirstCell 用 glass-card + stats-compact-card 包裹，
-            並用 grid-column: span 2 讓它橫跨兩欄，
-            內部若帶 stats-integrated-cell 樣式則會被外層 glass-card 覆蓋。
    ============================================ */
 function _renderCompact(root, cards, columns, mb, customFirstCell) {
   const cols = columns || 3;
   const count = cards.length + (customFirstCell ? 1 : 0);
   const effectiveCols = Math.min(cols, count);
 
-  // 🆕 P2-1：清掉 customFirstCell 中的 inline grid-column 避免與 wrapper 衝突
   let firstHtml = '';
   if (customFirstCell) {
     const sanitized = String(customFirstCell)
       .replace(/style="([^"]*)"/g, (m, s) => {
-        // 移除 inline 中的 grid-column，由 wrapper 控制
         const cleaned = s.replace(/grid-column\s*:\s*span\s*\d+\s*;?/g, '').trim();
         return cleaned ? `style="${cleaned}"` : '';
       })
@@ -216,7 +207,7 @@ function _renderCompactCard(card) {
    ============================================ */
 function _formatValue(value) {
   if (value == null) return '—';
-  if (typeof value === 'string') return value;   // 允許 HTML（customFirstCell 已 escape）
+  if (typeof value === 'string') return value;
   return escapeHtml(String(value));
 }
 

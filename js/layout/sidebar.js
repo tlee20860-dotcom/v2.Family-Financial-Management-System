@@ -1,13 +1,9 @@
 // ============================================
-// sidebar.js — 左側導覽選單（v103.0.0）
+// sidebar.js — 左側導覽選單（v103.0.12）
 // 位置：js/layout/sidebar.js
 // ============================================
-// v103.0.0 重構：
-//   ✅ 從 js/shared/sidebar.js + sidebar-groups.js 合併
-//   ✅ 逸出改用 lib/dom.js 的 esc()
-//   ✅ SIDEBAR_GROUPS 從 constants.js 讀取（SSOT）
-//   ✅ 暴露 toggleSidebar / openMobileSidebar / closeMobileSidebar
-//   ✅ 從 STORAGE_KEYS 讀取 SIDEBAR_COLLAPSED / SIDEBAR_GROUPS
+// v103.0.12 修正：
+//   ✅ [L02] renderSidebar 移除多餘 async（內部無 await）
 // ============================================
 
 import { SIDEBAR_GROUPS, STORAGE_KEYS } from '../config/constants.js';
@@ -22,9 +18,9 @@ let _eventsBound = false;
 let _navEl = null;
 
 /* ============================================
-   主入口
+   主入口（同步函式）
    ============================================ */
-export async function renderSidebar(containerId = 'sidebar-root', activeHref = '') {
+export function renderSidebar(containerId = 'sidebar-root', activeHref = '') {
   const root = document.getElementById(containerId);
   if (!root) return;
 
@@ -119,7 +115,7 @@ function _bindGlobalEvents() {
 }
 
 function _globalClickHandler(e) {
-  /* ---------- 群組展開 / 收合 ---------- */
+  /* 群組展開 / 收合 */
   const groupToggle = e.target.closest('[data-group-toggle]');
   if (groupToggle) {
     e.preventDefault();
@@ -127,13 +123,13 @@ function _globalClickHandler(e) {
     return;
   }
 
-  /* ---------- Backdrop 點擊 → 關閉行動版 ---------- */
+  /* Backdrop 點擊 → 關閉行動版 */
   if (e.target.classList.contains('sidebar-backdrop')) {
     closeMobileSidebar();
     return;
   }
 
-  /* ---------- Nav 項目點擊（手機）→ 自動關閉 ---------- */
+  /* Nav 項目點擊（手機）→ 自動關閉 */
   const navLink = e.target.closest('.sidebar .nav-item');
   if (navLink) {
     if (window.innerWidth < 640) {
@@ -183,11 +179,6 @@ function _toggleGroup(key) {
    Sidebar 開關（公開 API）
    ============================================ */
 
-/**
- * 切換 Sidebar 狀態
- * - 手機：開 / 關抽屜
- * - 桌面：展開 / 收合
- */
 export function toggleSidebar() {
   const sidebar = document.querySelector('.sidebar');
   if (!sidebar) return;
@@ -207,9 +198,6 @@ export function toggleSidebar() {
   }
 }
 
-/**
- * 開啟手機版抽屜
- */
 export function openMobileSidebar() {
   const sidebar = document.querySelector('.sidebar');
   if (!sidebar) return;
@@ -224,9 +212,6 @@ export function openMobileSidebar() {
   backdrop.classList.add('active');
 }
 
-/**
- * 關閉手機版抽屜
- */
 export function closeMobileSidebar() {
   const sidebar = document.querySelector('.sidebar');
   if (sidebar) sidebar.classList.remove('mobile-open');
@@ -253,7 +238,7 @@ export function destroySidebar() {
 }
 
 /* ============================================
-   內部：展開狀態管理（原 sidebar-groups.js 邏輯）
+   內部：展開狀態管理
    ============================================ */
 
 function _loadOpenGroupSet() {

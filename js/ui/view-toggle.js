@@ -1,17 +1,14 @@
 // ============================================
-// view-toggle.js — 卡片 / 表格切換（v103.0.0）
+// view-toggle.js — 卡片 / 表格切換（v103.0.11）
 // 位置：js/ui/view-toggle.js
 // ============================================
-// v103.0.0 重構：
-//   ✅ 從 js/shared/view-toggle.js 移入 js/ui/
-//   ✅ 逸出改用 lib/dom.js 的 esc()
-//   ✅ 切換時同步 AppState.currentView
+// v103.0.11 修正：
+//   ✅ [M05] localStorage key 前綴改用 STORAGE_PREFIXES.VIEW
 // ============================================
 
 import { esc } from '../lib/dom.js';
 import { AppState } from '../core/state.js';
-
-const PREFIX = 'fin_ui_view_';
+import { STORAGE_PREFIXES } from '../config/constants.js';
 
 /* ============================================
    主函式
@@ -129,9 +126,15 @@ export function applyViewToDom(view) {
 /* ============================================
    內部工具
    ============================================ */
+
+/**
+ * 🆕 v103.0.11：統一使用 STORAGE_PREFIXES.VIEW
+ */
 function _fullKey(storageKey) {
-  if (!storageKey) return `${PREFIX}default`;
-  return storageKey.startsWith(PREFIX) ? storageKey : `${PREFIX}${storageKey}`;
+  if (!storageKey) return `${STORAGE_PREFIXES.VIEW}default`;
+  return storageKey.startsWith(STORAGE_PREFIXES.VIEW)
+    ? storageKey
+    : `${STORAGE_PREFIXES.VIEW}${storageKey}`;
 }
 
 function _loadView(fullKey, defaultView) {

@@ -1,16 +1,14 @@
 // ============================================
-// state.js — 全域狀態中心（v103.0.0）
+// state.js — 全域狀態中心（v103.0.11）
 // 位置：js/core/state.js
 // ============================================
-// v103.0.0 重構：
-//   ✅ 版本號 → v103.0.0
-//   ✅ getMemberName() 便利方法（不依賴 registry，純 fallback）
-//   ✅ getRoleLabel() / getCanInputLabel() 便利方法
-//   ✅ destroy() 補強（清空所有事件監聽 + 狀態）
-//   ✅ 保留 v102.0.0 全部功能
+// v103.0.11 修正：
+//   ✅ [M08] getRoleLabel 改走 label-registry（SSOT）
+//   ✅ 保留 v103.0.0 全部功能
 // ============================================
 
 import { STORAGE_KEYS, ROLES } from '../config/constants.js';
+import { L } from '../config/label-registry.js';
 
 export const AppState = {
   /* ---------- 使用者 ---------- */
@@ -199,12 +197,14 @@ export const AppState = {
 
   /* ============================================
      便利：角色 / 權限文字
+     -------------------------------------------------
+     🆕 v103.0.11 [M08]：改走 label-registry（SSOT）
      ============================================ */
   getRoleLabel() {
     switch (this.role) {
-      case ROLES.SUPERADMIN: return '超級管理員';
-      case ROLES.OWNER:      return '家庭擁有者';
-      case ROLES.MEMBER:     return '家庭成員';
+      case ROLES.SUPERADMIN: return L('roles.superadmin');
+      case ROLES.OWNER:      return L('roles.owner');
+      case ROLES.MEMBER:     return L('roles.member');
       default:               return '成員';
     }
   },
@@ -228,7 +228,7 @@ export const AppState = {
   isAnnualMode() { return this.month === 'all'; },
 
   /**
-   * 🆕 v103.0.0：取得年月顯示文字
+   * 取得年月顯示文字
    * @param {string} [sep=' ']
    * @returns {string}
    */

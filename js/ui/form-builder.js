@@ -1,9 +1,10 @@
 // ============================================
-// form-builder.js — 通用動態表單建構器（v103.0.2）
+// form-builder.js — 通用動態表單建構器（v103.0.11）
 // 位置：js/ui/form-builder.js
 // ============================================
-// v103.0.2 修正：
-//   ✅ getDynamicOptions 路徑改為 ../entity/entity-helpers.js
+// v103.0.11 修正：
+//   ✅ [M04] onSubmit(data, api) 簽名文件化
+//           （第二參數 `api` 為 form-builder 自身 API，可選用）
 // ============================================
 
 import { esc } from '../lib/dom.js';
@@ -13,7 +14,6 @@ import { getDynamicOptions } from '../entity/entity-helpers.js';
 /* ============================================
    主函式
    ============================================ */
-
 export function buildForm(options) {
   const {
     containerId,
@@ -24,6 +24,24 @@ export function buildForm(options) {
     resetText = '重置',
     showCancel = true,
     showReset = false,
+    /**
+     * 🆕 v103.0.11 [M04]：onSubmit 簽名說明
+     * @param {Object} data - 表單欄位資料（已依 type 轉換型別）
+     * @param {Object} api  - form-builder 自身 API（可選用；多數呼叫端只需 data）
+     *   api 結構：
+     *     - getData()
+     *     - setData(obj)
+     *     - setFieldValue(fieldId, value)
+     *     - getFieldValue(fieldId)
+     *     - getFieldEl(fieldId)
+     *     - reset()
+     *     - setError(fieldId, message)
+     *     - clearErrors()
+     *     - updateOptions(fieldId, options, config)
+     *     - onFieldChange(fieldId, callback)
+     *     - submit()
+     *     - setSubmitting(bool)
+     */
     onSubmit,
     onCancel,
     onReset,
@@ -121,6 +139,7 @@ export function buildForm(options) {
 
     _setSubmitting(true);
     try {
+      // 🆕 [M04] 傳入 api 供進階使用；多數呼叫端只需 data
       await onSubmit(data, api);
     } catch (err) {
       console.error('[form-builder] 送出失敗：', err);

@@ -1,10 +1,10 @@
 // ============================================
-// dashboard.js — 總覽儀表板（v103.0.3 Page Schema）
+// dashboard.js — 總覽儀表板（v103.0.11 Page Schema）
 // 位置：js/pages/dashboard.js
 // ============================================
-// v103.0.3 修正：
-//   ✅ data.bankTransactions 用 object + transform 拿原始資料
-//   ✅ _flattenTxns 攤平交易
+// v103.0.11 修正：
+//   ✅ [M02] 從 income / expenses 節點讀取年度數據
+//   ✅ [M02] 三張卡片顯示真實數字（家庭收入 / 總支出 / 淨餘額）
 // ============================================
 
 import { calcTotalBankBalance } from '../lib/bank.js';
@@ -18,13 +18,20 @@ export default {
     bankAccounts: {
       type: 'list',
       path: 'bank_accounts',
-      default: [],
     },
     bankTransactions: {
       type: 'object',
       path: 'bank_accounts',
       transform: _flattenTxns,
-      default: [],
+    },
+    /* 🆕 年度資料（raw 模式，保留原始物件結構） */
+    allIncome: {
+      type: 'raw',
+      path: 'income',
+    },
+    allExpenses: {
+      type: 'raw',
+      path: 'expenses',
     },
   },
 
@@ -42,9 +49,16 @@ export default {
       },
     },
 
+    /* 🆕 年度收入 / 支出 / 淨餘額 */
+    yearTotals: {
+      deps: ['data.allIncome', 'data.allExpenses', 'state.currentYear'],
+      compute: _computeYearTotals,
+    },
+
     statsCards: {
-      deps: ['totalBankBalance', 'data.bankAccounts', 'state.currentYear'],
-      compute: (totalBankBalance, accounts, year) => _buildStatsCards(totalBankBalance, accounts, year),
+      deps: ['totalBankBalance', 'data.bankAccounts', 'state.currentYear', 'yearTotals'],
+      compute: (totalBankBalance, accounts, year, yearTotals) =>
+        _buildStatsCards(totalBankBalance, accounts, year, yearTotals),
     },
   },
 
@@ -66,9 +80,57 @@ function _flattenTxns(rawAccounts) {
   return flat;
 }
 
-function _buildStatsCards(totalBankBalance, accounts, year) {
+/**
+ * 🆕 v103.0.11：計算年度收支
+ * @param {Object} allIncome - { year: { month: { memberId: amount } } }
+ * @param {Object} allExpenses - { year: { month: { member_expenses: { memberId: { id: { amount } } } } } }
+ * @param {string} year
+ */
+function _computeYearTotals(allIncome, allExpenses, year) {
+  const yearKey = String(year || '');
+  if (!yearKey) return { totalIncome: 0, totalExpense: 0, net: 0, monthCount: 0 };
+
+  /* 收入 */
+  const yearIncome = (allIncome || {})[yearKey] || {};
+  let totalIncome = 0;
+  Object.values(yearIncome).forEach((monthData) => {
+    Object.values(monthData || {}).forEach((amt) => {
+      totalIncome += Number(amt) || 0;
+    });
+  });
+
+  /* 支出 */
+  const yearExpenses = (allExpenses || {})[yearKey] || {};
+  let totalExpense = 0;
+  let monthCount = 0;
+  Object.values(yearExpenses).forEach((monthData) => {
+    const memberExps = monthData?.member_expenses || {};
+    let monthSum = 0;
+    Object.values(memberExps).forEach((items) => {
+      Object.values(items || {}).forEach((e) => {
+        monthSum += Number(e?.amount) || 0;
+      });
+    });
+    if (monthSum > 0) monthCount++;
+    totalExpense += monthSum;
+  });
+
+  return {
+    totalIncome: Math.round(totalIncome),
+    totalExpense: Math.round(totalExpense),
+    net: Math.round(totalIncome - totalExpense),
+    monthCount,
+  };
+}
+
+function _buildStatsCards(totalBankBalance, accounts, year, yearTotals) {
   const list = Array.isArray(accounts) ? accounts : [];
   const bal = Number(totalBankBalance) || 0;
+
+  const totals = yearTotals || { totalIncome: 0, totalExpense: 0, net: 0, monthCount: 0 };
+  const income = Number(totals.totalIncome) || 0;
+  const expense = Number(totals.totalExpense) || 0;
+  const net = Number(totals.net) || 0;
 
   return [
     {
@@ -80,23 +142,23 @@ function _buildStatsCards(totalBankBalance, accounts, year) {
     },
     {
       title: `${year} 家庭收入`,
-      value: formatHKD(0),
+      value: formatHKD(income),
       valueClass: 'emerald',
-      hint: '（年度資料載入中）',
+      hint: income > 0 ? '家用轉入 + 額外收入' : '尚無收入紀錄',
       icon: 'trending-up',
     },
     {
       title: `${year} 年度總支出`,
-      value: formatHKD(0),
+      value: formatHKD(expense),
       valueClass: 'red',
-      hint: '（年度資料載入中）',
+      hint: expense > 0 ? `${totals.monthCount} 個月有紀錄` : '尚無支出紀錄',
       icon: 'trending-down',
     },
     {
       title: `${year} 年度淨餘額`,
-      value: formatHKD(0),
-      valueClass: 'emerald',
-      hint: '（年度資料載入中）',
+      value: formatHKD(net),
+      valueClass: net >= 0 ? 'emerald' : 'red',
+      hint: net >= 0 ? '收支平衡' : '支出大於收入',
       icon: 'wallet',
     },
   ];

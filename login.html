@@ -44,8 +44,7 @@
     import { loginWithCustomAccount, isSuperAdmin } from './js/core/auth.js';
     import { AppState } from './js/core/state.js';
     import { initPWA } from './js/core/pwa.js';
-
-    const AUTH_CONTEXT_CACHE_PREFIX = 'fin_auth_context_';
+    import { SESSION_KEYS } from './js/config/constants.js';
 
     initPWA();
     AppState.init();
@@ -68,7 +67,10 @@
         AppState.setUser(user);
         AppState.setSuperAdmin(isSuperAdmin(user));
 
-        try { sessionStorage.removeItem(`${AUTH_CONTEXT_CACHE_PREFIX}${user.uid}`); } catch (err) { /* noop */ }
+        /* 🆕 v103.0.12 [M14]：從 constants.js 讀取前綴（SSOT） */
+        try {
+          sessionStorage.removeItem(`${SESSION_KEYS.AUTH_CONTEXT_PREFIX}${user.uid}`);
+        } catch (err) { /* noop */ }
 
         window.location.href = isSuperAdmin(user) ? 'admin.html' : 'index.html';
       } catch (err) {

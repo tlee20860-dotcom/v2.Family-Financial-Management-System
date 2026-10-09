@@ -1,15 +1,13 @@
 // ============================================
-// entity-list-page.js — 實體列表頁骨架（v103.0.2）
+// entity-list-page.js — 實體列表頁骨架（v103.0.11）
 // 位置：js/shared/entity-list-page.js
 // ============================================
-// v103.0.2 修正：
-//   ✅ entity-definitions 路徑改為 ../entity/
-//   ✅ entity-modal / entity-helpers 路徑改為 ../entity/
-//   ✅ modal / toast / view-toggle 路徑改為 ../ui/
+// v103.0.11 修正：
+//   ✅ [H04] escapeHtml 改從 lib/dom.js 導入
 // ============================================
 
 import { getEntityDef, getEntityUi } from '../entity/entity-definitions.js';
-import { escapeHtml } from '../core/utils.js';
+import { esc as escapeHtml } from '../lib/dom.js';
 import { AppState } from '../core/state.js';
 import { renderDataTable } from './data-table.js';
 import { renderDataCard } from './data-card.js';
@@ -24,7 +22,6 @@ import { initViewToggle } from '../ui/view-toggle.js';
 /* ============================================
    主函式
    ============================================ */
-
 export function initEntityListPage(options) {
   const {
     entity,

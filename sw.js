@@ -1,12 +1,11 @@
 // ============================================
-// sw.js — Service Worker（v103.0.10）
+// sw.js — Service Worker（v103.0.11）
 // 位置：sw.js
 // ============================================
-// v103.0.10 重大修正：
-//   ✅ JS / CSS 也改用 network-first（每次拿最新，不用清快取）
-//   ✅ HTML 也是 network-first
-//   ✅ 加入詳細 console log（方便除錯）
-//   ✅ CACHE_NAME 升至 v139
+// v103.0.11：
+//   ✅ 版本號統一至 v103.0.11
+//   ✅ CACHE_NAME 保持 family-fin-v139
+//   ✅ 全部 network-first（開發階段）
 // ============================================
 
 const CACHE_NAME = 'family-fin-v139';
@@ -34,6 +33,7 @@ const STATIC_ASSETS = [
   './js/core/db.js',
   './js/core/utils.js',
   './js/core/pwa.js',
+  './js/core/debug.js',
 
   './js/lib/dom.js',
   './js/lib/async.js',
@@ -107,7 +107,7 @@ const STATIC_ASSETS = [
    INSTALL
    ============================================ */
 self.addEventListener('install', (e) => {
-  console.log('[SW] install');
+  console.log('[SW] install (v103.0.11, cache=' + CACHE_NAME + ')');
   e.waitUntil(
     caches.open(CACHE_NAME).then((cache) =>
       Promise.all(
@@ -154,12 +154,11 @@ self.addEventListener('fetch', (e) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/')) return;
 
-  // 🆕 全部改 network-first
   e.respondWith(_networkFirst(e.request));
 });
 
 /* ============================================
-   策略：Network First（每次拿最新）
+   策略：Network First
    ============================================ */
 async function _networkFirst(request) {
   const url = new URL(request.url);
@@ -171,19 +170,16 @@ async function _networkFirst(request) {
   try {
     const res = await fetch(request);
 
-    // 成功 → 更新快取
     if (res && res.status === 200 && res.type === 'basic') {
       const cache = await caches.open(CACHE_NAME);
       cache.put(request, res.clone());
     }
     return res;
   } catch (err) {
-    // 網路失敗 → 用快取
     console.log('[SW] 網路失敗，嘗試快取：', url.pathname);
     const cached = await caches.match(request);
     if (cached) return cached;
 
-    // HTML 且無快取 → 回 index.html
     if (isHtml) {
       const fallback = await caches.match('./index.html');
       if (fallback) return fallback;

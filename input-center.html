@@ -21,6 +21,25 @@
           <p class="page-subtitle">所有交易資料的統一輸入入口</p>
         </div>
 
+        <!-- 🆕 v103.0.11 [B05]：新增 ic-buttons-root 讓 input-center.js 綁定按鈕 -->
+        <div id="ic-buttons-root" class="flex flex-wrap gap-8 mb-16">
+          <button type="button" class="btn btn-primary" data-action="add-expense">
+            <i data-lucide="plus"></i> 新增支出
+          </button>
+          <button type="button" class="btn btn-ghost" data-action="add-contribution">
+            <i data-lucide="trending-up"></i> 家用轉入
+          </button>
+          <button type="button" class="btn btn-ghost" data-action="add-personal-income">
+            <i data-lucide="wallet"></i> 個人收入
+          </button>
+          <button type="button" class="btn btn-ghost" data-action="add-policy">
+            <i data-lucide="shield"></i> 新增保單
+          </button>
+          <button type="button" class="btn btn-ghost" data-action="add-fund">
+            <i data-lucide="line-chart"></i> 新增基金
+          </button>
+        </div>
+
         <div id="input-center-root">
           <div id="ic-tab-bar-root" class="mb-16"></div>
           <div id="ic-panel-expense" class="tab-panel" style="display:none;"></div>

@@ -1,20 +1,19 @@
 // ============================================
-// db.js — Firebase RTDB 讀寫封裝（v103.0.0）
+// db.js — Firebase RTDB 讀寫封裝（v103.0.12）
 // 位置：js/core/db.js
 // ============================================
-// v103.0.0 重構：
-//   ✅ buildLinkedKey 改用 constants.js 統一版本
-//   ✅ addExpense / batchUpdateExpenses 內建 status 正規化
-//   ✅ 銀行帳號 / 交易 / 個人收入 / 代墊 / 銀行結餘（舊）保留
-//   ✅ 保留 v102.0.0 全部對外 API
+// v103.0.12 修正：
+//   ✅ [M06] saveIncome 改用 update()（避免兩次寫入互蓋）
+//   ✅ [M06] 0 或負數值以 null 傳入 update → 實際刪除該鍵
+//   ✅ 保留 v103.0.11 全部修正（H09 / H11 / M01）
 // ============================================
 
 import { db } from '../config/firebase-config.js';
 import { AppState } from './state.js';
 import {
   RESERVED_IDS,
-  LINKED_PREFIX,
   buildLinkedKey,
+  PLATFORM_RESOURCES,
 } from '../config/constants.js';
 import { normalize as normalizeStatus } from '../config/status-registry.js';
 import {
@@ -670,31 +669,25 @@ export async function saveUIConstants(data) {
    平台預設資料庫
    ============================================ */
 
-const PLATFORM_PATHS = {
-  members: 'members',
-  banks: 'banks',
-  companies: 'insurance_companies',
-  payments: 'payment_methods',
-  categories: 'expense_categories',
-  items: 'expense_items',
-  statuses: 'statuses',
-  options: 'options',
-  yearRange: 'year_range',
-  uiConstants: 'ui_constants',
-};
-
 function platformPath(resource) {
-  const path = PLATFORM_PATHS[resource];
-  if (!path) throw new Error(`未知的平台資源：${resource}`);
-  return `platform/defaults/${path}`;
+  const config = PLATFORM_RESOURCES[resource];
+  if (!config) throw new Error(`未知的平台資源：${resource}`);
+  return `platform/defaults/${config.path}`;
 }
 
 export function listenPlatformResource(resource, cb, err) {
+  const config = PLATFORM_RESOURCES[resource];
+  if (!config) {
+    console.warn(`[db] 未知的平台資源：${resource}`);
+    return () => {};
+  }
+
   return onValue(
     ref(db, platformPath(resource)),
     (snap) => {
       const val = snap.val();
-      if (val && typeof val === 'object' && !Array.isArray(val)) {
+
+      if (config.type === 'list' && val && typeof val === 'object' && !Array.isArray(val)) {
         const list = Object.entries(val).map(([id, x]) => ({ id, ...x }));
         list.sort(byOrderThenCreated);
         cb(list);
@@ -1074,6 +1067,10 @@ export async function removeInsurancePaymentBatch(policyId, year, month) {
 
 /* ============================================
    收入（家用轉入）
+   -------------------------------------------------
+   🆕 v103.0.12 [M06]：saveIncome 改用 update()
+     - 0 或負數值以 null 傳入 → 實際刪除該鍵
+     - 避免兩次寫入互蓋
    ============================================ */
 
 export function listenIncome(year, month, cb, err) {
@@ -1089,17 +1086,23 @@ export async function getIncomeOnce(year, month) {
   return snap.val() || {};
 }
 
+/**
+ * 🆕 v103.0.12 [M06]：改用 update()
+ * - 只更新傳入的 key（其他成員的資料不受影響）
+ * - 值為 0 或負數 → 傳 null 給 update（Firebase 會刪除該鍵）
+ */
 export async function saveIncome(year, month, data) {
   if (!year || !month) {
     const ym = AppState.getYearMonth();
     year = ym.year; month = ym.month;
   }
-  const clean = {};
-  Object.entries(data).forEach(([key, val]) => {
+  const updates = {};
+  Object.entries(data || {}).forEach(([key, val]) => {
     const num = roundInt(val);
-    if (num > 0) clean[key] = num;
+    updates[key] = num > 0 ? num : null;
   });
-  await set(familyRef(`income/${year}/${month}`), clean);
+  if (Object.keys(updates).length === 0) return;
+  await update(familyRef(`income/${year}/${month}`), updates);
 }
 
 export function listenAllIncome(cb, err) {
@@ -1188,27 +1191,21 @@ export async function updateEntityStatus(source, row, newStatus, isDone) {
       });
       return;
     }
-    case 'fixed': {
-      const { id } = row._ref;
-      await updateFixedExpenseCompat(row.year, row.month, id, {
-        status: newStatus,
-        paidDate: isDone ? today : '',
-      });
-      return;
-    }
     case 'insurance': {
-      throw new Error('保險狀態請使用 settlements/render.js 的 updateRowStatus');
+      throw new Error(
+        '保險狀態請呼叫 functions/api/insurance-sync（透過 api.insuranceSync()），' +
+        '或使用 insurance-payment 相關的寫入函式。'
+      );
+    }
+    case 'fixed': {
+      throw new Error(
+        'fixed_expenses 節點已於 v102.0.0 廢除，不再支援狀態寫入。' +
+        '請改用個人支出或保險扣款。'
+      );
     }
     default:
       throw new Error('未知的來源：' + source);
   }
-}
-
-async function updateFixedExpenseCompat(year, month, id, patch) {
-  const clean = { ...patch };
-  if (clean.amount != null) clean.amount = roundInt(clean.amount);
-  if (clean.status !== undefined) clean.status = normalizeStatus(clean.status);
-  await update(familyRef(`fixed_expenses/${year}/${month}/${id}`), clean);
 }
 
 /* ============================================
