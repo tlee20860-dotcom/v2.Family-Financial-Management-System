@@ -1,17 +1,17 @@
 // ============================================
-// constants.js — 全站常數集中管理（v102.0.0）
+// constants.js — 全站常數集中管理（v102.1.0）
 // ============================================
-// v102.0.0 修正：
-//   ✅ SIDEBAR_GROUPS：「財務總覽」→「銀行交易」
-//   ✅ 版本號：APP_VERSION / SW_VERSION
-//   ✅ 保留 v101.10.0 全部功能
+// v102.1.0 修正：
+//   ✅ APP_VERSION → v102.1.0
+//   ✅ SW_VERSION → family-fin-v133
+//   ✅ 保留 v102.0.0 全部功能
 // ============================================
 
 /* ============================================
    0. 版本號
    ============================================ */
-export const APP_VERSION = 'v102.0.0';
-export const SW_VERSION = 'family-fin-v132';
+export const APP_VERSION = 'v102.1.0';
+export const SW_VERSION = 'family-fin-v133';
 
 /* ============================================
    1. localStorage Keys
@@ -330,7 +330,7 @@ export const DEFAULT_PAYMENTS = [
 ];
 
 /* ============================================
-   18. 側邊欄分類群組（🔄 v102.0.0：財務總覽 → 銀行交易）
+   18. 側邊欄分類群組
    ============================================ */
 export const SIDEBAR_GROUPS = [
   { key: 'overview', label: '總覽', icon: 'home', defaultOpen: true,
@@ -347,7 +347,6 @@ export const SIDEBAR_GROUPS = [
     ] },
   { key: 'settle', label: '對帳', icon: 'clipboard-check', defaultOpen: false,
     items: [{ icon: 'clipboard-check', label: '結算清單', href: 'settlements.html' }] },
-  // 🆕 v102.0.0：資產群組改名為「銀行交易」
   { key: 'assets', label: '資產', icon: 'landmark', defaultOpen: false,
     items: [{ icon: 'landmark', label: '銀行交易', href: 'finance-overview.html' }] },
   { key: 'reports', label: '報表', icon: 'bar-chart-3', defaultOpen: false,
