@@ -3,16 +3,11 @@
 // 位置：js/pages/input-center/index.js
 // ============================================
 // v102.0.0 修正：
-//   ✅ 5 個按鈕 + 1 個「銀行交易」下拉
-//       - 新增支出
-//       - 家用轉入（原「新增收入」）
-//       - 個人收入（新增）
-//       - 保單
-//       - 基金
-//       - 🏦 銀行交易 ▼（手動入帳 / 手動出帳）
-//   ✅ 移除「新增銀行結餘」按鈕
+//   ✅ [P2-10] 家用轉入改走 bank-helpers 的 createTransactionForContribution
+//   ✅ [P2-11] 新增支出若銀行交易建立失敗，回滾孤兒交易
+//   ✅ 6 個按鈕（新增支出 / 家用轉入 / 個人收入 / 保單 / 基金 / 銀行交易▼）
+//   ✅ 銀行交易下拉（手動入帳 / 手動出帳）
 //   ✅ 家用轉入表單新增「所屬年度 / 月份」選擇
-//   ✅ 保留 v101.10.0 全部功能
 // ============================================
 
 import { initTabPanel } from '../../shared/tab-panel.js';
@@ -22,15 +17,18 @@ import { ENTITY_KEYS, RESERVED_IDS } from '../../config/constants.js';
 import { AppState } from '../../core/state.js';
 import {
   addExpense, saveIncome, savePersonalIncome,
-  getMembersOnce, getItemsOnce,
-  listenCategories, listenPaymentMethods, listenBanks, listenBankAccounts,
+  getMembersOnce, getItemsOnce, updateExpense, removeBankTransaction,
+  listenCategories, listenPaymentMethods, listenBankAccounts,
 } from '../../core/db.js';
 import { getStatusesByCategory, getDefaultStatus, getYearList } from '../../config/app-config.js';
-import { escapeHtml, formatHKD, todayISO } from '../../core/utils.js';
+import { escapeHtml, todayISO } from '../../core/utils.js';
 import { buildForm } from '../../shared/form-builder.js';
 import { openModal, closeModal } from '../../shared/modal.js';
 import { api } from '../../core/api.js';
-import { createTransactionForExpense } from '../../shared/bank-helpers.js';
+import {
+  createTransactionForExpense,
+  createTransactionForContribution,
+} from '../../shared/bank-helpers.js';
 import { registerPageCleanup } from '../../core/app.js';
 
 /* ============================================
@@ -146,9 +144,7 @@ function _renderSkeleton() {
 
   _container.innerHTML = `
     ${buttonsHtml}
-
     <div id="ic-tab-bar-root" class="mb-16"></div>
-
     <div id="ic-panel-expense"   class="tab-panel" style="display:none;"></div>
     <div id="ic-panel-insurance" class="tab-panel" style="display:none;"></div>
     <div id="ic-panel-fund"      class="tab-panel" style="display:none;"></div>
@@ -171,24 +167,12 @@ function _bindButtons() {
 
     const action = btn.dataset.action;
     switch (action) {
-      case 'add-expense':
-        _openAddExpenseModal();
-        break;
-      case 'add-contribution':
-        _openAddContributionModal();
-        break;
-      case 'add-personal-income':
-        _openAddPersonalIncomeModal();
-        break;
-      case 'add-policy':
-        openEntityModal({ entity: ENTITY_KEYS.POLICY, mode: 'add' });
-        break;
-      case 'add-fund':
-        openEntityModal({ entity: ENTITY_KEYS.FUND, mode: 'add' });
-        break;
-      case 'bank-txn-toggle':
-        _toggleBankTxnDropdown();
-        break;
+      case 'add-expense': _openAddExpenseModal(); break;
+      case 'add-contribution': _openAddContributionModal(); break;
+      case 'add-personal-income': _openAddPersonalIncomeModal(); break;
+      case 'add-policy': openEntityModal({ entity: ENTITY_KEYS.POLICY, mode: 'add' }); break;
+      case 'add-fund': openEntityModal({ entity: ENTITY_KEYS.FUND, mode: 'add' }); break;
+      case 'bank-txn-toggle': _toggleBankTxnDropdown(); break;
       case 'add-manual-in':
         _closeBankTxnDropdown();
         _openManualBankTxnModal('in');
@@ -200,7 +184,6 @@ function _bindButtons() {
     }
   });
 
-  // 🆕 v102.0.0：點擊 dropdown 外部時關閉
   _bankTxnOutsideHandler = (e) => {
     const dropdown = document.getElementById('ic-bank-txn-dropdown');
     if (!dropdown) return;
@@ -277,7 +260,7 @@ async function _initTabModule(key, containerId) {
 }
 
 /* ============================================
-   🆕 v102.0.0：新增支出 Modal（含出帳銀行）
+   新增支出 Modal（🆕 P2-11：孤兒交易回滾）
    ============================================ */
 async function _openAddExpenseModal() {
   if (!AppState.getCanInput()) return;
@@ -313,7 +296,6 @@ async function _openAddExpenseModal() {
       { type: 'select', id: 'item', label: '項目', required: true, includeEmpty: true, emptyText: '— 請先選擇類別 —' },
       { type: 'number', id: 'amount', label: '費用（HK$）', required: true, min: 0, step: 1, placeholder: '0' },
       { type: 'select', id: 'payment', label: '支付方式', includeEmpty: true, emptyText: '— 請選擇 —' },
-      // 🆕 v102.0.0：出帳銀行（選填）
       { type: 'select', id: 'bankId', label: '出帳銀行（選填）', includeEmpty: true, emptyText: '— 不關聯銀行 —', hint: '選擇後會自動建立銀行交易' },
       { type: 'select', id: 'status', label: '狀態', includeEmpty: false,
         options: statusList.map((s) => ({ value: s.name, label: s.name })),
@@ -335,12 +317,15 @@ async function _openAddExpenseModal() {
         bankId: data.bankId || '',
       };
 
+      // 1. 先建立支出
       const expenseId = await addExpense(data.year, data.month, data.member, payload);
 
-      // 🆕 v102.0.0：若選了銀行，建立對應交易
+      // 2. 若選了銀行，建立交易並寫回 txnId
+      //    🆕 P2-11：若寫回失敗，回滾孤兒交易
       if (data.bankId && expenseId) {
+        let txnId = '';
         try {
-          const txnId = await createTransactionForExpense({
+          txnId = await createTransactionForExpense({
             bankId: data.bankId,
             memberId: data.member,
             amount: payload.amount,
@@ -348,12 +333,18 @@ async function _openAddExpenseModal() {
             expenseId,
             note: itemName || '',
           });
-          // 寫回 expense.txnId
-          const { updateExpense } = await import('../../core/db.js');
           await updateExpense(data.year, data.month, data.member, expenseId, { txnId });
         } catch (e) {
           console.warn('[input-center] 建立銀行交易失敗：', e);
-          showToast('支出已新增，但銀行交易建立失敗', 'warning');
+          // 🆕 P2-11：回滾孤兒交易
+          if (txnId) {
+            try {
+              await removeBankTransaction(data.bankId, txnId);
+            } catch (rollbackErr) {
+              console.warn('[input-center] 回滾交易失敗：', rollbackErr);
+            }
+          }
+          showToast('支出已新增，但銀行交易建立失敗（已回滾）', 'warning');
         }
       }
 
@@ -389,7 +380,6 @@ async function _openAddExpenseModal() {
   });
   _modalListenerCleanups.push(unsubPay);
 
-  // 🆕 v102.0.0：動態載入銀行帳號
   const unsubBank = listenBankAccounts((list) => {
     formApi.updateOptions('bankId', list.map((b) => ({ value: b.id, label: b.name })), {
       includeEmpty: true,
@@ -403,7 +393,7 @@ async function _openAddExpenseModal() {
 }
 
 /* ============================================
-   🆕 v102.0.0：家用轉入 Modal
+   家用轉入 Modal（🆕 P2-10：改走 bank-helpers）
    ============================================ */
 async function _openAddContributionModal() {
   if (!AppState.getCanInput()) return;
@@ -424,7 +414,6 @@ async function _openAddContributionModal() {
   const formApi = buildForm({
     containerId: `${MODAL_ID}-form-root`,
     fields: [
-      // 🆕 v102.0.0：所屬年度 / 月份（可選過去）
       { type: 'select', id: 'year',  label: '所屬年份', required: true, includeEmpty: false, options: _yearOptions(), defaultValue: ym.year || String(new Date().getFullYear()) },
       { type: 'select', id: 'month', label: '所屬月份', required: true, includeEmpty: false, options: _monthOptions(), defaultValue: curMonth },
       { type: 'select', id: 'member', label: '轉入成員', required: true, includeEmpty: true, emptyText: '— 請選擇成員 —', options: sortedMembers.map((m) => ({ value: m.id, label: m.name })) },
@@ -449,14 +438,13 @@ async function _openAddContributionModal() {
       // 1. 寫入 income/{year}/{month}/{memberId}
       await saveIncome(year, month, { [memberId]: amount });
 
-      // 2. 建立銀行交易
+      // 2. 🆕 P2-10：改走 bank-helpers 的 createTransactionForContribution
       try {
-        await api.bankTransactions.create(data.bankId, {
-          type: 'in',
-          category: 'contribution',
+        await createTransactionForContribution({
+          bankId: data.bankId,
+          memberId,
           amount,
           date: `${year}-${month}-01`,
-          memberId,
           note: data.note || '家用轉入',
         });
       } catch (e) {
@@ -471,7 +459,6 @@ async function _openAddContributionModal() {
     onCancel: () => closeModal(MODAL_ID),
   });
 
-  // 動態載入銀行帳號
   const unsubBank = listenBankAccounts((list) => {
     formApi.updateOptions('bankId', list.map((b) => ({ value: b.id, label: b.name })), {
       includeEmpty: true,
@@ -485,7 +472,7 @@ async function _openAddContributionModal() {
 }
 
 /* ============================================
-   🆕 v102.0.0：個人收入 Modal
+   個人收入 Modal
    ============================================ */
 async function _openAddPersonalIncomeModal() {
   if (!AppState.getCanInput()) return;
@@ -503,7 +490,6 @@ async function _openAddPersonalIncomeModal() {
   const currentMemberId = AppState.getCurrentMemberId();
   const isOwner = AppState.getRole() === 'owner' || AppState.isSuperAdmin;
 
-  // 非 owner 只能選自己
   const memberOptions = isOwner
     ? sortedMembers.map((m) => ({ value: m.id, label: m.name }))
     : sortedMembers.filter((m) => m.id === currentMemberId).map((m) => ({ value: m.id, label: m.name }));
@@ -554,7 +540,10 @@ async function _openAddPersonalIncomeModal() {
 }
 
 /* ============================================
-   🆕 v102.0.0：手動銀行交易 Modal
+   手動銀行交易 Modal
+   -------------------------------------------------
+   manual 交易為純手動無業務邏輯（無 refId / 無來源），
+   直接呼叫 api.bankTransactions.create。
    ============================================ */
 async function _openManualBankTxnModal(type) {
   if (!AppState.getCanInput()) return;
