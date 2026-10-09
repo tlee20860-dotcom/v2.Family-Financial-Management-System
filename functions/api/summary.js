@@ -516,9 +516,3 @@ function _calcBankTotal(bankAccounts, transactions, targetYear, targetMonth) {
 
   return total;
 }
-
-/* ============================================
-   導出內部 handler（供 [[path]].js 兼容層使用）
-   ============================================ */
-export async function handleAnnual(request) { return _handleAnnual(request); }
-export async function handleSettlementsYear(request) { return _handleSettlementsYear(request); }
