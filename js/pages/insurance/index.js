@@ -1,20 +1,15 @@
 // ============================================
-// index.js — 保險清單表入口（v101.10.0）
+// index.js — 保險清單表入口（v102.0.0）
 // 位置：js/pages/insurance/index.js
 // ============================================
-// v101.10.0 修正：
-//   ✅ [P3-9] _bindListActions 保存 handler 供 _destroy 清理
-//       - 原本 handler 未保存 → 無法移除監聽器
-//   ✅ [UX] active.length === 0 時顯示「所有保單已供滿」提示
-//       - 原本顯示空白頁
-//   ✅ 移除未使用 import escapeHtml
-//   ✅ 保留 v101.8.8 targetYear 邏輯
+// v102.0.0 修正：
+//   ✅ [P2-6] 一次讀取全部 insurance_payments（取代 N 次 getInsurancePaymentsOnce）
+//   ✅ 保留 v101.10.0 全部功能
 // ============================================
 
 import {
   listenInsurancePolicies,
   listenMembers,
-  getInsurancePaymentsOnce,
 } from '../../core/db.js';
 import { AppState } from '../../core/state.js';
 import {
@@ -30,6 +25,8 @@ import { renderStatsCards } from '../../shared/stats-cards.js';
 import { createListenerGroup } from '../../shared/listener-group.js';
 import { computeEnrichedPolicies } from '../../shared/insurance-calc.js';
 import { registerPageCleanup } from '../../core/app.js';
+import { get } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+import { familyRef } from '../../core/db.js';
 
 import {
   renderPolicyGrid,
@@ -51,7 +48,6 @@ let _syncAllHandler = null;
 let _addPolicyHandler = null;
 let _addFirstPolicyHandler = null;
 
-// 🆕 v101.10.0：保存 list 事件 handler 供清理
 let _cardListHandler = null;
 let _tableListHandler = null;
 
@@ -148,9 +144,9 @@ export async function initInsurancePage() {
 
 /* ============================================
    重新載入 + 渲染
+   🆕 P2-6：一次讀取全部 payments
    ============================================ */
 async function _reloadAndRender() {
-  // 從 AppState 取得當前選中年份
   const { year } = AppState.getYearMonth();
   const targetYear = Number(year) || new Date().getFullYear();
 
@@ -161,22 +157,15 @@ async function _reloadAndRender() {
     return;
   }
 
-  const paymentsArr = await Promise.all(
-    _policies.map(async (p) => {
-      try {
-        return [p.id, await getInsurancePaymentsOnce(p.id)];
-      } catch (e) {
-        return [p.id, {}];
-      }
-    })
-  );
+  // 🆕 P2-6：一次讀取全部 insurance_payments 節點
+  try {
+    const snap = await get(familyRef('insurance_payments'));
+    _paymentsCache = snap.val() || {};
+  } catch (err) {
+    console.warn('[insurance] 讀取 payments 失敗：', err);
+    _paymentsCache = {};
+  }
 
-  _paymentsCache = {};
-  paymentsArr.forEach(([id, data]) => {
-    _paymentsCache[id] = data || {};
-  });
-
-  // 傳 targetYear
   _enriched = computeEnrichedPolicies(_policies, _paymentsCache, targetYear);
 
   _render();
@@ -203,9 +192,6 @@ function _render() {
 
   if (!cardEl || !tableEl) return;
 
-  /* ============================================
-     情境 1：完全沒有保單
-     ============================================ */
   if (_enriched.length === 0) {
     if (emptyEl) {
       emptyEl.style.display = 'block';
@@ -222,9 +208,6 @@ function _render() {
 
   if (emptyEl) emptyEl.style.display = 'none';
 
-  /* ============================================
-     🆕 v101.10.0：情境 2：所有保單已供滿（顯示提示）
-     ============================================ */
   if (active.length === 0) {
     cardEl.style.display = 'block';
     tableEl.style.display = 'none';
@@ -243,9 +226,6 @@ function _render() {
     return;
   }
 
-  /* ============================================
-     情境 3：正常渲染
-     ============================================ */
   if (view === 'card') {
     cardEl.style.display = 'block';
     tableEl.style.display = 'none';
@@ -263,7 +243,6 @@ function _render() {
    統計卡
    ============================================ */
 function _renderStats(year) {
-  // _currentAnnualPremium 已依 targetYear 計算
   const yearTotal = _enriched.reduce(
     (s, p) => s + (p._currentAnnualPremium || 0),
     0
@@ -307,13 +286,12 @@ function _renderStats(year) {
 }
 
 /* ============================================
-   🆕 v101.10.0：卡片 / 表格的編輯 / 刪除事件（保存 handler）
+   卡片 / 表格的編輯 / 刪除事件
    ============================================ */
 function _bindListActions() {
   const cardEl = document.getElementById('insurance-card-view');
   const tableEl = document.getElementById('insurance-table-view');
 
-  // 先移除舊的（若已存在）
   if (_cardListHandler && cardEl) {
     cardEl.removeEventListener('click', _cardListHandler);
   }
@@ -393,7 +371,6 @@ function _destroy() {
     _addFirstPolicyHandler = null;
   }
 
-  // 🆕 v101.10.0：移除 list 事件監聽器
   if (_cardListHandler) {
     document.getElementById('insurance-card-view')?.removeEventListener('click', _cardListHandler);
     _cardListHandler = null;
