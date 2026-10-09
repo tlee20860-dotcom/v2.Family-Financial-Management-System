@@ -13,7 +13,7 @@
    0. 版本號
    ============================================ */
 export const APP_VERSION = 'v103.0.0';
-export const SW_VERSION  = 'family-fin-v135';
+export const SW_VERSION = 'family-fin-v136';   // 從 v135 → v136
 
 /* ============================================
    1. localStorage Keys
