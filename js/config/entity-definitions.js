@@ -439,4 +439,87 @@ const ENTITY_DEFS = {
     },
 
     fields: [
-      { id: 'name', label: '狀態名稱', type: 'text', required: true, maxlength: 20, placeholder: '例如：未處理、已還款
+      { id: 'name', label: '狀態名稱', type: 'text', required: true, maxlength: 20, placeholder: '例如：未處理、已還款' },
+      { id: 'category', label: '所屬類別', type: 'select', required: true, optionsSource: 'statusCategories' },
+      { id: 'isDone', label: '是否為「已完成」', type: 'select', required: true, optionsSource: 'booleanOptions', defaultValue: 'false' },
+      { id: 'order', label: '排序', type: 'number-plain', min: 0, defaultValue: 0 },
+    ],
+
+    ui: {
+      listColumns: ['name', 'category', 'isDone', 'order'],
+      cardFields: ['category', 'isDone', 'order'],
+      primaryColumn: 'name',
+      searchFields: ['name'],
+      sortOptions: [
+        { value: 'order-asc',    label: '排序（小→大）' },
+        { value: 'category-asc', label: '類別' },
+      ],
+      defaultSort: 'order-asc',
+      pageSize: LIMITS.DEFAULT_TABLE_PAGE_SIZE,
+      canCreate: true,
+      canEdit: true,
+      canDelete: true,
+      deleteConfirmText: (row) => `確定要刪除狀態「${row.name}」嗎？`,
+    },
+
+    toForm: (row) => ({ ...row, isDone: row.isDone ? 'true' : 'false' }),
+    fromForm: (data) => ({ ...data, isDone: data.isDone === 'true' }),
+
+    validate: (data, allRows, currentId) => {
+      const name = (data.name || '').trim();
+      if (allRows && allRows.some(s => s.id !== currentId && s.name === name)) {
+        return { field: 'name', message: '此狀態名稱已存在' };
+      }
+      return null;
+    },
+  },
+};
+
+/* ============================================
+   對外 API
+   ============================================ */
+
+export function getEntityDef(entityKey) {
+  return ENTITY_DEFS[entityKey] || null;
+}
+
+export function getAllEntityKeys() {
+  return Object.keys(ENTITY_DEFS);
+}
+
+export function getAllEntityDefs() {
+  return { ...ENTITY_DEFS };
+}
+
+export function getEntityFields(entityKey) {
+  const def = getEntityDef(entityKey);
+  return def ? def.fields : [];
+}
+
+export function getEntityFormFields(entityKey) {
+  return getEntityFields(entityKey).filter((f) => f.type !== 'hidden');
+}
+
+export function getEntityUi(entityKey) {
+  const def = getEntityDef(entityKey);
+  return def ? def.ui : null;
+}
+
+export function resolveFieldDefault(field) {
+  if (field.defaultValue == null) return '';
+  if (typeof field.defaultValue === 'function') return field.defaultValue();
+  return field.defaultValue;
+}
+
+/* ============================================
+   內部工具
+   ============================================ */
+
+function _getPeriodRange(firstY, firstM, periodIndex) {
+  const startDate = new Date(Number(firstY), Number(firstM) - 1, 1);
+  startDate.setMonth(startDate.getMonth() + (periodIndex - 1) * 12);
+  return {
+    startY: startDate.getFullYear(),
+    startM: String(startDate.getMonth() + 1).padStart(2, '0'),
+  };
+}
