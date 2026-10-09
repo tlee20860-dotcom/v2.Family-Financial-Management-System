@@ -1,20 +1,13 @@
 // ============================================
-// personal-income.js — 個人收入 API（v102.0.0 🆕）
+// personal-income.js — 個人收入 API（v102.0.0）
 // 位置：functions/api/personal-income.js
 // ============================================
-// 用途：
-//   管理家庭成員的個人收入（不進家庭總帳）
-//
-// 請求：
-//   GET  /api/personal-income?familyId={uid}&memberId={id}&action=list
-//   POST /api/personal-income
-//     body: { familyId, memberId, year, month, amount, action: 'save' }
-//     body: { familyId, memberId, year, month, action: 'remove' }
-//
-// 權限：
-//   - superadmin：可讀寫任何家庭
-//   - owner：可讀寫所有成員
-//   - member：僅可讀寫自己的 memberId
+// v102.0.0 修正：
+//   ✅ [P1-6] _resolveOwnMemberId 加入 fallback：
+//       1. memberAccount.memberId
+//       2. 用 displayName 匹配 members
+//       3. 若家庭只有 1 個成員，自動使用
+//   ✅ 保留 v102.0.0 全部功能
 // ============================================
 
 import { dbGet, dbPut, dbDelete } from './_config.js';
@@ -48,11 +41,6 @@ export async function onRequestGet({ request }) {
     if (auth instanceof Response) return auth;
     const { token, user } = auth;
 
-    /* ============================================
-       權限檢查（Q6-B+C）
-       - superadmin / owner：可讀任何成員
-       - member：僅可讀自己
-       ============================================ */
     const accessResult = await verifyFamilyAccess(token, familyId);
     if (!accessResult) return errorResponse('FORBIDDEN', '無權存取');
 
@@ -60,16 +48,12 @@ export async function onRequestGet({ request }) {
     const isSuper = accessResult.isSuper;
 
     if (memberId && !isOwner && !isSuper) {
-      // member 只能讀自己
       const ownMemberId = await _resolveOwnMemberId(familyId, user.localId, token);
-      if (ownMemberId !== memberId) {
+      if (!ownMemberId || ownMemberId !== memberId) {
         return errorResponse('FORBIDDEN', '無權讀取其他成員的收入');
       }
     }
 
-    /* ============================================
-       若指定 memberId：回傳該成員的收入
-       ============================================ */
     if (memberId) {
       const data = await dbGet(`families/${familyId}/personal_income/${memberId}`, token);
       return successResponse({
@@ -79,9 +63,6 @@ export async function onRequestGet({ request }) {
       });
     }
 
-    /* ============================================
-       若未指定：回傳所有成員的收入（僅 owner / superadmin）
-       ============================================ */
     if (!isOwner && !isSuper) {
       return errorResponse('FORBIDDEN', '需要 owner 權限才能讀取所有成員收入');
     }
@@ -117,19 +98,13 @@ export async function onRequestPost({ request }) {
     const isOwner = accessResult.isOwner;
     const isSuper = accessResult.isSuper;
 
-    /* ============================================
-       權限檢查：member 只能操作自己
-       ============================================ */
     if (!isOwner && !isSuper) {
       const ownMemberId = await _resolveOwnMemberId(familyId, user.localId, token);
-      if (ownMemberId !== memberId) {
+      if (!ownMemberId || ownMemberId !== memberId) {
         return errorResponse('FORBIDDEN', '無權修改其他成員的收入');
       }
     }
 
-    /* ============================================
-       寫入 / 刪除
-       ============================================ */
     const mm = String(month).padStart(2, '0');
     const yyyy = String(year);
     const path = `families/${familyId}/personal_income/${memberId}/${yyyy}/${mm}`;
@@ -137,7 +112,6 @@ export async function onRequestPost({ request }) {
     if (action === 'save') {
       const num = roundInt(amount);
       if (num <= 0) {
-        // 金額為 0 → 刪除該筆
         await dbDelete(path, token);
         return successResponse({ deleted: true });
       }
@@ -163,16 +137,46 @@ export async function onRequestOptions() {
 }
 
 /* ============================================
-   內部工具：解析當前登入者對應的 memberId
+   🆕 v102.0.0：解析當前登入者對應的 memberId（含 fallback）
    ============================================ */
 async function _resolveOwnMemberId(familyId, uid, token) {
   const memberAccount = await dbGet(
     `platform/families/${familyId}/memberAccounts/${uid}`,
     token
   );
+
+  // 1. 優先使用 memberAccount.memberId
   if (memberAccount && memberAccount.memberId) {
     return memberAccount.memberId;
   }
-  // fallback：若無 memberId 對應，用 uid 比對
+
+  // 🆕 P1-6 fallback 1：用 displayName 匹配 members
+  if (memberAccount && memberAccount.displayName) {
+    try {
+      const members = await dbGet(`families/${familyId}/members`, token);
+      if (members && typeof members === 'object') {
+        const dn = String(memberAccount.displayName).trim();
+        const matched = Object.entries(members).find(([id, m]) => {
+          const name = String((m && m.name) || '').trim();
+          return name === dn;
+        });
+        if (matched) return matched[0];
+      }
+    } catch (e) {
+      console.warn('[personal-income] fallback 1 失敗：', e);
+    }
+  }
+
+  // 🆕 P1-6 fallback 2：若家庭只有 1 個成員，自動使用（單人家庭情境）
+  try {
+    const members = await dbGet(`families/${familyId}/members`, token);
+    if (members && typeof members === 'object') {
+      const keys = Object.keys(members);
+      if (keys.length === 1) return keys[0];
+    }
+  } catch (e) {
+    console.warn('[personal-income] fallback 2 失敗：', e);
+  }
+
   return '';
 }
