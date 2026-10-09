@@ -1,66 +1,97 @@
 // ============================================
-// family.js — 家庭設定 + 帳號 + lookup（v103.0.0）
+// family.js — 家庭設定 + 帳號 + lookup（v103.0.1）
 // 位置：functions/api/family.js
 // ============================================
-// v103.0.0 合併：
-//   ✅ 合併 family-settings.js + family-accounts.js + lookup-family.js
-//   ✅ 內部透過 ?action= 分派（GET / POST）
-//   ✅ 舊 URL 路徑保持不變
+// v103.0.1 修復：
+//   ✅ onRequestGet 依 pathname 分派：
+//       - /api/family-accounts  → 帳號列表
+//       - /api/family-settings  → 家庭設定
+//   ✅ onRequestPost 依 pathname + action 分派：
+//       - /api/lookup-family    → 查詢所屬家庭
+//       - /api/family-accounts  → 帳號 CRUD
+//       - /api/family-settings  → 家庭設定 CRUD
 // ============================================
 
 import {
   dbGet, dbPut, dbPush, dbDelete, dbSignUp,
-  SUPERADMIN_EMAIL, FIREBASE_API_KEY, IDENTITY_TOOLKIT_URL,
+  FIREBASE_API_KEY, IDENTITY_TOOLKIT_URL,
 } from './_config.js';
 import {
   authenticate, errorResponse, handleError, handleOptions,
   successResponse, requireFields, objToList,
-  verifyToken, verifySuperAdmin, verifyFamilyAccess,
+  verifySuperAdmin, verifyFamilyAccess,
   verifyFamilyAccessByUid, extractToken,
 } from './_helpers.js';
 
 /* ============================================
-   GET — 家庭設定 / 帳號列表 / lookup
+   GET — 依 pathname 分派
    ============================================ */
-export async function onRequestGet({ request }) {
+export async function onRequestGet(context) {
   try {
+    const { request } = context;
     const url = new URL(request.url);
-    const action = url.searchParams.get('action') || 'settings';
+    const path = url.pathname;
     const familyId = url.searchParams.get('familyId');
 
-    if (action === 'settings')   return await _getSettings(request, familyId);
-    if (action === 'list')       return await _listAccounts(request, familyId);
+    /* /api/family-accounts */
+    if (path.endsWith('/family-accounts')) {
+      return await _listAccounts(request, familyId);
+    }
 
-    return errorResponse('BAD_REQUEST', `未知的 action：${action}`);
+    /* /api/family-settings（預設） */
+    return await _getSettings(request, familyId);
   } catch (err) {
     return handleError(err);
   }
 }
 
 /* ============================================
-   POST — settings update / 帳號 CRUD / lookup
+   POST — 依 pathname + action 分派
    ============================================ */
-export async function onRequestPost({ request }) {
+export async function onRequestPost(context) {
   try {
-    const body = await request.json();
-    const { action, familyId, uid } = body || {};
+    const { request } = context;
+    const url = new URL(request.url);
+    const path = url.pathname;
 
-    /* lookup-family 無 action（無 body 參數） */
-    if (action === undefined || action === null) {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch (e) {
+      body = {};
+    }
+
+    const { action } = body || {};
+
+    /* /api/lookup-family：無 action */
+    if (path.endsWith('/lookup-family') || action === undefined || action === null) {
       return await _lookupFamily(request);
     }
 
-    switch (action) {
-      case 'update':         return await _updateSettings(request, body);
-      case 'put-status':     return await _putStatus(request, body);
-      case 'delete-status':  return await _deleteStatus(request, body);
-      case 'create':         return await _createAccount(request, body);
-      case 'restore':        return await _restoreAccount(request, body);
-      case 'account-update': return await _updateAccount(request, body);
-      case 'remove':         return await _removeAccount(request, body);
-      default:
-        return errorResponse('BAD_REQUEST', `未知的 action：${action}`);
+    /* /api/family-accounts */
+    if (path.endsWith('/family-accounts')) {
+      switch (action) {
+        case 'create':  return await _createAccount(request, body);
+        case 'restore': return await _restoreAccount(request, body);
+        case 'update':  return await _updateAccount(request, body);
+        case 'remove':  return await _removeAccount(request, body);
+        default:
+          return errorResponse('BAD_REQUEST', `未知的 action：${action}`);
+      }
     }
+
+    /* /api/family-settings */
+    if (path.endsWith('/family-settings')) {
+      switch (action) {
+        case 'update':        return await _updateSettings(request, body);
+        case 'put-status':    return await _putStatus(request, body);
+        case 'delete-status': return await _deleteStatus(request, body);
+        default:
+          return errorResponse('BAD_REQUEST', `未知的 action：${action}`);
+      }
+    }
+
+    return errorResponse('BAD_REQUEST', `未知的路徑：${path}`);
   } catch (err) {
     return handleError(err);
   }
@@ -98,7 +129,7 @@ async function _getSettings(request, familyId) {
 }
 
 /* ============================================
-   2. 家庭設定 UPDATE
+   2. 家庭設定 UPDATE / PUT-STATUS / DELETE-STATUS
    ============================================ */
 async function _updateSettings(request, body) {
   const { familyId, data } = body;
@@ -128,9 +159,6 @@ async function _updateSettings(request, body) {
   return successResponse({ results });
 }
 
-/* ============================================
-   3. 狀態 PUT / DELETE
-   ============================================ */
 async function _putStatus(request, body) {
   const { familyId, id, data } = body;
   if (!familyId) return errorResponse('MISSING_FIELDS', '缺少 familyId');
@@ -175,7 +203,7 @@ async function _deleteStatus(request, body) {
 }
 
 /* ============================================
-   4. 帳號 LIST
+   3. 帳號 LIST
    ============================================ */
 async function _listAccounts(request, familyId) {
   if (!familyId) return errorResponse('MISSING_FIELDS', '缺少 familyId');
@@ -195,7 +223,7 @@ async function _listAccounts(request, familyId) {
 }
 
 /* ============================================
-   5. 帳號 CREATE / RESTORE / UPDATE / REMOVE
+   4. 帳號 CREATE
    ============================================ */
 async function _createAccount(request, body) {
   const { familyId, account, password, displayName, role, canInput, memberId: inputMemberId } = body;
@@ -257,6 +285,9 @@ async function _createAccount(request, body) {
   return successResponse({ uid: newUid, account: accountData });
 }
 
+/* ============================================
+   5. 帳號 RESTORE
+   ============================================ */
 async function _restoreAccount(request, body) {
   const { familyId, account, password, displayName, role, canInput, memberId: inputMemberId } = body;
   const missing = requireFields(body, ['account', 'password', 'displayName']);
@@ -310,6 +341,9 @@ async function _restoreAccount(request, body) {
   return successResponse({ restored: true, uid, account: accountData });
 }
 
+/* ============================================
+   6. 帳號 UPDATE
+   ============================================ */
 async function _updateAccount(request, body) {
   const { familyId, uid, displayName, role, canInput, memberId: inputMemberId } = body;
   if (!familyId) return errorResponse('MISSING_FIELDS', '缺少 familyId');
@@ -344,6 +378,9 @@ async function _updateAccount(request, body) {
   return successResponse({ uid, patch });
 }
 
+/* ============================================
+   7. 帳號 REMOVE
+   ============================================ */
 async function _removeAccount(request, body) {
   const { familyId, uid } = body;
   if (!familyId) return errorResponse('MISSING_FIELDS', '缺少 familyId');
@@ -367,7 +404,7 @@ async function _removeAccount(request, body) {
 }
 
 /* ============================================
-   6. lookup-family
+   8. lookup-family
    ============================================ */
 async function _lookupFamily(request) {
   const auth = await authenticate(request);
@@ -403,7 +440,7 @@ async function _lookupFamily(request) {
 }
 
 /* ============================================
-   7. 內部工具
+   9. 內部工具
    ============================================ */
 const _byOrder = (a, b) => (a.order || 0) - (b.order || 0);
 
@@ -467,8 +504,3 @@ async function _signInWithPassword(email, password) {
     return { ok: false, error: String(err?.message || err) };
   }
 }
-
-/* ============================================
-   導出內部 handler（供 [[path]].js 兼容層使用）
-   ============================================ */
-export async function handleLookup(request) { return _lookupFamily(request); }
