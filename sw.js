@@ -5,7 +5,7 @@
 //   ✅ CACHE_NAME = family-fin-v134（v133 → v134）
 // ============================================
 
-const CACHE_NAME = 'family-fin-v134';
+const CACHE_NAME = 'family-fin-v135';
 
 /* ============================================
    預快取清單
