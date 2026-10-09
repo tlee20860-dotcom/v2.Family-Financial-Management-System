@@ -1,37 +1,11 @@
 // ============================================
-// annual-summary.js — Dashboard 年度聚合 API（v101.10.0 🆕）
+// annual-summary.js — Dashboard 年度聚合 API（v102.0.0）
 // 位置：functions/api/annual-summary.js
 // ============================================
-// 用途：
-//   一次回傳多個年度的統計資料，取代前端 5 年 × 12 月 = 60 次 API 呼叫
-//
-// 請求：
-//   GET /api/annual-summary?familyId={uid}&startYear=2023&endYear=2027
-//   Headers: { Authorization: Bearer {idToken} }
-//
-// 回應：
-//   {
-//     ok: true,
-//     startYear: 2023,
-//     endYear: 2027,
-//     years: [
-//       {
-//         year: 2023,
-//         totalIncome: 0,
-//         totalExpense: 0,
-//         netBalance: 0,
-//         yearlyInsuranceTotal: 0,
-//         monthlyInsuranceAverage: 0,
-//         policyCount: 0,
-//         bankBalance: 0,
-//         fundValue: 0,
-//         totalAssets: 0,
-//         avg: 0,
-//         monthly: [ { monthNum, month, totalIncome, totalExpense, netBalance, monthlyInsuranceAverage }, ... 12 items ]
-//       },
-//       ...
-//     ]
-//   }
+// v102.0.0 修正：
+//   ✅ [P0-4] 銀行結餘改從 bank_accounts + transactions 計算
+//   ✅ 移除對已廢除的 bank_balances 節點的依賴
+//   ✅ 保留 v101.10.0 全部功能
 // ============================================
 
 import { dbGet, jsonResponse } from './_config.js';
@@ -69,23 +43,41 @@ export async function onRequestGet({ request }) {
       expensesSnap,
       incomeSnap,
       policiesSnap,
-      bankBalancesSnap,
+      bankAccountsSnap,
       fundsSnap,
     ] = await Promise.all([
       dbGet(`${basePath}/expenses`, token),
       dbGet(`${basePath}/income`, token),
       dbGet(`${basePath}/insurance_policies`, token),
-      dbGet(`${basePath}/bank_balances`, token),
+      dbGet(`${basePath}/bank_accounts`, token),         // 🆕 v102.0.0
       dbGet(`${basePath}/funds`, token),
     ]);
 
     const expensesObj = expensesSnap || {};
     const incomeObj = incomeSnap || {};
     const policiesObj = policiesSnap || {};
-    const bankBalancesObj = bankBalancesSnap || {};
+    const bankAccountsObj = bankAccountsSnap || {};
     const fundsObj = fundsSnap || {};
 
     const policyList = Object.entries(policiesObj).map(([id, p]) => ({ id, ...p }));
+
+    // 🆕 v102.0.0：攤平銀行帳號與交易
+    const bankAccountsList = Object.entries(bankAccountsObj).map(([id, acc]) => ({
+      id,
+      name: acc.name || '',
+      type: acc.type || 'family',
+      initialBalance: Number(acc.initialBalance) || 0,
+      initialYear: acc.initialYear || '',
+      initialMonth: acc.initialMonth || '',
+    }));
+
+    const allTransactions = [];
+    Object.entries(bankAccountsObj).forEach(([bid, bankData]) => {
+      const txns = bankData.transactions || {};
+      Object.entries(txns).forEach(([txnId, txn]) => {
+        allTransactions.push({ id: txnId, bankId: bid, ...txn });
+      });
+    });
 
     const years = [];
     for (let y = startYear; y <= endYear; y++) {
@@ -94,7 +86,8 @@ export async function onRequestGet({ request }) {
         expensesObj,
         incomeObj,
         policyList,
-        bankBalancesObj,
+        bankAccountsList,
+        allTransactions,
         fundsObj
       ));
     }
@@ -118,7 +111,7 @@ export async function onRequestOptions() {
    內部工具
    ============================================ */
 
-function _buildYearSummary(year, expensesObj, incomeObj, policyList, bankBalancesObj, fundsObj) {
+function _buildYearSummary(year, expensesObj, incomeObj, policyList, bankAccounts, allTransactions, fundsObj) {
   const yearStr = String(year);
   const yearExpenses = expensesObj[yearStr] || {};
   const yearIncome = incomeObj[yearStr] || {};
@@ -215,12 +208,8 @@ function _buildYearSummary(year, expensesObj, incomeObj, policyList, bankBalance
     }
   });
 
-  // 該年度 12 月的銀行結餘
-  const decBanks = bankBalancesObj[yearStr]?.['12'] || {};
-  const bankBalance = Object.values(decBanks).reduce(
-    (s, b) => s + roundInt(b.amount),
-    0
-  );
+  // 🆕 v102.0.0：該年度 12 月的銀行結餘（從 bank_accounts 計算）
+  const bankBalance = _calcTotalBankBalance(bankAccounts, allTransactions, year, '12');
 
   // 基金現值（即時）
   const fundValue = Object.values(fundsObj).reduce(
@@ -242,4 +231,57 @@ function _buildYearSummary(year, expensesObj, incomeObj, policyList, bankBalance
     avg: monthsWithData > 0 ? Math.round(yearTotalExpense / monthsWithData) : 0,
     monthly,
   };
+}
+
+/* ============================================
+   🆕 v102.0.0：銀行餘額計算（後端版本，與前端 bank-helpers.js 邏輯一致）
+   ============================================ */
+
+function _calcTotalBankBalance(bankAccounts, allTransactions, targetYear, targetMonth) {
+  let total = 0;
+  (bankAccounts || []).forEach((acc) => {
+    const txns = (allTransactions || []).filter((t) => t.bankId === acc.id);
+    total += _calcBankBalance(acc, txns, targetYear, targetMonth);
+  });
+  return total;
+}
+
+function _calcBankBalance(bankAccount, transactions, targetYear, targetMonth) {
+  if (!bankAccount) return 0;
+
+  const initial = Number(bankAccount.initialBalance) || 0;
+  const initY = Number(bankAccount.initialYear) || 0;
+  const initM = Number(bankAccount.initialMonth) || 0;
+
+  if (!initY || !initM) return initial;
+
+  const tY = Number(targetYear);
+  const tM = Number(targetMonth);
+
+  if (tY < initY || (tY === initY && tM < initM)) {
+    return initial;
+  }
+
+  let balance = initial;
+  (transactions || []).forEach((txn) => {
+    const date = txn.date || '';
+    if (!date || date.length < 7) return;
+
+    const [y, m] = date.split('-').map(Number);
+    const afterInit = y > initY || (y === initY && m > initM);
+    const beforeTarget = y < tY || (y === tY && m <= tM);
+
+    if (!afterInit || !beforeTarget) return;
+
+    const amount = Number(txn.amount) || 0;
+    if (txn.type === 'in') {
+      balance += amount;
+    } else if (txn.type === 'out') {
+      balance -= amount;
+    } else if (txn.type === 'transfer') {
+      balance -= amount;
+    }
+  });
+
+  return balance;
 }
