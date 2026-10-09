@@ -467,3 +467,4 @@ async function _signInWithPassword(email, password) {
     return { ok: false, error: String(err?.message || err) };
   }
 }
+export async function handleLookup(request) { return _lookupFamily(request); }
