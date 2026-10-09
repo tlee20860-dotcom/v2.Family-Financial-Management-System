@@ -1,26 +1,25 @@
 // ============================================
-// entity-list-page.js — 實體列表頁骨架（v101.10.0）
+// entity-list-page.js — 實體列表頁骨架（v103.0.2）
 // 位置：js/shared/entity-list-page.js
 // ============================================
-// v101.10.0 修正：
-//   ✅ [P2-2] 唯讀模式改用 data-col-id="__actions__" 判定欄位
-//       - 原本依賴 th.textContent === '操作'，脆弱
-//       - 若 label 改字 / 圖示變化會失效
-//   ✅ 保留 v101.8.0 全部功能
+// v103.0.2 修正：
+//   ✅ entity-definitions 路徑改為 ../entity/
+//   ✅ entity-modal / entity-helpers 路徑改為 ../entity/
+//   ✅ modal / toast / view-toggle 路徑改為 ../ui/
 // ============================================
 
-import { getEntityDef, getEntityUi } from '../config/entity-definitions.js';
+import { getEntityDef, getEntityUi } from '../entity/entity-definitions.js';
 import { escapeHtml } from '../core/utils.js';
 import { AppState } from '../core/state.js';
 import { renderDataTable } from './data-table.js';
 import { renderDataCard } from './data-card.js';
-import { openEntityModal } from './entity-modal.js';
-import { openConfirm } from './modal.js';
-import { showToast } from './toast.js';
+import { openEntityModal } from '../entity/entity-modal.js';
+import { openConfirm } from '../ui/modal.js';
+import { showToast } from '../ui/toast.js';
 import { createListenerGroup } from './listener-group.js';
 import { handleSubmit } from './form-handler.js';
-import { deleteEntity, listenEntity } from './entity-helpers.js';
-import { initViewToggle } from './view-toggle.js';
+import { deleteEntity, listenEntity } from '../entity/entity-helpers.js';
+import { initViewToggle } from '../ui/view-toggle.js';
 
 /* ============================================
    主函式
@@ -55,7 +54,6 @@ export function initEntityListPage(options) {
     deleteConfirmText,
   } = ui;
 
-  // 依 canInput 決定實際權限
   const userCanInput = AppState.getCanInput();
   const canCreate = rawCanCreate && userCanInput;
   const canEdit = rawCanEdit && userCanInput;
@@ -68,9 +66,6 @@ export function initEntityListPage(options) {
     storageKey = null,
   } = extraOptions;
 
-  /* ============================================
-     Module 狀態
-     ============================================ */
   let _rows = [];
   let _viewToggle = null;
   let _currentView = defaultView;
@@ -89,9 +84,6 @@ export function initEntityListPage(options) {
     destroy: _destroy,
   };
 
-  /* ============================================
-     內部：渲染骨架
-     ============================================ */
   function _renderSkeleton() {
     const headerHtml = showHeader ? `
       <div class="entity-list-header flex flex-between items-center flex-wrap gap-12 mb-16">
@@ -140,9 +132,6 @@ export function initEntityListPage(options) {
     if (window.lucide) window.lucide.createIcons();
   }
 
-  /* ============================================
-     內部：啟動監聽
-     ============================================ */
   function _startListening() {
     const unsub = listenEntity(entity, (rows) => {
       _rows = rows || [];
@@ -151,9 +140,6 @@ export function initEntityListPage(options) {
     listenerGroup.add(unsub);
   }
 
-  /* ============================================
-     內部：渲染內容
-     ============================================ */
   function _renderContent() {
     const contentEl = document.getElementById(`${containerId}-content`);
     if (!contentEl) return;
@@ -188,19 +174,12 @@ export function initEntityListPage(options) {
       });
     }
 
-    // 若為唯讀，移除操作欄的按鈕
     if (!canEdit && !canDelete) {
       _hideActionButtons(contentEl);
     }
   }
 
-  /**
-   * v101.10.0：唯讀模式下隱藏操作欄
-   * - 改用 data-col-id="__actions__" 判定（由 data-table.js 設定）
-   * - 保留 th 文字判定作為 fallback
-   */
   function _hideActionButtons(contentEl) {
-    // 表格：隱藏 __actions__ 欄
     contentEl.querySelectorAll('th').forEach((th) => {
       const colId = th.dataset.colId || '';
       const isAction = colId === '__actions__' || th.textContent.trim() === '操作';
@@ -211,7 +190,6 @@ export function initEntityListPage(options) {
       td.style.display = 'none';
     });
 
-    // 卡片：隱藏 footer
     contentEl.querySelectorAll('.data-card-footer').forEach((footer) => {
       if (footer.children.length === 0) {
         footer.style.display = 'none';
@@ -219,9 +197,6 @@ export function initEntityListPage(options) {
     });
   }
 
-  /* ============================================
-     內部：新增
-     ============================================ */
   function _handleAdd() {
     if (!canCreate) return;
 
@@ -246,9 +221,6 @@ export function initEntityListPage(options) {
     });
   }
 
-  /* ============================================
-     內部：編輯
-     ============================================ */
   function _handleEdit(row) {
     if (!canEdit) return;
 
@@ -265,9 +237,6 @@ export function initEntityListPage(options) {
     });
   }
 
-  /* ============================================
-     內部：刪除
-     ============================================ */
   async function _handleDelete(row) {
     if (!canDelete) return;
 
@@ -307,9 +276,6 @@ export function initEntityListPage(options) {
     });
   }
 
-  /* ============================================
-     內部：刷新 / 切換 / 銷毀
-     ============================================ */
   function _refresh() {
     _renderContent();
   }

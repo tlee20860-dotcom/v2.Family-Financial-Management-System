@@ -2,15 +2,11 @@
 // data-card.js — 通用卡片渲染（v101.6.9）
 // 位置：js/shared/data-card.js
 // ============================================
-// v101.6.9 修正：
-//   ✅ [按鈕無反應] 所有 <button> 加上 type="button"
-//   ✅ [監聽器累積] _listener 改為保存到 root 元素屬性上
-//   ✅ 保留 v101.6.6 的 formatCellValue SSOT
-//
-// API 凍結：v101.6 發布後只加不改
+// v103.0.2 修正：
+//   ✅ 從 '../config/entity-definitions.js' 改為 '../entity/entity-definitions.js'
 // ============================================
 
-import { getEntityDef, getEntityUi } from '../config/entity-definitions.js';
+import { getEntityDef, getEntityUi } from '../entity/entity-definitions.js';
 import { escapeHtml, formatCellValue } from '../core/utils.js';
 
 /* ============================================
@@ -155,7 +151,6 @@ export function renderDataCard(options) {
 
     let actionsHtml = '';
 
-    // 🆕 v101.6.9：加入 type="button"
     if (typeof hooks.customActions === 'function') {
       const customActions = hooks.customActions(row) || [];
       actionsHtml += customActions.map((a) => `
@@ -185,9 +180,6 @@ export function renderDataCard(options) {
     `;
   }
 
-  /* ============================================
-     事件綁定（🆕 v101.6.9：改用 root 屬性儲存監聽器）
-     ============================================ */
   function _bindEvents() {
     const oldListener = root[LISTENER_KEY];
     if (oldListener) {
@@ -241,9 +233,6 @@ export function renderDataCard(options) {
     root[LISTENER_KEY] = listener;
   }
 
-  /* ============================================
-     對外 API
-     ============================================ */
   return {
     container: root,
 

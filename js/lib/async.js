@@ -1,37 +1,19 @@
 // ============================================
-// async.js — 非同步輔助（v103.0.0）
+// async.js — 非同步輔助（v103.0.2）
 // 位置：js/lib/async.js
 // ============================================
-// 職責：
-//   1. 統一 try-catch + Toast 流程
-//   2. 統一確認對話框 + 執行流程
-//   3. 統一載入中 / 錯誤狀態顯示
-//   4. safe() 靜默錯誤處理
-//
-// 設計原則：
-//   - 呼叫端不需重複寫 try / catch / toast
-//   - 錯誤一律回傳 { ok, error } 形式
+// v103.0.2 修正：
+//   ✅ 從 '../shared/toast.js' 改為 '../ui/toast.js'
+//   ✅ 從 '../shared/modal.js' 改為 '../ui/modal.js'
 // ============================================
 
-import { showToast } from '../shared/toast.js';
-import { openConfirm } from '../shared/modal.js';
+import { showToast } from '../ui/toast.js';
+import { openConfirm } from '../ui/modal.js';
 import { esc } from './dom.js';
 
 /* ============================================
-   1. withToast — 執行 + Toast
+   1. withToast
    ============================================ */
-
-/**
- * 執行 fn，成功顯示 Toast，失敗顯示錯誤 Toast
- *
- * @param {string|null} successMsg - 成功訊息（null 表示不顯示）
- * @param {Function} fn - async 函式
- * @param {Object} [opts]
- * @param {string} [opts.errorMsg] - 自訂錯誤前綴
- * @param {boolean} [opts.silent=false] - 靜默模式
- * @param {number} [opts.duration] - Toast 持續時間
- * @returns {Promise<{ok: boolean, result?: *, error?: Error}>}
- */
 export async function withToast(successMsg, fn, opts = {}) {
   try {
     const result = await fn();
@@ -51,22 +33,8 @@ export async function withToast(successMsg, fn, opts = {}) {
 }
 
 /* ============================================
-   2. withConfirm — 確認 + 執行 + Toast
+   2. withConfirm
    ============================================ */
-
-/**
- * 先顯示確認對話框，確認後執行 fn 並顯示 Toast
- *
- * @param {string} message - 確認訊息
- * @param {Function} fn - async 函式
- * @param {Object} [opts]
- * @param {string} [opts.successMsg] - 成功訊息
- * @param {string} [opts.errorMsg] - 錯誤前綴
- * @param {string} [opts.title] - 對話框標題
- * @param {string} [opts.okText] - 確定按鈕文字
- * @param {string} [opts.okClass] - 確定按鈕 class
- * @returns {Promise<{ok?: boolean, cancelled?: boolean, result?: *, error?: Error}>}
- */
 export async function withConfirm(message, fn, opts = {}) {
   const ok = await openConfirm(message, opts);
   if (!ok) return { cancelled: true };
@@ -75,21 +43,8 @@ export async function withConfirm(message, fn, opts = {}) {
 }
 
 /* ============================================
-   3. withAsyncState — 載入中 / 錯誤狀態
+   3. withAsyncState
    ============================================ */
-
-/**
- * 在容器內顯示載入中，執行 fn
- * - 成功：回傳結果
- * - 失敗：在容器內顯示錯誤，並拋出
- *
- * @param {string|Element} container - 容器 ID 或元素
- * @param {Function} fn - async 函式
- * @param {Object} [opts]
- * @param {string} [opts.loadingText='載入中…']
- * @param {string} [opts.errorPrefix='載入失敗']
- * @returns {Promise<*>}
- */
 export async function withAsyncState(container, fn, opts = {}) {
   const root = typeof container === 'string'
     ? document.getElementById(container)
@@ -115,16 +70,8 @@ export async function withAsyncState(container, fn, opts = {}) {
 }
 
 /* ============================================
-   4. safe — 靜默錯誤處理
+   4. safe
    ============================================ */
-
-/**
- * 執行 fn，任何錯誤都回傳 fallback
- *
- * @param {Function} fn - async 函式
- * @param {*} [fallback=null]
- * @returns {Promise<*>}
- */
 export async function safe(fn, fallback = null) {
   try {
     return await fn();

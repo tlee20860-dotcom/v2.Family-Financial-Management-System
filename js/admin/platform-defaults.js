@@ -1,20 +1,20 @@
 // ============================================
-// platform-defaults.js — 平台預設資料庫（v101.5）
+// platform-defaults.js — 平台預設資料庫（v103.0.2）
 // 位置：js/admin/platform-defaults.js
 // ============================================
-// v101.5 修正：
-//   ✅ LIST_TABS 沿用（與 entity-definitions.js 概念對齊）
-//   ✅ _openEditModal / _openSimpleEditModal 合併為 _openEditModal
-//   ✅ 所有 Modal 共用 EDIT_MODAL_ID，避免堆疊
-//   ✅ _instances 完整 destroy
+// v103.0.2 修正：
+//   ✅ 從 '../shared/toast.js' 改為 '../ui/toast.js'
+//   ✅ 從 '../shared/tab-panel.js' 改為 '../ui/tab-panel.js'
+//   ✅ 從 '../shared/form-builder.js' 改為 '../ui/form-builder.js'
+//   ✅ 從 '../shared/modal.js' 改為 '../ui/modal.js'
 // ============================================
 
 import { api } from '../core/api.js';
 import { escapeHtml } from '../core/utils.js';
-import { showToast } from '../shared/toast.js';
-import { initTabPanel } from '../shared/tab-panel.js';
-import { buildForm } from '../shared/form-builder.js';
-import { openModal, closeModal, openConfirm } from '../shared/modal.js';
+import { showToast } from '../ui/toast.js';
+import { initTabPanel } from '../ui/tab-panel.js';
+import { buildForm } from '../ui/form-builder.js';
+import { openModal, closeModal, openConfirm } from '../ui/modal.js';
 
 /* ============================================
    Module 狀態
@@ -302,8 +302,8 @@ async function _renderListTab(panel, tabConfig) {
                   return `<td>${_renderCellValue(val, col, tabConfig)}</td>`;
                 }).join('')}
                 <td>
-                  <button class="btn btn-sm btn-ghost" data-action="edit" data-id="${row.id}">編輯</button>
-                  <button class="btn btn-sm btn-danger" data-action="delete" data-id="${row.id}">刪除</button>
+                  <button type="button" class="btn btn-sm btn-ghost" data-action="edit" data-id="${row.id}">編輯</button>
+                  <button type="button" class="btn btn-sm btn-danger" data-action="delete" data-id="${row.id}">刪除</button>
                 </td>
               </tr>
             `).join('')}
@@ -324,7 +324,6 @@ async function _renderListTab(panel, tabConfig) {
     if (!row) return;
 
     if (action === 'edit') {
-      // 🆕 v101.5：統一使用 _openEditModal
       await _openEditModal({
         title: `編輯「${tabConfig.label}」`,
         resource: tabConfig.resource,
@@ -370,7 +369,7 @@ async function _renderListTab(panel, tabConfig) {
 }
 
 /* ============================================
-   🆕 v101.5：統一編輯 Modal（取代原本兩套）
+   統一編輯 Modal
    ============================================ */
 async function _openEditModal({ title, resource, id, fields, initialData, valueTransform, onSave }) {
   let overlay = document.getElementById(EDIT_MODAL_ID);
@@ -407,7 +406,6 @@ async function _openEditModal({ title, resource, id, fields, initialData, valueT
     onCancel: () => closeModal(EDIT_MODAL_ID),
   });
 
-  // 設定初始值
   const formData = {};
   fields.forEach((f) => {
     formData[`pd-${f.id}`] = initialData?.[f.id] ?? '';
@@ -620,8 +618,8 @@ async function _renderCategoriesTab(panel) {
                 <td>${escapeHtml(c.name)}</td>
                 <td class="num">${c.order || 0}</td>
                 <td>
-                  <button class="btn btn-sm btn-ghost" data-action="edit-cat" data-id="${c.id}">編輯</button>
-                  <button class="btn btn-sm btn-danger" data-action="del-cat" data-id="${c.id}">刪除</button>
+                  <button type="button" class="btn btn-sm btn-ghost" data-action="edit-cat" data-id="${c.id}">編輯</button>
+                  <button type="button" class="btn btn-sm btn-danger" data-action="del-cat" data-id="${c.id}">刪除</button>
                 </td>
               </tr>
             `).join('')}
@@ -655,8 +653,8 @@ async function _renderCategoriesTab(panel) {
                   <td>${escapeHtml(it.name)}</td>
                   <td><span class="badge badge-info">${escapeHtml(cat?.name || '—')}</span></td>
                   <td>
-                    <button class="btn btn-sm btn-ghost" data-action="edit-item" data-id="${it.id}">編輯</button>
-                    <button class="btn btn-sm btn-danger" data-action="del-item" data-id="${it.id}">刪除</button>
+                    <button type="button" class="btn btn-sm btn-ghost" data-action="edit-item" data-id="${it.id}">編輯</button>
+                    <button type="button" class="btn btn-sm btn-danger" data-action="del-item" data-id="${it.id}">刪除</button>
                   </td>
                 </tr>
               `;
@@ -819,8 +817,8 @@ async function _renderOptionsTab(panel) {
         <div style="display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.04);">
           <div style="flex:1; min-width:0;">${main}</div>
           <div style="display:flex; gap:2px;">
-            <button class="btn btn-sm btn-ghost" data-action="edit-opt" data-group="${group.key}" data-index="${i}">編輯</button>
-            <button class="btn btn-sm btn-danger" data-action="del-opt" data-group="${group.key}" data-index="${i}">刪除</button>
+            <button type="button" class="btn btn-sm btn-ghost" data-action="edit-opt" data-group="${group.key}" data-index="${i}">編輯</button>
+            <button type="button" class="btn btn-sm btn-danger" data-action="del-opt" data-group="${group.key}" data-index="${i}">刪除</button>
           </div>
         </div>
       `;
@@ -833,7 +831,7 @@ async function _renderOptionsTab(panel) {
             <i data-lucide="list-ordered" style="width:16px;height:16px;"></i>
             <span>${escapeHtml(group.label)} <span class="text-muted" style="font-size:12px;">（${list.length}）</span></span>
           </div>
-          <button class="btn btn-sm btn-ghost" data-action="add-opt" data-group="${group.key}">
+          <button type="button" class="btn btn-sm btn-ghost" data-action="add-opt" data-group="${group.key}">
             <i data-lucide="plus" style="width:14px;height:14px;"></i> 新增
           </button>
         </div>

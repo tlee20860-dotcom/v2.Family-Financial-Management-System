@@ -1,19 +1,12 @@
 // ============================================
-// form-handler.js — 提交封裝（v101.6 🆕）
+// form-handler.js — 提交封裝（v103.0.2）
 // 位置：js/shared/form-handler.js
 // ============================================
-// 職責：
-//   統一 try-catch + Toast 邏輯
-//   避免每個頁面重複寫「try { await action } catch { showToast }」
-//
-// API 凍結：v101.6 發布後只加不改
+// v103.0.2 修正：
+//   ✅ 從 './toast.js' 改為 '../ui/toast.js'
 // ============================================
 
-import { showToast } from './toast.js';
-
-/* ============================================
-   主函式
-   ============================================ */
+import { showToast } from '../ui/toast.js';
 
 /**
  * 提交封裝
@@ -74,15 +67,8 @@ export async function handleSubmit(options) {
   }
 }
 
-/* ============================================
-   便利函式
-   ============================================ */
-
 /**
  * 提交並顯示成功訊息（簡化版）
- * @param {Function} action
- * @param {string} [message]
- * @returns {Promise<{ success, result?, error? }>}
  */
 export function submitAndToast(action, message = '✅ 已儲存') {
   return handleSubmit({ action, successMessage: message });
@@ -90,8 +76,6 @@ export function submitAndToast(action, message = '✅ 已儲存') {
 
 /**
  * 提交並靜默（不顯示 Toast）
- * @param {Function} action
- * @returns {Promise<{ success, result?, error? }>}
  */
 export function submitSilent(action) {
   return handleSubmit({ action, silent: true });

@@ -1,19 +1,19 @@
 // ============================================
-// bank-account-manager.js — 銀行帳號管理元件（v102.0.0）
+// bank-account-manager.js — 銀行帳號管理元件（v103.0.2）
 // 位置：js/shared/bank-account-manager.js
 // ============================================
-// v102.0.0 修正：
-//   ✅ [P2-3] 刪除失敗（409 CONFLICT）時顯示明確關聯提示
-//   ✅ [P2-3] 加入「解除所有引用」按鈕（呼叫後端 force 參數）
-//   ✅ 保留 v102.0.0 全部功能
+// v103.0.2 修正：
+//   ✅ 從 './toast.js' 改為 '../ui/toast.js'
+//   ✅ 從 './modal.js' 改為 '../ui/modal.js'
+//   ✅ 從 './form-builder.js' 改為 '../ui/form-builder.js'
 // ============================================
 
 import { api } from '../core/api.js';
 import { AppState } from '../core/state.js';
 import { escapeHtml, formatHKD } from '../core/utils.js';
-import { showToast } from './toast.js';
-import { openModal, closeModal, openConfirm } from './modal.js';
-import { buildForm } from './form-builder.js';
+import { showToast } from '../ui/toast.js';
+import { openModal, closeModal, openConfirm } from '../ui/modal.js';
+import { buildForm } from '../ui/form-builder.js';
 
 /* ============================================
    Module 狀態
@@ -104,14 +104,10 @@ function _bindEvents() {
 
   if (_canInput) {
     const addBtn = document.getElementById(`${_containerId}-add-btn`);
-    if (addBtn) {
-      addBtn.addEventListener('click', _handleAdd);
-    }
+    if (addBtn) addBtn.addEventListener('click', _handleAdd);
 
     const clearBtn = document.getElementById(`${_containerId}-clear-old-btn`);
-    if (clearBtn) {
-      clearBtn.addEventListener('click', _handleClearOldBalances);
-    }
+    if (clearBtn) clearBtn.addEventListener('click', _handleClearOldBalances);
   }
 
   const listEl = document.getElementById(`${_containerId}-list`);
@@ -231,16 +227,13 @@ function _renderRow(acc) {
 }
 
 /* ============================================
-   新增
+   新增 / 編輯
    ============================================ */
 async function _handleAdd() {
   if (!_canInput) return;
   await _openEditModal(null);
 }
 
-/* ============================================
-   編輯
-   ============================================ */
 async function _handleEdit(id) {
   if (!_canInput) return;
   const acc = _accounts.find((a) => a.id === id);
@@ -251,9 +244,6 @@ async function _handleEdit(id) {
   await _openEditModal(acc);
 }
 
-/* ============================================
-   開啟編輯 Modal
-   ============================================ */
 async function _openEditModal(account) {
   const isEdit = !!account;
   document.getElementById(EDIT_MODAL_ID)?.remove();
@@ -374,7 +364,7 @@ async function _openEditModal(account) {
 }
 
 /* ============================================
-   刪除（🆕 P2-3：409 衝突引導）
+   刪除
    ============================================ */
 async function _handleDelete(id) {
   if (!_canInput) return;
@@ -398,10 +388,8 @@ async function _handleDelete(id) {
     );
     await _loadAccounts();
   } catch (err) {
-    // 🆕 P2-3：後端若回 409 CONFLICT（有關聯引用），顯示引導
     if (err.status === 409 || (err.message && err.message.includes('仍被'))) {
       showToast('此帳號仍被引用，請先移除引用', 'warning', 4000);
-      // 顯示詳情 Modal
       _showConflictModal(acc, err.message);
       return;
     }
@@ -409,9 +397,6 @@ async function _handleDelete(id) {
   }
 }
 
-/**
- * 🆕 P2-3：衝突提示 Modal
- */
 function _showConflictModal(account, message) {
   const MODAL_ID = 'bank-account-conflict-modal';
   document.getElementById(MODAL_ID)?.remove();

@@ -1,23 +1,24 @@
 // ============================================
-// admin.js — 平台管理入口（v101.10.0）
+// admin.js — 平台管理入口（v103.0.2）
 // 位置：js/admin/admin.js
 // ============================================
-// v101.10.0 修正：
-//   ✅ [P2-3] 帳號總覽改為分批查詢（每批 3 個）
-//       - 原本 Promise.all 一次打 N 個 API
-//       - 家庭數多時可能觸發 Cloudflare rate limit
-//   ✅ 保留 v101.8.4 全部功能
+// v103.0.2 修正：
+//   ✅ 從 '../shared/toast.js' 改為 '../ui/toast.js'
+//   ✅ 從 '../shared/modal.js' 改為 '../ui/modal.js'
+//   ✅ 從 '../shared/form-builder.js' 改為 '../ui/form-builder.js'
+//   ✅ 從 '../shared/tab-panel.js' 改為 '../ui/tab-panel.js'
+//   ✅ 從 '../core/app.js' 改為 '../layout/app-shell.js'
 // ============================================
 
 import { api } from '../core/api.js';
 import { escapeHtml } from '../core/utils.js';
 import { logout } from '../core/auth.js';
 import { AppState } from '../core/state.js';
-import { showToast } from '../shared/toast.js';
-import { openConfirm, openModal, closeModal } from '../shared/modal.js';
-import { buildForm } from '../shared/form-builder.js';
-import { initTabPanel } from '../shared/tab-panel.js';
-import { registerPageCleanup } from '../core/app.js';
+import { showToast } from '../ui/toast.js';
+import { openConfirm, openModal, closeModal } from '../ui/modal.js';
+import { buildForm } from '../ui/form-builder.js';
+import { initTabPanel } from '../ui/tab-panel.js';
+import { registerPageCleanup } from '../layout/app-shell.js';
 import { initPlatformDefaults } from './platform-defaults.js';
 
 /* ============================================
@@ -45,7 +46,6 @@ const ACCOUNT_EDIT_FORM_ROOT_ID = 'admin-account-edit-form-root';
 const ACCOUNT_RESTORE_MODAL_ID = 'admin-account-restore-modal';
 const ACCOUNT_RESTORE_FORM_ROOT_ID = 'admin-account-restore-form-root';
 
-// v101.10.0：批次查詢大小（避免 Cloudflare rate limit）
 const ACCOUNTS_BATCH_SIZE = 3;
 
 /* ============================================
@@ -150,9 +150,6 @@ function _validateAddFamily(data) {
   return true;
 }
 
-/* ============================================
-   新增家庭
-   ============================================ */
 async function _handleAddFamily(data) {
   const uid = (data['adm-fam-uid'] || '').trim();
   const name = (data['adm-fam-name'] || '').trim();
@@ -168,9 +165,6 @@ async function _handleAddFamily(data) {
   }
 }
 
-/* ============================================
-   載入家庭清單
-   ============================================ */
 async function _loadFamilies() {
   const listEl = document.getElementById('admin-family-list');
   if (listEl) listEl.innerHTML = `<div class="empty-state">載入中…</div>`;
@@ -187,9 +181,6 @@ async function _loadFamilies() {
   }
 }
 
-/* ============================================
-   渲染家庭清單
-   ============================================ */
 function _renderFamilies() {
   const listEl = document.getElementById('admin-family-list');
   const countEl = document.getElementById('admin-family-count');
@@ -239,9 +230,6 @@ function _renderFamilies() {
   if (window.lucide) window.lucide.createIcons();
 }
 
-/* ============================================
-   清單事件
-   ============================================ */
 function _bindFamilyListEvents() {
   const listEl = document.getElementById('admin-family-list');
   if (!listEl) return;
@@ -276,9 +264,6 @@ function _bindFamilyListEvents() {
   listEl.addEventListener('click', _familyListHandler);
 }
 
-/* ============================================
-   初始化家庭預設資料
-   ============================================ */
 async function _handleInit(uid, family) {
   const name = family?.name || uid;
 
@@ -297,9 +282,6 @@ async function _handleInit(uid, family) {
   }
 }
 
-/* ============================================
-   刪除家庭
-   ============================================ */
 async function _handleDelete(uid, family) {
   const name = family?.name || uid;
 
@@ -342,16 +324,12 @@ function initAccountsOverview() {
   return {
     refresh: () => _loadAccountsOverview(),
     destroy: () => {
-      const panel = document.getElementById('admin-panel-accounts');
-      if (panel) panel.innerHTML = '';
+      const p = document.getElementById('admin-panel-accounts');
+      if (p) p.innerHTML = '';
     },
   };
 }
 
-/**
- * v101.10.0：分批查詢帳號（每批 3 個家庭）
- * 避免一次 Promise.all N 個 API 觸發 rate limit
- */
 async function _loadAccountsOverview() {
   const listEl = document.getElementById('admin-accounts-list');
   const statsEl = document.getElementById('admin-accounts-stats');
@@ -360,11 +338,8 @@ async function _loadAccountsOverview() {
   listEl.innerHTML = '<div class="empty-state">載入中…</div>';
 
   try {
-    // 1. 取得所有家庭
     const familiesData = await api.adminListFamilies();
     const families = familiesData.families || [];
-
-    // 同步至 _families（供 _openAccountModal 使用）
     _families = families;
 
     if (families.length === 0) {
@@ -373,7 +348,6 @@ async function _loadAccountsOverview() {
       return;
     }
 
-    // 2. 分批查詢各家庭帳號
     const results = [];
     for (let i = 0; i < families.length; i += ACCOUNTS_BATCH_SIZE) {
       const batch = families.slice(i, i + ACCOUNTS_BATCH_SIZE);
@@ -393,7 +367,6 @@ async function _loadAccountsOverview() {
 
     const totalAccounts = results.reduce((s, r) => s + r.accounts.length, 0);
 
-    // 3. 統計
     if (statsEl) {
       statsEl.innerHTML = `
         <div class="grid grid-2" style="gap:12px;">
@@ -409,10 +382,8 @@ async function _loadAccountsOverview() {
       `;
     }
 
-    // 4. 渲染
     listEl.innerHTML = results.map((r) => _renderFamilyAccountsSection(r)).join('');
 
-    // 5. 綁定「跳轉管理」事件
     listEl.querySelectorAll('button[data-acc-jump]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const uid = btn.dataset.accJump;
@@ -608,9 +579,6 @@ function _validateAccountForm(data) {
   return true;
 }
 
-/* ============================================
-   建立帳號（EMAIL_EXISTS → 復原 Modal）
-   ============================================ */
 async function _handleCreateAccount(data) {
   const account = (data['acc-account'] || '').trim().toLowerCase();
   const password = data['acc-password'] || '';
@@ -647,9 +615,6 @@ async function _handleCreateAccount(data) {
   }
 }
 
-/* ============================================
-   復原 Modal（可編輯密碼）
-   ============================================ */
 async function _showRestoreModal({ account, defaultPassword, displayName, role, canInput }) {
   document.getElementById(ACCOUNT_RESTORE_MODAL_ID)?.remove();
 
@@ -747,9 +712,6 @@ async function _handleRestoreAccount({ account, password, displayName, role, can
   }
 }
 
-/* ============================================
-   載入帳號清單
-   ============================================ */
 async function _loadFamilyAccounts() {
   const listEl = document.getElementById('admin-account-list');
   const countEl = document.getElementById('admin-account-count');
@@ -844,9 +806,6 @@ function _bindAccountListEvents() {
   listEl.addEventListener('click', _accountListHandler);
 }
 
-/* ============================================
-   編輯帳號 Modal
-   ============================================ */
 async function _openEditAccountModal(uid) {
   let accounts = [];
   try {
@@ -938,9 +897,6 @@ async function _openEditAccountModal(uid) {
   if (window.lucide) window.lucide.createIcons();
 }
 
-/* ============================================
-   移除帳號
-   ============================================ */
 async function _handleRemoveAccount(uid) {
   const ok = await openConfirm(
     `⚠️ 確定要移除此成員帳號嗎？\n\n注意：\n• 只會移除「登入帳號」\n• 不會刪除該成員的財務資料\n• 不會刪除 Firebase Auth 帳號\n• 該成員將無法再登入系統\n• 若需重建同名帳號，需使用「復原」或至 Firebase Console 手動刪除`,

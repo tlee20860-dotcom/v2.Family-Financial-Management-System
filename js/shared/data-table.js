@@ -2,18 +2,11 @@
 // data-table.js — 通用表格渲染（v101.7.0）
 // 位置：js/shared/data-table.js
 // ============================================
-// v101.7.0 新增：
-//   ✅ options.expandable — 每列可展開（需 renderDetail）
-//   ✅ options.renderDetail — (row) => string
-//   ✅ options.collapsible — 整表可摺疊
-//   ✅ options.defaultCollapsed — 預設摺疊狀態
-//   ✅ options.headerActions — 右上角自訂按鈕
-//   ✅ options.storageKey — 摺疊狀態持久化 key
-//
-// API 凍結：v101.6 發布後只加不改
+// v103.0.2 修正：
+//   ✅ 從 '../config/entity-definitions.js' 改為 '../entity/entity-definitions.js'
 // ============================================
 
-import { getEntityDef, getEntityUi } from '../config/entity-definitions.js';
+import { getEntityDef, getEntityUi } from '../entity/entity-definitions.js';
 import { escapeHtml, formatCellValue } from '../core/utils.js';
 import { initColumnSettings } from './column-settings.js';
 
@@ -102,7 +95,6 @@ export function renderDataTable(options) {
     });
   }
 
-  // 摺疊狀態
   const collapseKey = `${COLLAPSE_STORAGE_PREFIX}${storageKey}`;
   let _collapsed = false;
   if (collapsible) {
@@ -285,7 +277,6 @@ export function renderDataTable(options) {
     }
 
     const listener = (e) => {
-      // 整表摺疊
       const collapseBtn = e.target.closest('button[data-action="toggle-collapse"]');
       if (collapseBtn) {
         _collapsed = !_collapsed;
@@ -294,7 +285,6 @@ export function renderDataTable(options) {
         return;
       }
 
-      // 每列展開
       const expandBtn = e.target.closest('button[data-action="toggle-expand"]');
       if (expandBtn) {
         const idx = Number(expandBtn.dataset.index);
@@ -304,7 +294,6 @@ export function renderDataTable(options) {
         return;
       }
 
-      // headerActions
       const headerActionBtn = e.target.closest('.data-table-header-right button[data-action]');
       if (headerActionBtn) {
         const action = headerActionBtn.dataset.action;
@@ -321,7 +310,6 @@ export function renderDataTable(options) {
         return;
       }
 
-      // 操作按鈕（tbody 內）
       const actionBtn = e.target.closest('tbody button[data-action]');
       if (actionBtn) {
         const action = actionBtn.dataset.action;
@@ -355,7 +343,6 @@ export function renderDataTable(options) {
         return;
       }
 
-      // 點擊 row
       const tr = e.target.closest('tr[data-row-index]');
       if (tr && typeof hooks.onRowClick === 'function') {
         const index = Number(tr.dataset.rowIndex);

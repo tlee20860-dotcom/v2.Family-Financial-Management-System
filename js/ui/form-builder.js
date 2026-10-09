@@ -1,17 +1,14 @@
 // ============================================
-// form-builder.js — 通用動態表單建構器（v103.0.0）
+// form-builder.js — 通用動態表單建構器（v103.0.2）
 // 位置：js/ui/form-builder.js
 // ============================================
-// v103.0.0 重構：
-//   ✅ 從 js/shared/form-builder.js 移入 js/ui/
-//   ✅ 逸出改用 lib/dom.js 的 esc()
-//   ✅ 保留 v101.8.7 全部功能（含 number-plain）
-//   ✅ getDynamicOptions 從 entity-helpers.js 移入（仍由此處呼叫）
+// v103.0.2 修正：
+//   ✅ getDynamicOptions 路徑改為 ../entity/entity-helpers.js
 // ============================================
 
 import { esc } from '../lib/dom.js';
 import { showToast } from './toast.js';
-import { getDynamicOptions } from '../shared/entity-helpers.js';
+import { getDynamicOptions } from '../entity/entity-helpers.js';
 
 /* ============================================
    主函式
@@ -41,7 +38,6 @@ export function buildForm(options) {
     return null;
   }
 
-  // 每個欄位的最終 ID（f.id 加上前綴）
   const fieldIdMap = {};
   fields.forEach((f) => {
     if (f.type === 'custom' || f.type === 'hidden') return;
@@ -76,15 +72,9 @@ export function buildForm(options) {
   const submitBtn = form.querySelector('[data-form-action="submit"]');
   const submitBtnLabel = submitBtn.querySelector('span');
 
-  /* ============================================
-     內部狀態
-     ============================================ */
   let _submitting = false;
   const _dynamicCleanups = [];
 
-  /* ============================================
-     事件：Submit
-     ============================================ */
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
@@ -140,9 +130,6 @@ export function buildForm(options) {
     }
   });
 
-  /* ============================================
-     事件：按鈕列
-     ============================================ */
   form.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-form-action]');
     if (!btn) return;
@@ -157,9 +144,6 @@ export function buildForm(options) {
     }
   });
 
-  /* ============================================
-     內部方法
-     ============================================ */
   function _setSubmitting(isSubmitting) {
     _submitting = isSubmitting;
     submitBtn.disabled = isSubmitting;
@@ -193,9 +177,6 @@ export function buildForm(options) {
     fieldEl.appendChild(errorDiv);
   }
 
-  /* ============================================
-     初始化欄位（動態選項 / 連動）
-     ============================================ */
   async function _initDynamicFields() {
     for (const f of fields) {
       if (f.type === 'select' && f.optionsSource) {
@@ -238,9 +219,6 @@ export function buildForm(options) {
     }
   }
 
-  /* ============================================
-     對外 API
-     ============================================ */
   const api = {
     root,
     form,
@@ -451,10 +429,6 @@ function _renderField(f, fieldIdMap) {
     </div>
   `;
 }
-
-/* ============================================
-   資料收集 / 驗證
-   ============================================ */
 
 function _collectData(fields, fieldIdMap) {
   const data = {};
