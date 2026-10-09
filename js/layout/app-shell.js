@@ -1,9 +1,10 @@
 // ============================================
-// app-shell.js — App Shell 初始化（v103.0.8）
+// app-shell.js — App Shell 初始化（v103.0.9）
 // 位置：js/layout/app-shell.js
 // ============================================
-// v103.0.8 修正：
-//   ✅ initApp 開頭呼叫 initDebug()（全站啟用 vConsole）
+// v103.0.9 修正：
+//   ✅ [關鍵] initDebug 改為動態 import + try-catch
+//      - 即使 debug.js 不存在，app-shell 也不會崩潰
 // ============================================
 
 import { renderSidebar, destroySidebar } from './sidebar.js';
@@ -11,7 +12,6 @@ import { renderNavbar, destroyNavbar } from './navbar.js';
 import { requireLogin } from '../core/auth-guard.js';
 import { initPWA } from '../core/pwa.js';
 import { AppState } from '../core/state.js';
-import { initDebug } from '../core/debug.js';
 import {
   initAppConfig,
   watchPlatformDefaults,
@@ -23,15 +23,9 @@ import {
   destroyAllRegistries,
 } from '../lib/registry.js';
 
-/* ============================================
-   Module 狀態
-   ============================================ */
 let _pageCleanups = [];
 let _initialized = false;
 
-/* ============================================
-   主入口
-   ============================================ */
 export async function initApp({
   activeHref = '',
   title = '',
@@ -44,11 +38,15 @@ export async function initApp({
   }
   _initialized = true;
 
-  /* ---------- 0. Debug（vConsole） ---------- */
+  /* ---------- 0. Debug（vConsole）安全載入 ---------- */
   try {
-    initDebug();
+    const mod = await import('../core/debug.js');
+    if (mod && typeof mod.initDebug === 'function') {
+      mod.initDebug();
+    }
   } catch (err) {
-    console.warn('[app-shell] initDebug 失敗：', err);
+    // debug.js 不存在時，不影響主流程
+    console.warn('[app-shell] debug 載入失敗（可忽略）：', err.message);
   }
 
   /* ---------- 1. PWA ---------- */
@@ -81,10 +79,10 @@ export async function initApp({
       watchFamilySettings();
     }
   } catch (err) {
-    console.warn('[app-shell] app-config 載入失敗（使用常數 fallback）：', err);
+    console.warn('[app-shell] app-config 載入失敗：', err);
   }
 
-  /* ---------- 5. Registry 初始化 ---------- */
+  /* ---------- 5. Registry ---------- */
   try {
     initAllRegistries();
   } catch (err) {
@@ -96,8 +94,15 @@ export async function initApp({
   if (sidebarRoot) {
     try {
       await renderSidebar('sidebar-root', activeHref);
+      console.log('[app-shell] Sidebar 渲染完成');
     } catch (err) {
       console.error('[app-shell] Sidebar 渲染失敗：', err);
+      // 顯示錯誤在側邊欄位置
+      sidebarRoot.innerHTML = `
+        <div style="padding:16px; color:#F43F5E; font-size:12px; font-family:monospace;">
+          ⚠️ Sidebar 渲染失敗：<br>${err.message}
+        </div>
+      `;
     }
   }
 
@@ -116,18 +121,12 @@ export async function initApp({
   return user;
 }
 
-/* ============================================
-   頁面清理註冊
-   ============================================ */
 export function registerPageCleanup(fn) {
   if (typeof fn === 'function') {
     _pageCleanups.push(fn);
   }
 }
 
-/* ============================================
-   銷毀
-   ============================================ */
 export function destroyApp() {
   _pageCleanups.forEach((fn) => {
     try { fn(); } catch (e) {
@@ -142,6 +141,5 @@ export function destroyApp() {
   try { destroyAllRegistries(); } catch (e) { /* noop */ }
 
   AppState.destroy();
-
   _initialized = false;
 }

@@ -31,7 +31,6 @@
 
         <div class="banner mb-16">
           ℹ️ 整合「個人支出 / 家庭共用支出 / 保險扣款」三大來源。
-          可直接於此變更狀態，會自動連動各來源頁面。
         </div>
 
         <div id="page-filter-root" class="mb-16"></div>
@@ -43,18 +42,37 @@
 
   <script src="https://unpkg.com/lucide@0.462.0/dist/umd/lucide.min.js" defer></script>
 
-  <link rel="modulepreload" href="./js/layout/app-shell.js">
-  <link rel="modulepreload" href="./js/engines/page-engine.js">
-  <link rel="modulepreload" href="./js/pages/settlements.js">
+  <!-- 🆕 vConsole（inline，100% 有效） -->
+  <script src="https://cdn.jsdelivr.net/npm/vconsole@3.15.0/dist/vconsole.min.js"></script>
+  <script>
+    window.__vconsole_loaded__ = true;
+    window.vConsole = new window.VConsole({ maxLogNumber: 2000 });
+    window.addEventListener('error', (e) => {
+      console.error('[GLOBAL ERROR]', e.message, e.filename, e.lineno);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      console.error('[UNHANDLED]', e.reason);
+    });
+    console.log('[settlements.html] inline vConsole 已載入');
+  </script>
 
   <script type="module">
-    import { initApp } from './js/layout/app-shell.js';
-    import { createPage } from './js/engines/page-engine.js';
-    import schema from './js/pages/settlements.js';
+    console.log('[settlements.html] 開始載入模組');
+    try {
+      const { initApp } = await import('./js/layout/app-shell.js');
+      const { createPage } = await import('./js/engines/page-engine.js');
+      const schema = (await import('./js/pages/settlements.js')).default;
+      console.log('[settlements.html] 模組載入完成');
 
-    const user = await initApp({ activeHref: 'settlements.html', title: '結算清單' });
-    if (user) {
-      await createPage(schema);
+      const user = await initApp({ activeHref: 'settlements.html', title: '結算清單' });
+      console.log('[settlements.html] initApp 完成：', user ? 'OK' : 'NULL');
+
+      if (user) {
+        const page = await createPage(schema);
+        console.log('[settlements.html] createPage 完成');
+      }
+    } catch (err) {
+      console.error('[settlements.html] 載入失敗：', err.message, err.stack);
     }
   </script>
 </body>
