@@ -2,13 +2,10 @@
 // api.js — Cloudflare Functions 呼叫封裝（v102.0.0）
 // 位置：js/core/api.js
 // ============================================
-// v102.0.0 新增：
-//   ✅ bankAccounts API（list / create / update / remove）
-//   ✅ bankTransactions API（list / listAll / create / update / remove）
-//   ✅ personalIncome API（list / save）
-//   ✅ memberAdvances API（list / listAll / create / update / remove）
-//   ✅ clearBankBalances（危險操作）
-//   ✅ 保留 v101.10.0 全部功能
+// v102.0.0 修正：
+//   ✅ [P0-1] clearBankBalances 補 confirm: 'CONFIRM_DELETE'
+//   ✅ [P3-2] personalIncome 新增 remove 方法
+//   ✅ 保留 v102.0.0 全部功能
 // ============================================
 
 import { AppState } from './state.js';
@@ -281,7 +278,7 @@ export const api = {
       }),
   },
 
-  /* ---------- 🆕 v102.0.0：銀行帳號 ---------- */
+  /* ---------- 銀行帳號 ---------- */
   bankAccounts: {
     list: () =>
       callApi(`/api/bank-accounts?familyId=${getFamilyId()}&action=list`),
@@ -308,7 +305,7 @@ export const api = {
       }),
   },
 
-  /* ---------- 🆕 v102.0.0：銀行交易 ---------- */
+  /* ---------- 銀行交易 ---------- */
   bankTransactions: {
     list: (bankId) =>
       callApi(`/api/bank-transactions?familyId=${getFamilyId()}&bankId=${bankId}&action=list`),
@@ -338,7 +335,7 @@ export const api = {
       }),
   },
 
-  /* ---------- 🆕 v102.0.0：個人收入 ---------- */
+  /* ---------- 個人收入 ---------- */
   personalIncome: {
     list: (memberId) =>
       callApi(`/api/personal-income?familyId=${getFamilyId()}&memberId=${memberId}&action=list`),
@@ -349,9 +346,17 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ familyId: getFamilyId(), memberId, year, month, amount, action: 'save' }),
       }),
+
+    // 🆕 v102.0.0：刪除個人收入
+    remove: (memberId, year, month) =>
+      callApi('/api/personal-income', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ familyId: getFamilyId(), memberId, year, month, action: 'remove' }),
+      }),
   },
 
-  /* ---------- 🆕 v102.0.0：成員代墊 ---------- */
+  /* ---------- 成員代墊 ---------- */
   memberAdvances: {
     list: (memberId) =>
       callApi(`/api/member-advances?familyId=${getFamilyId()}&memberId=${memberId}&action=list`),
@@ -382,10 +387,14 @@ export const api = {
   },
 
   /* ---------- 🆕 v102.0.0：清除舊銀行資料（危險操作） ---------- */
+  // 🆕 P0-1：補 confirm 參數，否則後端永遠回 400
   clearBankBalances: () =>
     callApi('/api/clear-bank-balances', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ familyId: getFamilyId() }),
+      body: JSON.stringify({
+        familyId: getFamilyId(),
+        confirm: 'CONFIRM_DELETE',
+      }),
     }),
 };
