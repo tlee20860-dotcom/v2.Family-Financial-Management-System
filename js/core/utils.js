@@ -1,11 +1,12 @@
 // ============================================
-// utils.js — 通用工具函式（v102.1.0）
+// utils.js — 通用工具函式（v103.0.0）
 // 位置：js/core/utils.js
 // ============================================
-// v102.1.0 修正：
-//   ✅ [P3-1] calculateBankBalance / calculateTotalBankBalance 標註 @deprecated
-//             （SSOT 已統一至 js/shared/bank-helpers.js 的 calcBankBalance）
-//   ✅ 保留 v102.0.0 全部功能
+// v103.0.0 重構：
+//   ✅ 移除 deprecated calculateBankBalance / calculateTotalBankBalance
+//      （SSOT 已統一至 js/shared/bank-helpers.js 的 calcBankBalance）
+//   ✅ 保留 v102.1.0 全部其他功能
+//   ✅ 版本號更新
 // ============================================
 
 import {
@@ -81,86 +82,6 @@ export function formatTransactionCategory(category) {
 
 export function getCategoryBadgeClass(category) {
   return BANK_TXN_CATEGORY_BADGES[category] || 'badge-muted';
-}
-
-/* ============================================
-   🆕 P3-1：銀行餘額計算（已廢棄）
-   -------------------------------------------------
-   ⚠️ 此函式已 deprecated，SSOT 統一至 js/shared/bank-helpers.js 的 calcBankBalance。
-   ⚠️ 保留此函式僅為向後相容舊匯入；新程式碼請使用 bank-helpers.js。
-   ⚠️ 若兩處邏輯出現分歧，以 bank-helpers.js 為準。
-   ============================================ */
-
-/**
- * @deprecated Use `calcBankBalance` from `js/shared/bank-helpers.js` instead.
- *
- * 保留向後相容，若呼叫端使用此函式，將於 console 警告。
- */
-export function calculateBankBalance(bankAccount, transactions, targetYear, targetMonth) {
-  if (typeof console !== 'undefined') {
-    console.warn(
-      '[utils.calculateBankBalance] 已 deprecated，請改用 js/shared/bank-helpers.js 的 calcBankBalance'
-    );
-  }
-  return _legacyCalcBankBalance(bankAccount, transactions, targetYear, targetMonth);
-}
-
-/**
- * @deprecated Use `calcTotalBankBalance` from `js/shared/bank-helpers.js` instead.
- */
-export function calculateTotalBankBalance(bankAccounts, allTransactions, targetYear, targetMonth) {
-  if (typeof console !== 'undefined') {
-    console.warn(
-      '[utils.calculateTotalBankBalance] 已 deprecated，請改用 js/shared/bank-helpers.js 的 calcTotalBankBalance'
-    );
-  }
-  let total = 0;
-  (bankAccounts || []).forEach((acc) => {
-    const txns = (allTransactions || []).filter((t) => t.bankId === acc.id);
-    total += _legacyCalcBankBalance(acc, txns, targetYear, targetMonth);
-  });
-  return total;
-}
-
-/* 內部：保留舊實作供 deprecated 函式呼叫（與 bank-helpers.js 邏輯一致） */
-function _legacyCalcBankBalance(bankAccount, transactions, targetYear, targetMonth) {
-  if (!bankAccount) return 0;
-
-  const initial = Number(bankAccount.initialBalance) || 0;
-  const initY = Number(bankAccount.initialYear) || 0;
-  const initM = Number(bankAccount.initialMonth) || 0;
-
-  if (!initY || !initM) return initial;
-
-  const tY = Number(targetYear);
-  const tM = Number(targetMonth);
-
-  if (tY < initY || (tY === initY && tM < initM)) {
-    return initial;
-  }
-
-  let balance = initial;
-  (transactions || []).forEach((txn) => {
-    const date = txn.date || '';
-    if (!date || date.length < 7) return;
-
-    const [y, m] = date.split('-').map(Number);
-    const afterInit = y > initY || (y === initY && m > initM);
-    const beforeTarget = y < tY || (y === tY && m <= tM);
-
-    if (!afterInit || !beforeTarget) return;
-
-    const amount = Number(txn.amount) || 0;
-    if (txn.type === 'in') {
-      balance += amount;
-    } else if (txn.type === 'out') {
-      balance -= amount;
-    } else if (txn.type === 'transfer') {
-      balance -= amount;
-    }
-  });
-
-  return balance;
 }
 
 /* ============================================
