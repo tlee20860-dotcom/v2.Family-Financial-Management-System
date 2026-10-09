@@ -1,14 +1,33 @@
 // ============================================
-// merge.js — 結算資料合併邏輯（v102.0.0）
+// merge.js — 結算資料合併邏輯（v102.1.0-hotfix3）
 // 位置：js/pages/settlements/merge.js
 // ============================================
-// v102.0.0 修正：
-//   ✅ 合併 bankId / txnId / paymentMode / advanceHolderId
-//   ✅ 保留 v101.8.6 全部功能（以 linked 為主）
+// v102.1.0-hotfix3 修正：
+//   ✅ [BUG] _buildLinkedInsuranceRow 不再混用個人類別狀態
+//       - 保險行的 status 一律優先使用 insuranceRow.status（來自 insurance_payments）
+//       - linked.status 僅在符合保險類別時才使用
+//   ✅ 保留 v102.1.0 全部功能
 // ============================================
 
 import { getStatusesByCategory } from '../../config/app-config.js';
 import { RESERVED_IDS } from '../../config/constants.js';
+
+/* ============================================
+   保險類別狀態快取（避免重複查詢）
+   ============================================ */
+let _insuranceStatusNames = null;
+
+function _getInsuranceStatusNames() {
+  if (_insuranceStatusNames) return _insuranceStatusNames;
+  try {
+    const list = getStatusesByCategory('insurance');
+    _insuranceStatusNames = new Set(list.map((s) => s.name));
+  } catch (e) {
+    // app-config 尚未載入時 fallback
+    _insuranceStatusNames = new Set(['未扣款', '已扣款']);
+  }
+  return _insuranceStatusNames;
+}
 
 /* ============================================
    主函式
@@ -79,8 +98,8 @@ function _buildPersonalRow(e, year, month) {
     categoryId: e.categoryId || '',
     itemId: e.itemId || '',
     paymentMethodId: e.paymentMethodId || '',
-    bankId: e.bankId || '',                 // 🆕 v102.0.0
-    txnId: e.txnId || '',                   // 🆕 v102.0.0
+    bankId: e.bankId || '',
+    txnId: e.txnId || '',
     isAutoLinked: false,
     _ref: {
       memberId: e.memberId,
@@ -91,6 +110,7 @@ function _buildPersonalRow(e, year, month) {
 
 /* ============================================
    保險平攤（以 linked 為主）
+   🆕 hotfix3：狀態一律用保險類別
    ============================================ */
 function _buildLinkedInsuranceRow(linked, insuranceRow, year, month, policyId) {
   const effectiveMemberId = insuranceRow?.policyHolderId
@@ -98,7 +118,11 @@ function _buildLinkedInsuranceRow(linked, insuranceRow, year, month, policyId) {
     || linked.memberId
     || '';
 
-  const status = linked.status || insuranceRow?.status || '已扣款';
+  // 🆕 hotfix3：保險類別狀態解析（優先順序）
+  //   1. insurance_payments.status（若為保險類別狀態）
+  //   2. linked.status（若為保險類別狀態）
+  //   3. '未扣款'（fallback）
+  const status = _resolveInsuranceStatus(insuranceRow?.status, linked.status);
 
   return {
     key: `insurance-${year}-${month}-${policyId}`,
@@ -113,10 +137,10 @@ function _buildLinkedInsuranceRow(linked, insuranceRow, year, month, policyId) {
     isDone: _isDoneStatus(status, 'insurance'),
     date: linked.date || insuranceRow?.date || '',
     categoryId: linked.categoryId || '',
-    bankId: linked.bankId || insuranceRow?.bankId || '',           // 🆕 v102.0.0
-    txnId: linked.txnId || insuranceRow?.txnId || '',              // 🆕 v102.0.0
-    paymentMode: insuranceRow?.paymentMode || 'direct',            // 🆕 v102.0.0
-    advanceHolderId: insuranceRow?.advanceHolderId || '',          // 🆕 v102.0.0
+    bankId: linked.bankId || insuranceRow?.bankId || '',
+    txnId: linked.txnId || insuranceRow?.txnId || '',
+    paymentMode: insuranceRow?.paymentMode || 'direct',
+    advanceHolderId: insuranceRow?.advanceHolderId || '',
     isAutoLinked: true,
     _ref: {
       policyId,
@@ -133,6 +157,8 @@ function _buildInsuranceRow(p, year, month) {
   const effectiveMemberId = p.policyHolderId || p.memberId || '';
   const displayName = p.policyName || '（未命名保單）';
 
+  const status = _resolveInsuranceStatus(p.status);
+
   return {
     key: `insurance-${year}-${month}-${p.policyId}`,
     source: 'insurance',
@@ -142,20 +168,32 @@ function _buildInsuranceRow(p, year, month) {
     memberId: effectiveMemberId,
     name: displayName,
     amount: Number(p.amount) || 0,
-    status: p.status || '已扣款',
-    isDone: _isDoneStatus(p.status, 'insurance'),
+    status,
+    isDone: _isDoneStatus(status, 'insurance'),
     date: p.date || '',
     categoryId: '',
-    bankId: p.bankId || '',                        // 🆕 v102.0.0
-    txnId: p.txnId || '',                          // 🆕 v102.0.0
-    paymentMode: p.paymentMode || 'direct',        // 🆕 v102.0.0
-    advanceHolderId: p.advanceHolderId || '',      // 🆕 v102.0.0
+    bankId: p.bankId || '',
+    txnId: p.txnId || '',
+    paymentMode: p.paymentMode || 'direct',
+    advanceHolderId: p.advanceHolderId || '',
     isAutoLinked: false,
     _ref: {
       policyId: p.policyId,
       memberId: effectiveMemberId,
     },
   };
+}
+
+/* ============================================
+   🆕 hotfix3：保險狀態解析（只接受保險類別狀態）
+   ============================================ */
+function _resolveInsuranceStatus(...candidates) {
+  const validNames = _getInsuranceStatusNames();
+  for (const c of candidates) {
+    if (!c) continue;
+    if (validNames.has(c)) return c;
+  }
+  return '未扣款';
 }
 
 /* ============================================
