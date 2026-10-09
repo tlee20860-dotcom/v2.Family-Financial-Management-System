@@ -116,6 +116,13 @@ function _subscribeAllData(ctx, schema) {
   const dataCfg = schema.data || {};
 
   Object.entries(dataCfg).forEach(([key, cfg]) => {
+    /* 🆕 初始化安全預設值（避免 derived 計算時 undefined） */
+    if (!(key in ctx.data)) {
+      ctx.data[key] = cfg.default !== undefined
+        ? cfg.default
+        : (cfg.type === 'list' ? [] : null);
+    }
+
     try {
       const unsub = subscribe(cfg, ({ data, error }) => {
         if (error) {
