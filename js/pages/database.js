@@ -1,62 +1,98 @@
 // ============================================
-// database.js — 基礎資料庫（v103.0.0 Page Schema）
-// 位置：js/pages/database.js
+// dashboard.js — 總覽儀表板（v103.0.0 修正版）
+// 位置：js/pages/dashboard.js
 // ============================================
-// 合併 v102 的 database/index.js + 6 個 tab 檔案
-// ============================================
-import { createPage } from '../engines/page-engine.js';
-import { initTabPanel } from '../ui/tab-panel.js';
-import { initEntityListPage } from '../shared/entity-list-page.js';
-import { ENTITY_KEYS } from '../config/constants.js';
+import { calcTotalBankBalance } from '../lib/bank.js';
+import { formatHKD } from '../lib/format.js';
+import { AppState } from '../core/state.js';
 
 export default {
-  title: '基礎資料庫',
+  title: '總覽儀表板',
 
-  data: {},
-  state: { activeTab: 'members' },
-  derived: {},
-  blocks: [],
-
-  customMount: (ctx) => {
-    const TABS = [
-      { key: 'members',    label: '成員',     icon: 'users',        panelId: 'db-panel-members' },
-      { key: 'banks',      label: '銀行',     icon: 'landmark',     panelId: 'db-panel-banks' },
-      { key: 'categories', label: '支出結構', icon: 'tags',         panelId: 'db-panel-categories' },
-      { key: 'options',    label: '支付/狀態',icon: 'credit-card',  panelId: 'db-panel-options' },
-      { key: 'dropdowns',  label: '下拉選項', icon: 'list-ordered', panelId: 'db-panel-dropdowns' },
-      { key: 'yearrange',  label: '年份範圍', icon: 'calendar',     panelId: 'db-panel-yearrange' },
-    ];
-
-    const instances = {};
-
-    const loadTab = async (key) => {
-      if (instances[key]) {
-        try { instances[key].refresh?.(); } catch (e) { /* noop */ }
-        return;
-      }
-      const panelId = TABS.find((t) => t.key === key).panelId;
-      if (key === 'members') {
-        instances[key] = initEntityListPage({ entity: ENTITY_KEYS.MEMBER, containerId: panelId, options: { defaultView: 'table', showViewToggle: true, storageKey: 'db-members-view' } });
-      } else if (key === 'banks') {
-        instances[key] = initEntityListPage({ entity: ENTITY_KEYS.BANK, containerId: panelId, options: { defaultView: 'table', showViewToggle: true, storageKey: 'db-banks-view' } });
-      }
-      /* categories / options / dropdowns / yearrange 由既有 shared 模組處理 */
-    };
-
-    const tabPanel = initTabPanel({
-      containerId: 'db-tab-bar-root',
-      tabs: TABS,
-      defaultKey: 'members',
-      storageKey: 'database-tab',
-      wrap: true,
-      onChange: (key) => { loadTab(key); },
-    });
-
-    return {
-      destroy: () => {
-        Object.values(instances).forEach((i) => { try { i?.destroy?.(); } catch (e) {} });
-        try { tabPanel?.destroy(); } catch (e) {}
-      },
-    };
+  data: {
+    bankAccounts: {
+      type: 'list',
+      path: 'bank_accounts',
+      default: [],
+    },
+    bankTransactions: {
+      type: 'object',                     // 🆕 拿原始物件
+      path: 'bank_accounts',              // 🆕 不帶 {__all__}
+      transform: _flattenTxns,
+      default: [],
+    },
   },
+
+  state: {
+    currentYear:  String(AppState.year  || new Date().getFullYear()),
+    currentMonth: String(AppState.month || '12'),
+  },
+
+  derived: {
+    totalBankBalance: {
+      deps: ['data.bankAccounts', 'data.bankTransactions', 'state.currentYear', 'state.currentMonth'],
+      compute: (accounts, txns, year, month) => {
+        const tM = month === 'all' ? '12' : (month || '12');
+        return calcTotalBankBalance(accounts || [], txns || [], year, tM);
+      },
+    },
+
+    statsCards: {
+      deps: ['totalBankBalance', 'data.bankAccounts', 'state.currentYear'],
+      compute: (totalBankBalance, accounts, year) => _buildStatsCards(totalBankBalance, accounts, year),
+    },
+  },
+
+  blocks: [
+    { type: 'stats', container: 'stats-cards-root', cards: '$.statsCards' },
+  ],
 };
+
+/* ============================================
+   Helpers
+   ============================================ */
+function _flattenTxns(rawAccounts) {
+  const flat = [];
+  Object.entries(rawAccounts || {}).forEach(([bankId, bank]) => {
+    Object.entries(bank?.transactions || {}).forEach(([txnId, txn]) => {
+      flat.push({ id: txnId, bankId, bankName: bank?.name || '', ...txn });
+    });
+  });
+  return flat;
+}
+
+function _buildStatsCards(totalBankBalance, accounts, year) {
+  const list = Array.isArray(accounts) ? accounts : [];
+  const bal = Number(totalBankBalance) || 0;
+
+  return [
+    {
+      title: '家庭總餘額',
+      value: formatHKD(bal),
+      valueClass: bal >= 0 ? 'emerald' : 'red',
+      hint: `共 ${list.length} 個銀行帳號`,
+      icon: 'landmark',
+    },
+    {
+      title: `${year} 家庭收入`,
+      value: formatHKD(0),
+      valueClass: 'emerald',
+      hint: '（年度資料載入中）',
+      icon: 'trending-up',
+    },
+    {
+      title: `${year} 年度總支出`,
+      value: formatHKD(0),
+      valueClass: 'red',
+      hint: '（年度資料載入中）',
+      icon: 'trending-down',
+    },
+    {
+      title: `${year} 年度淨餘額`,
+      value: formatHKD(0),
+      valueClass: 'emerald',
+      hint: '（年度資料載入中）',
+      icon: 'wallet',
+    },
+  ];
+}
