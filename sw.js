@@ -6,7 +6,7 @@
 //   ✅ STATIC_ASSETS 對應 v103.0.0 新目錄結構
 // ============================================
 
-const CACHE_NAME = 'family-fin-v135';
+const CACHE_NAME = 'family-fin-v136';          // 從 v135 → v136
 
 const STATIC_ASSETS = [
   './css/theme.css',
