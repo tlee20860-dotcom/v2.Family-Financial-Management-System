@@ -1,35 +1,10 @@
 // ============================================
-// settlements-year.js — 結算清單年度聚合 API（v101.10.0 🆕）
+// settlements-year.js — 結算清單年度聚合 API（v102.0.0）
 // 位置：functions/api/settlements-year.js
 // ============================================
-// 用途：
-//   一次回傳指定年度所有月份 + 保險 payments，取代前端 12 + N 次 API
-//   前端保留 mergeSettlementData 邏輯（不重複實作）
-//
-// 請求：
-//   GET /api/settlements-year?familyId={uid}&year=2024
-//   Headers: { Authorization: Bearer {idToken} }
-//
-// 回應：
-//   {
-//     ok: true,
-//     year: 2024,
-//     memberExpensesByMonth: {
-//       "01": [ { id, memberId, name, amount, status, ... }, ... ],
-//       "02": [ ... ],
-//       ...
-//       "12": [ ... ]
-//     },
-//     policies: [ { id, type, name, memberId, policyHolderId, ... }, ... ],
-//     paymentsCache: {
-//       [policyId]: {
-//         "2024": {
-//           "01": { status, amount, date },
-//           ...
-//         }
-//       }
-//     }
-//   }
+// v102.0.0 修正：
+//   ✅ [P1-1] memberExpensesByMonth 補回 bankId / txnId
+//   ✅ 保留 v101.10.0 全部功能
 // ============================================
 
 import { dbGet, jsonResponse } from './_config.js';
@@ -89,6 +64,9 @@ export async function onRequestGet({ request }) {
             paymentMethodId: e.paymentMethodId || '',
             isAutoLinked: !!e.isAutoLinked,
             policyId: e.policyId || '',
+            bankId: e.bankId || '',                       // 🆕 v102.0.0
+            txnId: e.txnId || '',                         // 🆕 v102.0.0
+            repaidDate: e.repaidDate || '',
             createdAt: e.createdAt || 0,
           });
         });
@@ -96,7 +74,7 @@ export async function onRequestGet({ request }) {
       memberExpensesByMonth[mm] = rows;
     }
 
-    // policies 陣列化
+    // policies 陣列化（含 v102.0.0 的 paymentMode / advanceHolderId）
     const policies = Object.entries(policiesObj).map(([id, p]) => ({
       id,
       type: p.type || 'normal',
@@ -104,6 +82,8 @@ export async function onRequestGet({ request }) {
       company: p.company || '',
       memberId: p.memberId || '',
       policyHolderId: p.policyHolderId || '',
+      paymentMode: p.paymentMode || 'direct',              // 🆕 v102.0.0
+      advanceHolderId: p.advanceHolderId || '',            // 🆕 v102.0.0
       firstStartYear: Number(p.firstStartYear) || 0,
       firstStartMonth: String(p.firstStartMonth || '01').padStart(2, '0'),
       totalPolicyYears: Number(p.totalPolicyYears) || 0,
