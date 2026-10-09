@@ -3,6 +3,7 @@
 // 位置：js/config/app-config.js
 // ============================================
 // v102.0.0 修正：
+//   ✅ [P3-3] _toObject / _mergeAll 空物件 fallback 補強
 //   ✅ getOptions('paymentModes') 預設值
 //   ✅ 保留 v101.5 全部功能
 // ============================================
@@ -149,7 +150,15 @@ export function disposeAppConfig() {
    對外查詢
    ============================================ */
 export function getStatuses() {
-  const raw = _merged?.statuses || _toObject(DEFAULT_STATUSES);
+  const raw = _merged?.statuses;
+
+  // 🆕 P3-3：空物件 fallback（避免 Object.entries({}) 回傳空陣列）
+  if (!raw || typeof raw !== 'object' || Object.keys(raw).length === 0) {
+    return Object.entries(_toObject(DEFAULT_STATUSES))
+      .map(([id, s]) => ({ id, ...s }))
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+  }
+
   return Object.entries(raw)
     .map(([id, s]) => ({ id, ...s }))
     .sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -174,12 +183,21 @@ export function isDoneStatus(name) {
 }
 
 export function getOptions(key) {
-  const opts = _merged?.options || DEFAULT_OPTIONS;
+  const opts = _merged?.options;
+
+  // 🆕 P3-3：空物件 fallback
+  if (!opts || typeof opts !== 'object' || Object.keys(opts).length === 0) {
+    return DEFAULT_OPTIONS[key] || [];
+  }
   return opts[key] || DEFAULT_OPTIONS[key] || [];
 }
 
 export function getOptionsRaw() {
-  return _merged?.options || DEFAULT_OPTIONS;
+  const opts = _merged?.options;
+  if (!opts || typeof opts !== 'object' || Object.keys(opts).length === 0) {
+    return DEFAULT_OPTIONS;
+  }
+  return opts;
 }
 
 export function getYearRange() {
@@ -244,16 +262,33 @@ function _toObject(arr) {
 
 function _mergeAll() {
   return {
-    statuses: _familyOverrides.statuses || _platformDefaults.statuses || _toObject(DEFAULT_STATUSES),
+    statuses: _pickNonEmpty(_familyOverrides.statuses, _platformDefaults.statuses, _toObject(DEFAULT_STATUSES)),
     options: _mergeOptions(_familyOverrides.options, _platformDefaults.options),
     yearRange: _mergeObject(_familyOverrides.yearRange, _platformDefaults.yearRange, DEFAULT_YEAR_RANGE),
     uiConstants: _mergeObject(_familyOverrides.uiConstants, _platformDefaults.uiConstants, DEFAULT_UI_CONSTANTS),
   };
 }
 
+/**
+ * 🆕 P3-3：挑選非空物件（family → platform → fallback）
+ */
+function _pickNonEmpty(familyObj, platformObj, fallback) {
+  if (familyObj && typeof familyObj === 'object' && Object.keys(familyObj).length > 0) {
+    return familyObj;
+  }
+  if (platformObj && typeof platformObj === 'object' && Object.keys(platformObj).length > 0) {
+    return platformObj;
+  }
+  return fallback;
+}
+
 function _mergeOptions(familyOpts, platformOpts) {
-  const base = platformOpts || DEFAULT_OPTIONS;
-  if (!familyOpts || typeof familyOpts !== 'object') return base;
+  // 🆕 P3-3：空物件視為無覆蓋
+  const hasFamily = familyOpts && typeof familyOpts === 'object' && Object.keys(familyOpts).length > 0;
+  const hasPlatform = platformOpts && typeof platformOpts === 'object' && Object.keys(platformOpts).length > 0;
+
+  const base = hasPlatform ? platformOpts : DEFAULT_OPTIONS;
+  if (!hasFamily) return base;
 
   const merged = { ...base };
   Object.entries(familyOpts).forEach(([key, val]) => {
@@ -263,8 +298,11 @@ function _mergeOptions(familyOpts, platformOpts) {
 }
 
 function _mergeObject(familyObj, platformObj, fallback) {
-  const base = platformObj || fallback;
-  if (!familyObj || typeof familyObj !== 'object') return base;
+  const hasFamily = familyObj && typeof familyObj === 'object' && Object.keys(familyObj).length > 0;
+  const hasPlatform = platformObj && typeof platformObj === 'object' && Object.keys(platformObj).length > 0;
+
+  const base = hasPlatform ? platformObj : fallback;
+  if (!hasFamily) return base;
   return { ...base, ...familyObj };
 }
 
