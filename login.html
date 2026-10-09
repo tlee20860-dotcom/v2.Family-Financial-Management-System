@@ -4,47 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>登入 | 家庭財務</title>
-
-  <!-- 🆕 v101.10.0：preconnect / dns-prefetch -->
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="dns-prefetch" href="https://family-fin-a6dd1-default-rtdb.asia-southeast1.firebasedatabase.app">
   <link rel="dns-prefetch" href="https://identitytoolkit.googleapis.com">
-
-  <!-- 🆕 v101.10.0：Critical CSS（首屏內嵌） -->
-  <style>
-    :root{--bg-deep:#080B11;--bg-navy:#0F172A;--neon-cyan:#00F0FF;--neon-magenta:#D946EF;--neon-emerald:#10B981;--neon-red:#F43F5E;--glass-bg:rgba(15,23,42,0.6);--glass-border:rgba(0,240,255,0.2);--glass-blur:12px;--text-primary:#E2E8F0;--text-secondary:#94A3B8;--text-muted:#64748B;--radius-sm:6px;--font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang TC","Microsoft JhengHei","Noto Sans TC",sans-serif;--font-mono:"JetBrains Mono","SF Mono","Consolas","Menlo",monospace;--transition:0.25s cubic-bezier(0.4,0,0.2,1)}
-    *{box-sizing:border-box;margin:0;padding:0}
-    html,body{height:100%;background:var(--bg-deep);color:var(--text-primary);font-family:var(--font-sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
-    body::before{content:"";position:fixed;inset:0;background:radial-gradient(ellipse at 20% 0%,rgba(0,240,255,0.08),transparent 50%),radial-gradient(ellipse at 80% 100%,rgba(217,70,239,0.06),transparent 50%);pointer-events:none;z-index:0}
-    button{font-family:inherit;cursor:pointer}
-    .auth-page{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;position:relative;z-index:1}
-    .auth-card{width:100%;max-width:400px;padding:32px}
-    .auth-title{font-family:var(--font-mono);font-size:24px;font-weight:700;color:var(--neon-cyan);text-align:center;letter-spacing:2px;text-shadow:0 0 20px rgba(0,240,255,0.5);margin-bottom:8px}
-    .auth-subtitle{text-align:center;font-size:13px;color:var(--text-muted);margin-bottom:24px}
-    .glass-card{background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));border:1px solid var(--glass-border);border-radius:var(--radius-sm);padding:20px}
-    .field{margin-bottom:14px}
-    .field-label{display:block;font-size:12px;color:var(--text-secondary);margin-bottom:6px}
-    .input{width:100%;padding:10px 12px;background:rgba(8,11,17,0.6);border:1px solid var(--glass-border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:14px;font-family:inherit;transition:all var(--transition)}
-    .input:focus{outline:none;border-color:var(--neon-cyan);box-shadow:0 0 0 3px rgba(0,240,255,0.1)}
-    .input::placeholder{color:var(--text-muted)}
-    .btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;font-size:14px;font-weight:500;border-radius:var(--radius-sm);border:1px solid var(--glass-border);background:rgba(0,240,255,0.05);color:var(--neon-cyan);transition:all var(--transition);white-space:nowrap;font-family:inherit;cursor:pointer}
-    .btn-primary{background:rgba(0,240,255,0.15);border-color:rgba(0,240,255,0.5)}
-    .banner{padding:12px 16px;border-radius:var(--radius-sm);border:1px solid var(--glass-border);background:rgba(0,240,255,0.05);font-size:13px;margin-bottom:16px;color:var(--text-secondary)}
-    .banner-magenta{border-color:rgba(217,70,239,0.3);background:rgba(217,70,239,0.06);color:var(--neon-magenta)}
-  </style>
-
-  <!-- 外部 CSS 非阻塞載入 -->
-  <link rel="stylesheet" href="./css/theme.css" media="print" onload="this.media='all'">
-  <link rel="stylesheet" href="./css/layout.css" media="print" onload="this.media='all'">
-  <link rel="stylesheet" href="./css/components.css" media="print" onload="this.media='all'">
-  <link rel="stylesheet" href="./css/utilities.css" media="print" onload="this.media='all'">
-  <noscript>
-    <link rel="stylesheet" href="./css/theme.css">
-    <link rel="stylesheet" href="./css/layout.css">
-    <link rel="stylesheet" href="./css/components.css">
-    <link rel="stylesheet" href="./css/utilities.css">
-  </noscript>
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/layout.css">
+  <link rel="stylesheet" href="./css/components.css">
+  <link rel="stylesheet" href="./css/utilities.css">
 </head>
 <body class="auth-page">
   <div class="glass-card auth-card">
@@ -54,21 +21,16 @@
     <form id="login-form">
       <div class="field">
         <label class="field-label" for="account">帳號</label>
-        <input class="input" type="text" id="account" required
-               placeholder="例如：superadmin" autocomplete="username">
+        <input class="input" type="text" id="account" required placeholder="例如：superadmin" autocomplete="username">
       </div>
       <div class="field">
         <label class="field-label" for="password">密碼</label>
-        <input class="input" type="password" id="password" required
-               minlength="6" placeholder="至少 6 位" autocomplete="current-password">
+        <input class="input" type="password" id="password" required minlength="6" placeholder="至少 6 位" autocomplete="current-password">
       </div>
 
       <div id="login-error" class="banner banner-magenta" style="display:none;"></div>
 
-      <button class="btn btn-primary" type="submit" id="login-btn"
-              style="width:100%; justify-content:center;">
-        登入
-      </button>
+      <button class="btn btn-primary" type="submit" id="login-btn" style="width:100%; justify-content:center;">登入</button>
     </form>
 
     <p style="margin-top:16px; font-size:13px; color:var(--text-muted); text-align:center;">
@@ -76,23 +38,9 @@
     </p>
   </div>
 
-  <!-- 🆕 v101.10.0：Lucide 固定版本 + defer -->
   <script src="https://unpkg.com/lucide@0.462.0/dist/umd/lucide.min.js" defer></script>
 
-  <!-- 🆕 v101.10.0：modulepreload 首屏 JS -->
-  <link rel="modulepreload" href="./js/core/auth.js">
-  <link rel="modulepreload" href="./js/core/state.js">
-  <link rel="modulepreload" href="./js/core/pwa.js">
-  <link rel="modulepreload" href="./js/config/firebase-config.js">
-  <link rel="modulepreload" href="./js/config/constants.js">
-
   <script type="module">
-    // ============================================
-    // v101.10.0 修正：
-    //   ✅ 移除直接 setFamily(user.uid, ...)
-    //   ✅ 登入成功時清除該 UID 舊快取
-    // ============================================
-
     import { loginWithCustomAccount, isSuperAdmin } from './js/core/auth.js';
     import { AppState } from './js/core/state.js';
     import { initPWA } from './js/core/pwa.js';
@@ -120,15 +68,9 @@
         AppState.setUser(user);
         AppState.setSuperAdmin(isSuperAdmin(user));
 
-        try {
-          sessionStorage.removeItem(`${AUTH_CONTEXT_CACHE_PREFIX}${user.uid}`);
-        } catch (err) { /* noop */ }
+        try { sessionStorage.removeItem(`${AUTH_CONTEXT_CACHE_PREFIX}${user.uid}`); } catch (err) { /* noop */ }
 
-        if (isSuperAdmin(user)) {
-          window.location.href = 'admin.html';
-        } else {
-          window.location.href = 'index.html';
-        }
+        window.location.href = isSuperAdmin(user) ? 'admin.html' : 'index.html';
       } catch (err) {
         console.error(err);
         errorBox.textContent = '登入失敗：帳號或密碼錯誤';
