@@ -1,16 +1,13 @@
 // ============================================
-// settlements.js — 結算清單（v103.0.0 Page Schema）
+// settlements.js — 結算清單（v103.0.11 Page Schema）
 // 位置：js/pages/settlements.js
 // ============================================
-// 合併 v102 的 settlements/index.js + merge.js + render.js
-// 複雜邏輯（狀態切換 / 銀行選擇 / 編輯 Modal）保留為 customMount
-// ============================================
-import { createPage } from '../engines/page-engine.js';
-import { formatHKD, esc } from '../lib/format.js';
+
+import { formatHKD } from '../lib/format.js';
+import { esc } from '../lib/dom.js';
 import { mergeSettlementData } from '../lib/merge.js';
 import { listenAllMemberExpenses, updateEntityStatus, removeExpense } from '../core/db.js';
 import { AppState } from '../core/state.js';
-import { initViewToggle } from '../ui/view-toggle.js';
 import { showToast } from '../ui/toast.js';
 import { openConfirm } from '../ui/modal.js';
 import { renderPageFilter } from '../shared/page-filter.js';
@@ -20,14 +17,16 @@ import { renderDataTable } from '../shared/data-table.js';
 export default {
   title: '結算清單',
   data: {},
-  state: { filters: { year: '', month: '', source: '', status: '', member: '' }, sortMode: 'pending-first' },
+  state: {
+    filters: { year: '', month: '', source: '', status: '', member: '' },
+    sortMode: 'pending-first',
+  },
   derived: {},
   blocks: [],
 
   customMount: (ctx) => {
     let _rows = [];
     let _filtered = [];
-    let _viewToggle = null;
     let _statsApi = null;
     let _tableApi = null;
     let _filterInstance = null;
@@ -38,9 +37,8 @@ export default {
     const reload = () => {
       const { year, month } = AppState.getYearMonth();
       const y = String(year);
-      if (month === 'all') return;
 
-      if (_monthlyUnsub) { try { _monthlyUnsub(); } catch (e) {} }
+      if (_monthlyUnsub) { try { _monthlyUnsub(); } catch (e) { /* noop */ } }
       _monthlyUnsub = listenAllMemberExpenses(y, month, async (memberExpenses) => {
         _rows = mergeSettlementData({ memberExpenses, insuranceRows: [], year: y, month });
         render();
@@ -54,7 +52,7 @@ export default {
 
       const tableRoot = document.getElementById('settlement-table-root');
       if (!tableRoot) return;
-      if (_tableApi) { try { _tableApi.destroy(); } catch (e) {} _tableApi = null; }
+      if (_tableApi) { try { _tableApi.destroy(); } catch (e) { /* noop */ } _tableApi = null; }
 
       const userCanInput = AppState.getCanInput();
       _tableApi = renderDataTable({
@@ -73,7 +71,9 @@ export default {
             { id: 'status', label: '狀態', defaultVisible: true },
           ],
           resolvers: {
-            source: (_, r) => r.source === 'insurance' ? '<span class="badge badge-success">🛡 保險</span>' : '<span class="badge badge-info">🏷 個人</span>',
+            source: (_, r) => r.source === 'insurance'
+              ? '<span class="badge badge-success">🛡 保險</span>'
+              : '<span class="badge badge-info">🏷 個人</span>',
             yearMonth: (_, r) => `${esc(r.year)}-${esc(r.month)}`,
             member: (_, r) => esc(r.memberId),
             name: (_, r) => esc(r.name),
@@ -85,7 +85,9 @@ export default {
         hooks: {
           customActions: userCanInput ? (row) => [{
             label: row.source === 'insurance' ? '取消扣款' : '刪除',
-            icon: 'trash-2', className: 'btn-danger', action: 'del',
+            icon: 'trash-2',
+            className: 'btn-danger',
+            action: 'del',
             onClick: async (r) => {
               const ok = await openConfirm(`確定要刪除「${r.name}」嗎？`, { okText: '刪除', okClass: 'btn-danger' });
               if (!ok) return;
@@ -95,12 +97,17 @@ export default {
                 }
                 showToast('✅ 已刪除', 'success');
                 reload();
-              } catch (e) { showToast('刪除失敗：' + e.message, 'error'); }
+              } catch (e) {
+                showToast('刪除失敗：' + e.message, 'error');
+              }
             },
           }] : () => [],
         },
       });
 
+      if (_statusHandler) {
+        tableRoot.removeEventListener('change', _statusHandler);
+      }
       _statusHandler = async (e) => {
         const sel = e.target.closest('.settlement-status-select');
         if (!sel) return;
@@ -108,10 +115,18 @@ export default {
         if (!row) return;
         const newStatus = sel.value;
         try {
-          await updateEntityStatus(row.source, row, newStatus, row.source === 'insurance' ? newStatus === '已扣款' : newStatus === '已處理');
+          await updateEntityStatus(
+            row.source,
+            row,
+            newStatus,
+            row.source === 'insurance' ? newStatus === '已扣款' : newStatus === '已處理'
+          );
           showToast('✅ 狀態已更新', 'success');
           reload();
-        } catch (err) { showToast('更新失敗：' + err.message, 'error'); sel.value = row.status; }
+        } catch (err) {
+          showToast('更新失敗：' + err.message, 'error');
+          sel.value = row.status;
+        }
       };
       tableRoot.addEventListener('change', _statusHandler);
     };
@@ -121,7 +136,7 @@ export default {
       const done = _filtered.filter((r) => r.isDone);
       const pendingTotal = pending.reduce((s, r) => s + (Number(r.amount) || 0), 0);
       const doneTotal = done.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-      if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} }
+      if (_statsApi) { try { _statsApi.destroy(); } catch (e) { /* noop */ } }
       _statsApi = renderStatsCards({
         container: 'settlement-stats-root',
         cards: [
@@ -133,7 +148,6 @@ export default {
       });
     };
 
-    /* 初次設定 */
     const { year, month } = AppState.getYearMonth();
     ctx.state.filters.year = String(year);
     ctx.state.filters.month = month === 'all' ? '' : String(month);
@@ -142,37 +156,46 @@ export default {
       containerId: 'page-filter-root',
       fields: [],
       renderExtra: () => `
-        <div class="filter-group"><label class="field-label">來源</label>
+        <div class="filter-group">
+          <label class="field-label">來源</label>
           <select class="select" data-filter="source">
-            <option value="">全部</option><option value="personal">🏷 個人支出</option><option value="insurance">🛡 保險扣款</option>
+            <option value="">全部</option>
+            <option value="personal">🏷 個人支出</option>
+            <option value="insurance">🛡 保險扣款</option>
           </select>
         </div>
       `,
-      onChange: (f) => { ctx.state.filters.source = f.source || ''; render(); },
+      onChange: (f) => {
+        ctx.state.filters.source = f.source || '';
+        render();
+      },
     });
 
-    _sortHandler = (e) => { ctx.state.sortMode = e.target.value; render(); };
+    _sortHandler = (e) => {
+      ctx.state.sortMode = e.target.value;
+      render();
+    };
     document.getElementById('settlement-sort')?.addEventListener('change', _sortHandler);
 
     reload();
 
     return {
       destroy: () => {
-        if (_monthlyUnsub) { try { _monthlyUnsub(); } catch (e) {} _monthlyUnsub = null; }
-        if (_filterInstance) { try { _filterInstance.destroy(); } catch (e) {} }
-        if (_viewToggle) { try { _viewToggle.destroy(); } catch (e) {} }
-        if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} }
-        if (_tableApi) { try { _tableApi.destroy(); } catch (e) {} }
-        if (_statusHandler) document.getElementById('settlement-table-root')?.removeEventListener('change', _statusHandler);
-        if (_sortHandler) document.getElementById('settlement-sort')?.removeEventListener('change', _sortHandler);
+        if (_monthlyUnsub) { try { _monthlyUnsub(); } catch (e) { /* noop */ } _monthlyUnsub = null; }
+        if (_filterInstance) { try { _filterInstance.destroy(); } catch (e) { /* noop */ } }
+        if (_statsApi) { try { _statsApi.destroy(); } catch (e) { /* noop */ } }
+        if (_tableApi) { try { _tableApi.destroy(); } catch (e) { /* noop */ } }
+        if (_statusHandler) {
+          document.getElementById('settlement-table-root')?.removeEventListener('change', _statusHandler);
+        }
+        if (_sortHandler) {
+          document.getElementById('settlement-sort')?.removeEventListener('change', _sortHandler);
+        }
       },
     };
   },
 };
 
-/* ============================================
-   Helpers
-   ============================================ */
 function _applyFilters(list, filters) {
   return list.filter((r) => {
     if (filters.year && r.year !== filters.year) return false;
@@ -187,10 +210,20 @@ function _applyFilters(list, filters) {
 function _applySort(list, sortMode) {
   const arr = [...list];
   switch (sortMode) {
-    case 'date-desc':   arr.sort((a, b) => (b.date || '').localeCompare(a.date || '')); break;
-    case 'date-asc':    arr.sort((a, b) => (a.date || '').localeCompare(b.date || '')); break;
-    case 'amount-desc': arr.sort((a, b) => b.amount - a.amount); break;
-    default: arr.sort((a, b) => { if (a.isDone !== b.isDone) return a.isDone ? 1 : -1; return (b.date || '').localeCompare(a.date || ''); });
+    case 'date-desc':
+      arr.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      break;
+    case 'date-asc':
+      arr.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      break;
+    case 'amount-desc':
+      arr.sort((a, b) => b.amount - a.amount);
+      break;
+    default:
+      arr.sort((a, b) => {
+        if (a.isDone !== b.isDone) return a.isDone ? 1 : -1;
+        return (b.date || '').localeCompare(a.date || '');
+      });
   }
   return arr;
 }
