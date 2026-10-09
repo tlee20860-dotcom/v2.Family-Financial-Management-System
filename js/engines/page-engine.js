@@ -1,10 +1,11 @@
 // ============================================
-// page-engine.js — 頁面引擎（v103.0.1）
+// page-engine.js — 頁面引擎（v103.0.4）
 // 位置：js/engines/page-engine.js
 // ============================================
-// v103.0.1 修復：
-//   ✅ [BUG] 補上 schema.customMount 呼叫（v103.0.0 漏掉）
-//   ✅ _destroy 補上 customMountInstance.destroy 清理
+// v103.0.4 修正：
+//   ✅ [關鍵 BUG] _subscribeAllData 的 _onKeyChange 補上 'data.' 前綴
+//   ✅ 加入頁面錯誤橫幅（手機除錯用）
+//   ✅ 加入詳細 console 日誌
 // ============================================
 
 import {
@@ -16,14 +17,51 @@ import { mountBlock, collectBlockDeps } from './render-engine.js';
 import { AppState } from '../core/state.js';
 
 /* ============================================
+   錯誤橫幅（手機除錯用）
+   ============================================ */
+function _showError(msg) {
+  try {
+    let banner = document.getElementById('__page_engine_error__');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = '__page_engine_error__';
+      banner.style.cssText = `
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        background: #F43F5E;
+        color: #fff;
+        padding: 12px 16px;
+        font-size: 13px;
+        font-family: monospace;
+        z-index: 99999;
+        white-space: pre-wrap;
+        max-height: 50vh;
+        overflow-y: auto;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      `;
+      document.body.appendChild(banner);
+    }
+    banner.textContent += `[page-engine] ${msg}\n`;
+  } catch (e) { /* noop */ }
+}
+
+function _hideError() {
+  const banner = document.getElementById('__page_engine_error__');
+  if (banner) banner.remove();
+}
+
+/* ============================================
    主入口
    ============================================ */
 export async function createPage(schema) {
   if (!schema || typeof schema !== 'object') {
+    _showError('schema 為必填');
     throw new Error('[page-engine] schema 為必填');
   }
 
-  /* ---------- 1. 建立 ctx ---------- */
+  _hideError();
+  console.log('[page-engine] createPage 開始：', schema.title || '(無標題)');
+
   const ctx = {
     meta: { title: schema.title || '' },
     state: {},
@@ -41,10 +79,15 @@ export async function createPage(schema) {
   };
 
   /* ---------- 2. 建立 state（響應式） ---------- */
-  ctx.state = makeReactive(
-    { ...(schema.state || {}) },
-    (keyPath, value, oldValue) => _onStateChange(ctx, schema, keyPath, value, oldValue)
-  );
+  try {
+    ctx.state = makeReactive(
+      { ...(schema.state || {}) },
+      (keyPath, value, oldValue) => _onStateChange(ctx, schema, keyPath, value, oldValue)
+    );
+  } catch (err) {
+    _showError('makeReactive 失敗：' + err.message);
+    console.error('[page-engine] makeReactive 失敗：', err);
+  }
 
   /* ---------- 3. 建立依賴圖 ---------- */
   _buildDependencyGraph(ctx, schema);
@@ -59,17 +102,24 @@ export async function createPage(schema) {
   _computeAllDerived(ctx, schema);
 
   /* ---------- 7. 掛載 blocks ---------- */
-  await _mountAllBlocks(ctx, schema);
+  try {
+    await _mountAllBlocks(ctx, schema);
+  } catch (err) {
+    _showError('mountAllBlocks 失敗：' + err.message);
+    console.error('[page-engine] mountAllBlocks 失敗：', err);
+  }
 
-  /* ---------- 8. 🆕 v103.0.1：執行 customMount（若有） ---------- */
+  /* ---------- 8. 執行 customMount（若有） ---------- */
   if (typeof schema.customMount === 'function') {
     try {
       ctx._customMountInstance = await schema.customMount(ctx);
     } catch (err) {
+      _showError('customMount 失敗：' + err.message + '\n' + (err.stack || ''));
       console.error('[page-engine] customMount 執行失敗：', err);
     }
   }
 
+  console.log('[page-engine] createPage 完成');
   return {
     ctx,
     destroy: () => _destroy(ctx),
@@ -91,6 +141,7 @@ function _buildDependencyGraph(ctx, schema) {
   Object.entries(schema.derived || {}).forEach(([name, cfg]) => {
     (cfg.deps || []).forEach((dep) => addDep(dep, name));
   });
+  console.log('[page-engine] 依賴圖：', ctx._dependents);
 }
 
 /* ============================================
@@ -106,10 +157,13 @@ function _subscribeAllData(ctx, schema) {
           return;
         }
         ctx.data[key] = data;
-        _onKeyChange(ctx, schema, key);
+        console.log(`[page-engine] data.${key} 更新：`, data);
+        // ✅ v103.0.4 修正：加上 'data.' 前綴
+        _onKeyChange(ctx, schema, 'data.' + key);
       });
       ctx._unsubs.push(unsub);
     } catch (err) {
+      _showError(`訂閱 data.${key} 失敗：${err.message}`);
       console.error(`[page-engine] 訂閱 data.${key} 失敗：`, err);
     }
   });
@@ -186,6 +240,7 @@ function _computeAllDerived(ctx, schema) {
   const derivedDef = schema.derived || {};
   const ordered = _topoSort(Object.keys(derivedDef), derivedDef);
   ordered.forEach((name) => _computeOne(ctx, name, derivedDef[name]));
+  console.log('[page-engine] derived 全部計算完成：', Object.keys(ctx.derived));
 }
 
 function _recomputeDerivedSubset(ctx, schema, dirtySet) {
@@ -201,6 +256,7 @@ function _computeOne(ctx, name, cfg) {
     const args = (cfg.deps || []).map((dep) => _resolveDep(ctx, dep));
     ctx.derived[name] = cfg.compute(...args);
   } catch (err) {
+    _showError(`derived.${name} 計算失敗：${err.message}`);
     console.error(`[page-engine] derived.${name} 計算失敗：`, err);
     ctx.derived[name] = undefined;
   }
@@ -242,9 +298,13 @@ function _topoSort(names, defs) {
    ============================================ */
 async function _mountAllBlocks(ctx, schema) {
   const blocks = schema.blocks || [];
+  console.log('[page-engine] 準備掛載 blocks：', blocks.length);
   for (const block of blocks) {
     const instance = await mountBlock(block, ctx);
-    if (!instance) continue;
+    if (!instance) {
+      _showError(`block "${block.type}" 掛載失敗`);
+      continue;
+    }
     const deps = collectBlockDeps(block);
     ctx._blockInstances.push({ block, instance, deps });
   }
@@ -299,7 +359,6 @@ function _setState(ctx, keyPath, value) {
    9. 銷毀
    ============================================ */
 function _destroy(ctx) {
-  /* 0. 🆕 v103.0.1：customMount 銷毀 */
   if (ctx._customMountInstance && typeof ctx._customMountInstance.destroy === 'function') {
     try { ctx._customMountInstance.destroy(); } catch (err) {
       console.warn('[page-engine] customMount destroy 失敗：', err);
@@ -307,7 +366,6 @@ function _destroy(ctx) {
     ctx._customMountInstance = null;
   }
 
-  /* 1. block 銷毀 */
   ctx._blockInstances.forEach(({ instance }) => {
     try { if (typeof instance.destroy === 'function') instance.destroy(); } catch (err) {
       console.warn('[page-engine] block destroy 失敗：', err);
@@ -315,15 +373,12 @@ function _destroy(ctx) {
   });
   ctx._blockInstances = [];
 
-  /* 2. Firebase 訂閱 */
   ctx._unsubs.forEach((unsub) => { try { unsub(); } catch (err) { /* noop */ } });
   ctx._unsubs = [];
 
-  /* 3. AppState 事件 */
   ctx._stateUnsubs.forEach((unsub) => { try { unsub(); } catch (err) { /* noop */ } });
   ctx._stateUnsubs = [];
 
-  /* 4. 清空狀態 */
   ctx.data = {};
   ctx.derived = {};
   ctx._dependents = {};
