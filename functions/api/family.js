@@ -467,4 +467,8 @@ async function _signInWithPassword(email, password) {
     return { ok: false, error: String(err?.message || err) };
   }
 }
+
+/* ============================================
+   導出內部 handler（供 [[path]].js 兼容層使用）
+   ============================================ */
 export async function handleLookup(request) { return _lookupFamily(request); }
