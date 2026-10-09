@@ -1,0 +1,47 @@
+# ============================================
+# _redirects — Cloudflare Pages 重定向規則（v103.0.3）
+# 位置：專案根目錄（與 index.html 同層）
+# ============================================
+# 用途：
+#   把無 .html 的路徑導向 .html
+#   避免 CF Pages 匹配到 .js 檔案（回傳原始碼）
+
+# 首頁
+/                     /index.html          200
+
+# 主要頁面
+/database             /database.html       301
+/database/            /database.html       301
+
+/input-center         /input-center.html   301
+/input-center/        /input-center.html   301
+
+/insurance            /insurance.html      301
+/insurance/           /insurance.html      301
+
+/portfolio            /portfolio.html      301
+/portfolio/           /portfolio.html      301
+
+/settlements          /settlements.html    301
+/settlements/         /settlements.html    301
+
+/finance-overview     /finance-overview.html  301
+/finance-overview/    /finance-overview.html  301
+
+/annual-report        /annual-report.html  301
+/annual-report/       /annual-report.html  301
+
+/member-report        /member-report.html  301
+/member-report/       /member-report.html  301
+
+/settings             /settings.html       301
+/settings/            /settings.html       301
+
+/admin                /admin.html          301
+/admin/               /admin.html          301
+
+/login                /login.html          301
+/login/               /login.html          301
+
+/register             /register.html       301
+/register/            /register.html       301

@@ -1,19 +1,16 @@
 // ============================================
-// constants.js — 全站常數集中管理（v103.0.0）
+// constants.js — 全站常數集中管理（v103.0.3）
 // 位置：js/config/constants.js
 // ============================================
-// v103.0.0 重構：
-//   ✅ 版本號 → v103.0.0 / family-fin-v135
-//   ✅ 新增 STORAGE_PREFIXES / ROLES / SOURCES
-//   ✅ 新增 ROUTES / SHOW_YEAR_MONTH_PAGES
-//   ✅ 保留 v102.1.0-hotfix1 全部常數
+// v103.0.3 修正：
+//   ✅ SIDEBAR_GROUPS 所有 href 加上 .html（避免 CF Pages 匹配 .js）
 // ============================================
 
 /* ============================================
    0. 版本號
    ============================================ */
-export const APP_VERSION = 'v103.0.0';
-export const SW_VERSION = 'family-fin-v136';   // 從 v135 → v136
+export const APP_VERSION = 'v103.0.3';
+export const SW_VERSION = 'family-fin-v137';
 
 /* ============================================
    1. localStorage Keys
@@ -210,9 +207,7 @@ export const ENTITY_KEYS = {
 };
 
 /* ============================================
-   13. 狀態 badge class 對照（舊版相容）
-   -------------------------------------------------
-   ⚠️ 新程式碼請改用 status-registry.js 的 badgeClass()
+   13. 狀態 badge class 對照
    ============================================ */
 export const STATUS_BADGE_CLASS = {
   done:    'badge-success',
@@ -361,31 +356,77 @@ export const DEFAULT_PAYMENTS = [
 
 /* ============================================
    19. 側邊欄分類群組
+   -------------------------------------------------
+   🔧 v103.0.3：所有 href 加上 .html
+       避免 CF Pages 路由匹配到 .js 檔案
    ============================================ */
 export const SIDEBAR_GROUPS = [
-  { key: 'overview', label: '總覽', icon: 'home', defaultOpen: true,
-    items: [{ icon: 'home', label: '總覽儀表板', href: 'index.html' }] },
-  { key: 'record', label: '記錄中心', icon: 'pencil', defaultOpen: true,
+  {
+    key: 'overview',
+    label: '總覽',
+    icon: 'home',
+    defaultOpen: true,
+    items: [
+      { icon: 'home', label: '總覽儀表板', href: 'index.html' },
+    ],
+  },
+  {
+    key: 'record',
+    label: '記錄中心',
+    icon: 'pencil',
+    defaultOpen: true,
     items: [
       { icon: 'pencil',   label: '綜合輸入中心', href: 'input-center.html' },
       { icon: 'database', label: '基礎資料庫',   href: 'database.html' },
-    ] },
-  { key: 'insurance-fund', label: '保險與基金', icon: 'shield', defaultOpen: false,
+    ],
+  },
+  {
+    key: 'insurance-fund',
+    label: '保險與基金',
+    icon: 'shield',
+    defaultOpen: false,
     items: [
       { icon: 'shield',     label: '保險清單表', href: 'insurance.html' },
       { icon: 'line-chart', label: '基金投資表', href: 'portfolio.html' },
-    ] },
-  { key: 'settle', label: '對帳', icon: 'clipboard-check', defaultOpen: false,
-    items: [{ icon: 'clipboard-check', label: '結算清單', href: 'settlements.html' }] },
-  { key: 'assets', label: '資產', icon: 'landmark', defaultOpen: false,
-    items: [{ icon: 'landmark', label: '銀行交易', href: 'finance-overview.html' }] },
-  { key: 'reports', label: '報表', icon: 'bar-chart-3', defaultOpen: false,
+    ],
+  },
+  {
+    key: 'settle',
+    label: '對帳',
+    icon: 'clipboard-check',
+    defaultOpen: false,
+    items: [
+      { icon: 'clipboard-check', label: '結算清單', href: 'settlements.html' },
+    ],
+  },
+  {
+    key: 'assets',
+    label: '資產',
+    icon: 'landmark',
+    defaultOpen: false,
+    items: [
+      { icon: 'landmark', label: '銀行交易', href: 'finance-overview.html' },
+    ],
+  },
+  {
+    key: 'reports',
+    label: '報表',
+    icon: 'bar-chart-3',
+    defaultOpen: false,
     items: [
       { icon: 'bar-chart-3', label: '年度報表', href: 'annual-report.html' },
       { icon: 'users',       label: '成員與家庭收入與支出明細', href: 'member-report.html' },
-    ] },
-  { key: 'system', label: '系統', icon: 'settings', defaultOpen: false,
-    items: [{ icon: 'settings', label: '系統設定', href: 'settings.html' }] },
+    ],
+  },
+  {
+    key: 'system',
+    label: '系統',
+    icon: 'settings',
+    defaultOpen: false,
+    items: [
+      { icon: 'settings', label: '系統設定', href: 'settings.html' },
+    ],
+  },
 ];
 
 /* ============================================
@@ -427,9 +468,7 @@ export const QUICK_SUMMARY_TYPES = {
 };
 
 /* ============================================
-   22. 狀態分類（舊版相容）
-   -------------------------------------------------
-   ⚠️ 新程式碼請改用 status-registry.js 的 SOURCES
+   22. 狀態分類
    ============================================ */
 export const STATUS_CATEGORIES = {
   PERSONAL:  'personal',
