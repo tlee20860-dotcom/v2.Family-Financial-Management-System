@@ -1,12 +1,12 @@
 // ============================================
-// render.js — 保險渲染模組（v101.8.7）
+// render.js — 保險渲染模組（v101.10.0）
 // 位置：js/pages/insurance/render.js
 // ============================================
-// v101.8.7 修正：
-//   ✅ 表格加入「開始年度」欄位（只顯示年份，方便分辨）
-//   ✅ 表格依「開始年度」排序（新 → 舊）
-//   ✅ colspan 動態計算（加入新欄位）
-//   ✅ 保留 v101.8.0 canInput + v101.6.10 已供滿展開
+// v101.10.0 修正：
+//   ✅ [P1-6] 卡片「本期年繳」標籤年份改用 AppState.year
+//       - 原本硬編碼 new Date().getFullYear()
+//       - 切換 Navbar 年份後標籤仍顯示當前年
+//   ✅ 保留 v101.8.7 全部功能
 // ============================================
 
 import { escapeHtml, formatHKD } from '../../core/utils.js';
@@ -237,7 +237,10 @@ function _renderNormalPolicyCard(p, members, isCompleted) {
   const paidTotal = p._paidTotal || 0;
   const remaining = Math.max(0, totalPremium - paidTotal);
 
-  const displayYear = new Date().getFullYear();
+  // 🆕 v101.10.0：從 AppState 取得當前年度，而非硬編碼 new Date().getFullYear()
+  const { year: appYear } = AppState.getYearMonth();
+  const displayYear = Number(appYear) || p._targetYear || new Date().getFullYear();
+
   const cardKey = `card-${p.id}`;
   const isOpen = isExpanded(cardKey);
 
@@ -308,7 +311,7 @@ function _renderNormalPolicyCard(p, members, isCompleted) {
 }
 
 /* ============================================
-   4. 表格模式（🆕 v101.8.7：加入開始年度）
+   4. 表格模式
    ============================================ */
 export function renderPolicyTable(container, list, { members }) {
   if (!container) return;
@@ -318,11 +321,11 @@ export function renderPolicyTable(container, list, { members }) {
     return;
   }
 
-  // 🆕 v101.8.7：依開始年度（新→舊）排序
+  // 依開始年度（新→舊）排序
   const sorted = [...list].sort((a, b) => {
     const ya = Number(a.firstStartYear) || 0;
     const yb = Number(b.firstStartYear) || 0;
-    if (ya !== yb) return yb - ya;   // 新年度優先
+    if (ya !== yb) return yb - ya;
     const ma = Number(a.firstStartMonth) || 1;
     const mb = Number(b.firstStartMonth) || 1;
     return mb - ma;
@@ -382,7 +385,6 @@ function _renderTableRow(p, members) {
   const isOpen = isExpanded(tableKey);
 
   const userCanInput = AppState.getCanInput();
-  // 🆕 v101.8.7：加入「開始年度」欄位 → colspan +1
   const colspan = userCanInput ? 13 : 12;
 
   const actionsCell = userCanInput ? `
@@ -432,7 +434,7 @@ function _renderTableRow(p, members) {
 }
 
 /* ============================================
-   5. 保單明細（狀態判定用 isDoneStatus）
+   5. 保單明細
    ============================================ */
 function _renderPolicyDetail(policy, payments) {
   const totalYears = policy.totalPolicyYears || 1;

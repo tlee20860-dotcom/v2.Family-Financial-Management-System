@@ -1,12 +1,14 @@
 // ============================================
-// index.js — 保險清單表入口（v101.8.8）
+// index.js — 保險清單表入口（v101.10.0）
 // 位置：js/pages/insurance/index.js
 // ============================================
-// v101.8.8 修正：
-//   ✅ _reloadAndRender 傳 AppState.year 給 computeEnrichedPolicies
-//       - 原本 computeEnrichedPolicies 用 new Date().getFullYear()
-//       - 導致切換年度時，_currentAnnualPremium 未更新
-//   ✅ _renderStats 依當前選中年份計算
+// v101.10.0 修正：
+//   ✅ [P3-9] _bindListActions 保存 handler 供 _destroy 清理
+//       - 原本 handler 未保存 → 無法移除監聽器
+//   ✅ [UX] active.length === 0 時顯示「所有保單已供滿」提示
+//       - 原本顯示空白頁
+//   ✅ 移除未使用 import escapeHtml
+//   ✅ 保留 v101.8.8 targetYear 邏輯
 // ============================================
 
 import {
@@ -16,7 +18,7 @@ import {
 } from '../../core/db.js';
 import { AppState } from '../../core/state.js';
 import {
-  escapeHtml, formatHKD, sortMembers, setText,
+  formatHKD, sortMembers, setText,
 } from '../../core/utils.js';
 import { ENTITY_KEYS } from '../../config/constants.js';
 import { initViewToggle } from '../../shared/view-toggle.js';
@@ -48,6 +50,10 @@ let _statsApi = null;
 let _syncAllHandler = null;
 let _addPolicyHandler = null;
 let _addFirstPolicyHandler = null;
+
+// 🆕 v101.10.0：保存 list 事件 handler 供清理
+let _cardListHandler = null;
+let _tableListHandler = null;
 
 const listenerGroup = createListenerGroup();
 
@@ -141,10 +147,10 @@ export async function initInsurancePage() {
 }
 
 /* ============================================
-   重新載入 + 渲染（🆕 v101.8.8：傳 targetYear）
+   重新載入 + 渲染
    ============================================ */
 async function _reloadAndRender() {
-  // 🆕 v101.8.8：從 AppState 取得當前選中年份
+  // 從 AppState 取得當前選中年份
   const { year } = AppState.getYearMonth();
   const targetYear = Number(year) || new Date().getFullYear();
 
@@ -170,7 +176,7 @@ async function _reloadAndRender() {
     _paymentsCache[id] = data || {};
   });
 
-  // 🆕 v101.8.8：傳 targetYear
+  // 傳 targetYear
   _enriched = computeEnrichedPolicies(_policies, _paymentsCache, targetYear);
 
   _render();
@@ -197,6 +203,9 @@ function _render() {
 
   if (!cardEl || !tableEl) return;
 
+  /* ============================================
+     情境 1：完全沒有保單
+     ============================================ */
   if (_enriched.length === 0) {
     if (emptyEl) {
       emptyEl.style.display = 'block';
@@ -213,13 +222,30 @@ function _render() {
 
   if (emptyEl) emptyEl.style.display = 'none';
 
+  /* ============================================
+     🆕 v101.10.0：情境 2：所有保單已供滿（顯示提示）
+     ============================================ */
   if (active.length === 0) {
-    cardEl.style.display = 'none';
+    cardEl.style.display = 'block';
     tableEl.style.display = 'none';
+    cardEl.innerHTML = `
+      <div class="glass-card" style="text-align:center; padding:40px 20px;">
+        <i data-lucide="check-circle" style="width:48px;height:48px;color:var(--neon-emerald);opacity:0.7;"></i>
+        <p style="margin-top:12px; color:var(--neon-emerald); font-size:14px; font-weight:600;">
+          🎉 所有保單均已供滿
+        </p>
+        <p style="margin-top:6px; color:var(--text-muted); font-size:12px;">
+          已供滿的保單可展開上方「已供滿保單」區塊查看
+        </p>
+      </div>
+    `;
     if (window.lucide) window.lucide.createIcons();
     return;
   }
 
+  /* ============================================
+     情境 3：正常渲染
+     ============================================ */
   if (view === 'card') {
     cardEl.style.display = 'block';
     tableEl.style.display = 'none';
@@ -234,17 +260,15 @@ function _render() {
 }
 
 /* ============================================
-   統計卡（🆕 v101.8.8：依當前選中年份）
+   統計卡
    ============================================ */
 function _renderStats(year) {
-  // 🆕 v101.8.8：_currentAnnualPremium 已依 targetYear 計算
-  // 只累加「該年度有供款」的保單（getPolicyAnnualPremium 已處理）
+  // _currentAnnualPremium 已依 targetYear 計算
   const yearTotal = _enriched.reduce(
     (s, p) => s + (p._currentAnnualPremium || 0),
     0
   );
 
-  // 供款中 / 已供滿 依 enriched 狀態
   const activeCount = _enriched.filter((p) => !p._isCompleted).length;
   const completedCount = _enriched.filter((p) => p._isCompleted).length;
   const totalCount = _enriched.length;
@@ -283,11 +307,19 @@ function _renderStats(year) {
 }
 
 /* ============================================
-   卡片 / 表格的編輯 / 刪除事件
+   🆕 v101.10.0：卡片 / 表格的編輯 / 刪除事件（保存 handler）
    ============================================ */
 function _bindListActions() {
   const cardEl = document.getElementById('insurance-card-view');
   const tableEl = document.getElementById('insurance-table-view');
+
+  // 先移除舊的（若已存在）
+  if (_cardListHandler && cardEl) {
+    cardEl.removeEventListener('click', _cardListHandler);
+  }
+  if (_tableListHandler && tableEl) {
+    tableEl.removeEventListener('click', _tableListHandler);
+  }
 
   const handler = async (e) => {
     if (!AppState.getCanInput()) return;
@@ -313,6 +345,9 @@ function _bindListActions() {
       await _handleDeletePolicy(policy);
     }
   };
+
+  _cardListHandler = handler;
+  _tableListHandler = handler;
 
   cardEl?.addEventListener('click', handler);
   tableEl?.addEventListener('click', handler);
@@ -356,5 +391,15 @@ function _destroy() {
   if (_addFirstPolicyHandler) {
     document.getElementById('add-first-policy-btn')?.removeEventListener('click', _addFirstPolicyHandler);
     _addFirstPolicyHandler = null;
+  }
+
+  // 🆕 v101.10.0：移除 list 事件監聽器
+  if (_cardListHandler) {
+    document.getElementById('insurance-card-view')?.removeEventListener('click', _cardListHandler);
+    _cardListHandler = null;
+  }
+  if (_tableListHandler) {
+    document.getElementById('insurance-table-view')?.removeEventListener('click', _tableListHandler);
+    _tableListHandler = null;
   }
 }

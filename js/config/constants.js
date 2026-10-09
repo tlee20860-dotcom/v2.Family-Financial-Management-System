@@ -1,9 +1,18 @@
 // ============================================
-// constants.js — 全站常數集中管理（v101.7.2）
+// constants.js — 全站常數集中管理（v101.10.0）
 // ============================================
-// v101.7.2 新增：
-//   ✅ STORAGE_KEYS.STATS_MODE（統計卡顯示模式）
+// v101.10.0 新增：
+//   ✅ APP_VERSION / SW_VERSION（版本同步）
+//   ✅ SESSION_KEYS（sessionStorage 快取 key 前綴）
+//   ✅ AUTH_CONTEXT_TTL_MS / APP_CONFIG_TTL_MS（快取 TTL）
+//   ✅ 保留 v101.7.2 全部功能
 // ============================================
+
+/* ============================================
+   0. 版本號（v101.10.0 新增）
+   ============================================ */
+export const APP_VERSION = 'v101.10.0';
+export const SW_VERSION = 'family-fin-v131';
 
 /* ============================================
    1. localStorage Keys
@@ -19,14 +28,26 @@ export const STORAGE_KEYS = {
   SIDEBAR_GROUPS: 'fin_ui_sidebar_groups',
   MEMBERS_GROUP_OPEN: 'fin_ui_members_group_open',
 
-  // 🆕 v101.7.2：統計卡顯示模式（auto / integrated / compact）
+  // 統計卡顯示模式（auto / integrated / compact）
   STATS_MODE: 'fin_ui_stats_mode',
 
   UI_PREFIX: 'fin_ui_',
 };
 
 /* ============================================
-   2. 數值限制
+   2. sessionStorage Keys（v101.10.0 新增）
+   ============================================ */
+export const SESSION_KEYS = {
+  AUTH_CONTEXT_PREFIX: 'fin_auth_context_',
+  APP_CONFIG_PREFIX: 'fin_app_config_cache_',
+};
+
+// 快取 TTL
+export const AUTH_CONTEXT_TTL_MS = 5 * 60 * 1000;   // 5 分鐘
+export const APP_CONFIG_TTL_MS = 5 * 60 * 1000;     // 5 分鐘
+
+/* ============================================
+   3. 數值限制
    ============================================ */
 export const LIMITS = {
   NAME_MAX_LEN_DESKTOP: 12,
@@ -43,7 +64,7 @@ export const LIMITS = {
 };
 
 /* ============================================
-   3. 保留 ID
+   4. 保留 ID
    ============================================ */
 export const RESERVED_IDS = {
   EXTRA_INCOME: 'extra',
@@ -51,7 +72,7 @@ export const RESERVED_IDS = {
 };
 
 /* ============================================
-   4. 保險連動前綴
+   5. 保險連動前綴
    ============================================ */
 export const LINKED_PREFIX = 'linked_';
 
@@ -64,7 +85,7 @@ export function isLinkedKey(key) {
 }
 
 /* ============================================
-   5. 平台資源對照表
+   6. 平台資源對照表
    ============================================ */
 export const PLATFORM_RESOURCES = {
   members:     { path: 'members',             type: 'list' },
@@ -80,7 +101,7 @@ export const PLATFORM_RESOURCES = {
 };
 
 /* ============================================
-   6. 實體識別碼
+   7. 實體識別碼
    ============================================ */
 export const ENTITY_KEYS = {
   MEMBER:   'member',
@@ -94,7 +115,7 @@ export const ENTITY_KEYS = {
 };
 
 /* ============================================
-   7. 狀態 badge class 對照
+   8. 狀態 badge class 對照
    ============================================ */
 export const STATUS_BADGE_CLASS = {
   done:    'badge-success',
@@ -109,7 +130,7 @@ export function getStatusBadgeClass(isDone, isSkipped = false) {
 }
 
 /* ============================================
-   8. policyHolderId fallback 規則
+   9. policyHolderId fallback 規則
    ============================================ */
 export const POLICY_HOLDER_FALLBACK = {
   primary: 'policyHolderId',
@@ -122,7 +143,7 @@ export function getPolicyEffectiveMemberId(policy) {
 }
 
 /* ============================================
-   9. 表格欄位設定前綴
+   10. 表格欄位設定前綴
    ============================================ */
 export const COLUMN_SETTINGS_PREFIX = 'fin_ui_columns_';
 
@@ -131,13 +152,13 @@ export function buildColumnSettingsKey(tableId) {
 }
 
 /* ============================================
-   10. 帳號網域
+   11. 帳號網域
    ============================================ */
 export const SUPERADMIN_DOMAIN = '@familyfin.local';
 export const SUPERADMIN_EMAIL = `superadmin${SUPERADMIN_DOMAIN}`;
 
 /* ============================================
-   11. 預設狀態清單
+   12. 預設狀態清單
    ============================================ */
 export const DEFAULT_STATUSES = [
   { key: 'status_untreated', name: '未處理', category: 'personal',  isDone: false, order: 1 },
@@ -154,7 +175,7 @@ export const DEFAULT_STATUSES = [
 ];
 
 /* ============================================
-   12. 預設下拉選項
+   13. 預設下拉選項
    ============================================ */
 export const DEFAULT_OPTIONS = {
   memberRoles: [
@@ -240,7 +261,7 @@ export const DEFAULT_PAYMENTS = [
 ];
 
 /* ============================================
-   13. 側邊欄分類群組
+   14. 側邊欄分類群組
    ============================================ */
 export const SIDEBAR_GROUPS = [
   { key: 'overview', label: '總覽', icon: 'home', defaultOpen: true,
@@ -269,7 +290,7 @@ export const SIDEBAR_GROUPS = [
 ];
 
 /* ============================================
-   14. 快速摘要卡類型
+   15. 快速摘要卡類型
    ============================================ */
 export const QUICK_SUMMARY_TYPES = {
   TOP_CATEGORIES: 'top-categories',
@@ -280,7 +301,7 @@ export const QUICK_SUMMARY_TYPES = {
 };
 
 /* ============================================
-   15. 狀態分類
+   16. 狀態分類
    ============================================ */
 export const STATUS_CATEGORIES = {
   PERSONAL: 'personal',

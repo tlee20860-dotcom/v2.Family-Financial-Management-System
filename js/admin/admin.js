@@ -1,11 +1,12 @@
 // ============================================
-// admin.js — 平台管理入口（v101.8.4）
+// admin.js — 平台管理入口（v101.10.0）
 // 位置：js/admin/admin.js
 // ============================================
-// v101.8.4 新增：
-//   ✅ 第三個 Tab「帳號總覽」（跨家庭成員帳號彙總）
-//   ✅ initAccountsOverview / _loadAccountsOverview / _renderFamilyAccountsSection
-//   ✅ 點「管理」按鈕跳轉至該家庭的帳號 Modal
+// v101.10.0 修正：
+//   ✅ [P2-3] 帳號總覽改為分批查詢（每批 3 個）
+//       - 原本 Promise.all 一次打 N 個 API
+//       - 家庭數多時可能觸發 Cloudflare rate limit
+//   ✅ 保留 v101.8.4 全部功能
 // ============================================
 
 import { api } from '../core/api.js';
@@ -43,6 +44,9 @@ const ACCOUNT_EDIT_MODAL_ID = 'admin-account-edit-modal';
 const ACCOUNT_EDIT_FORM_ROOT_ID = 'admin-account-edit-form-root';
 const ACCOUNT_RESTORE_MODAL_ID = 'admin-account-restore-modal';
 const ACCOUNT_RESTORE_FORM_ROOT_ID = 'admin-account-restore-form-root';
+
+// v101.10.0：批次查詢大小（避免 Cloudflare rate limit）
+const ACCOUNTS_BATCH_SIZE = 3;
 
 /* ============================================
    主入口
@@ -309,7 +313,6 @@ async function _handleDelete(uid, family) {
     await api.adminRemoveFamily(uid);
     showToast('✅ 已刪除家庭', 'success');
     await _loadFamilies();
-    // 若帳號總覽已載入，重新整理
     if (_accountsOverviewInstance) {
       _accountsOverviewInstance.refresh?.();
     }
@@ -319,7 +322,7 @@ async function _handleDelete(uid, family) {
 }
 
 /* ============================================
-   🆕 v101.8.4：帳號總覽 Tab
+   帳號總覽 Tab
    ============================================ */
 function initAccountsOverview() {
   const panel = document.getElementById('admin-panel-accounts');
@@ -345,6 +348,10 @@ function initAccountsOverview() {
   };
 }
 
+/**
+ * v101.10.0：分批查詢帳號（每批 3 個家庭）
+ * 避免一次 Promise.all N 個 API 觸發 rate limit
+ */
 async function _loadAccountsOverview() {
   const listEl = document.getElementById('admin-accounts-list');
   const statsEl = document.getElementById('admin-accounts-stats');
@@ -366,18 +373,23 @@ async function _loadAccountsOverview() {
       return;
     }
 
-    // 2. 逐一取得各家庭帳號
-    const results = await Promise.all(
-      families.map(async (f) => {
-        try {
-          const r = await api.familyAccounts.list(f.uid);
-          return { family: f, accounts: r.accounts || [] };
-        } catch (err) {
-          console.warn(`載入家庭 ${f.uid} 帳號失敗：`, err);
-          return { family: f, accounts: [] };
-        }
-      })
-    );
+    // 2. 分批查詢各家庭帳號
+    const results = [];
+    for (let i = 0; i < families.length; i += ACCOUNTS_BATCH_SIZE) {
+      const batch = families.slice(i, i + ACCOUNTS_BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(async (f) => {
+          try {
+            const r = await api.familyAccounts.list(f.uid);
+            return { family: f, accounts: r.accounts || [] };
+          } catch (err) {
+            console.warn(`載入家庭 ${f.uid} 帳號失敗：`, err);
+            return { family: f, accounts: [] };
+          }
+        })
+      );
+      results.push(...batchResults);
+    }
 
     const totalAccounts = results.reduce((s, r) => s + r.accounts.length, 0);
 
@@ -614,7 +626,6 @@ async function _handleCreateAccount(data) {
     showToast(`✅ 已建立帳號「${account}」`, 'success');
     _accountModalFormApi?.reset();
     await _loadFamilyAccounts();
-    // 重新整理帳號總覽
     if (_accountsOverviewInstance) _accountsOverviewInstance.refresh?.();
   } catch (err) {
     const isEmailExists =

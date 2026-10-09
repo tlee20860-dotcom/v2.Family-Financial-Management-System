@@ -1,33 +1,11 @@
 // ============================================
-// lookup-family.js — 登入後查詢所屬家庭（v101.8.0 🆕）
+// lookup-family.js — 登入後查詢所屬家庭（v101.10.0）
 // 位置：functions/api/lookup-family.js
 // ============================================
-// 用途：
-//   登入後呼叫，查詢該帳號所屬的家庭
-//   - 新版：從 platform/uid_index/{uid} 查詢
-//   - 舊版 fallback：UID 即 familyId
-//
-// 請求：
-//   POST /api/lookup-family
-//   Headers: { Authorization: Bearer {idToken} }
-//   Body: 無（從 token 取得 uid）
-//
-// 回應：
-//   {
-//     ok: true,
-//     familyId: 'K1',
-//     familyName: '我的家庭',
-//     memberAccount: {
-//       email: 'wife@familyfin.local',
-//       displayName: '媽媽',
-//       role: 'member',
-//       canInput: true
-//     },
-//     isLegacy: false
-//   }
-//
-//   或若找不到：
-//   { ok: false, error: 'NOT_FOUND', message: '此帳號不屬於任何家庭' }
+// v101.10.0 修正：
+//   ✅ [P1-2] verifyFamilyAccessByUid 傳入 token
+//   ✅ [P1-2] dbGet 家庭名稱傳入 token
+//   ✅ 保留 v101.8.0 全部功能
 // ============================================
 
 import { dbGet } from './_config.js';
@@ -45,21 +23,21 @@ export async function onRequestPost({ request }) {
     // 驗證登入
     const auth = await authenticate(request);
     if (auth instanceof Response) return auth;
-    const { user } = auth;
+    const { user, token } = auth;
 
     const uid = user.localId;
 
-    // 查詢所屬家庭
-    const result = await verifyFamilyAccessByUid(uid);
+    // v101.10.0：傳入 token 給 verifyFamilyAccessByUid
+    const result = await verifyFamilyAccessByUid(uid, token);
 
     if (!result) {
       return errorResponse('NOT_FOUND', '此帳號不屬於任何家庭，請聯繫管理員');
     }
 
-    // 讀取家庭名稱
+    // 讀取家庭名稱（v101.10.0：傳入 token）
     let familyName = '我的家庭';
     try {
-      const familySnap = await dbGet(`platform/families/${result.familyId}`);
+      const familySnap = await dbGet(`platform/families/${result.familyId}`, token);
       if (familySnap?.name) familyName = familySnap.name;
     } catch (e) {
       // 忽略

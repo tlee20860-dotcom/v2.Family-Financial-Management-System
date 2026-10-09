@@ -1,11 +1,13 @@
 // ============================================
-// holdings-list.js — 輸入中心：保單 / 基金 / 銀行（v101.8.0）
+// holdings-list.js — 輸入中心：保單 / 基金 / 銀行（v101.10.0）
 // 位置：js/pages/input-center/holdings-list.js
 // ============================================
-// v101.8.0 修正：
-//   ✅ 依 AppState.canInput 隱藏編輯 / 刪除按鈕
-//   ✅ 卡片 footer 依 canInput 決定是否顯示
-//   ✅ 保留 v101.7.0 雙模式 + 可摺疊
+// v101.10.0 修正：
+//   ✅ [P2-6] view-toggle 只建立一次（root.dataset.initialized 標記）
+//       - 原本每次 Firebase 監聽觸發都重建整區塊 + view-toggle
+//       - 改為骨架只建立一次，之後只重繪 content
+//       - 大幅減少 DOM 重建與事件綁定次數
+//   ✅ 保留 v101.8.0 canInput 判斷
 // ============================================
 
 import { listenInsurancePolicies, listenFunds, listenBanks } from '../../core/db.js';
@@ -34,6 +36,9 @@ export function initHoldingsList(containerId, options = {}) {
   const types = options.types || ['policy', 'fund', 'bank'];
   const listenerGroup = createListenerGroup();
   const instances = {};
+
+  // 重置初始化標記（若同一容器多次初始化）
+  delete root.dataset.initialized;
 
   root.innerHTML = '<div class="empty-state">載入中…</div>';
 
@@ -65,10 +70,14 @@ export function initHoldingsList(containerId, options = {}) {
         if (inst?.tableApi) { try { inst.tableApi.destroy(); } catch (e) {} }
       });
       root.innerHTML = '';
+      delete root.dataset.initialized;
     },
   };
 }
 
+/* ============================================
+   主渲染（v101.10.0：骨架只建立一次）
+   ============================================ */
 function _render(root, containerId, types, instances) {
   if (!root) return;
 
@@ -77,16 +86,80 @@ function _render(root, containerId, types, instances) {
   if (types.includes('fund')) sections.push('fund');
   if (types.includes('bank')) sections.push('bank');
 
-  const html = sections.map((key) => _renderSectionHtml(key, containerId)).join('');
-  root.innerHTML = `<div style="padding:0 0 20px;">${html}</div>`;
+  // v101.10.0：骨架只建立一次
+  if (!root.dataset.initialized) {
+    const html = sections.map((key) => _renderSectionHtml(key, containerId)).join('');
+    root.innerHTML = `<div style="padding:0 0 20px;">${html}</div>`;
 
-  if (window.lucide) window.lucide.createIcons();
+    if (window.lucide) window.lucide.createIcons();
 
+    // 建立 view-toggle（只建立一次）
+    sections.forEach((key) => {
+      _initSectionShell(key, containerId, instances);
+    });
+
+    root.dataset.initialized = '1';
+  }
+
+  // 每次更新 content（保留 view-toggle 狀態）
   sections.forEach((key) => {
-    _initSection(key, containerId, instances);
+    _updateSectionContent(key, containerId, instances);
   });
 }
 
+/* ============================================
+   建立區塊外殼（含 view-toggle，只建立一次）
+   ============================================ */
+function _initSectionShell(key, containerId, instances) {
+  const toggleEl = document.getElementById(`${containerId}-${key}-view-toggle`);
+  if (!toggleEl) return;
+
+  if (instances[key]) {
+    if (instances[key].viewToggle) { try { instances[key].viewToggle.destroy(); } catch (e) {} }
+    if (instances[key].tableApi) { try { instances[key].tableApi.destroy(); } catch (e) {} }
+  }
+
+  const viewToggle = initViewToggle({
+    containerId: `${containerId}-${key}-view-toggle`,
+    storageKey: `holdings-${key}-view`,
+    defaultView: 'table',
+    cardText: '卡片',
+    tableText: '表格',
+    autoApply: false,
+    onChange: () => _renderSectionContent(key, containerId, instances),
+  });
+
+  instances[key] = { viewToggle, tableApi: null };
+}
+
+/* ============================================
+   更新區塊內容（每次資料變更時呼叫）
+   ============================================ */
+function _updateSectionContent(key, containerId, instances) {
+  const config = _getSectionConfig(key);
+  const contentEl = document.getElementById(`${containerId}-${key}-content`);
+  const countEl = document.getElementById(`${containerId}-${key}-count`);
+  if (!contentEl) return;
+
+  const rows = config.getRows();
+  if (countEl) countEl.textContent = `（${rows.length}）`;
+
+  // 空狀態
+  if (!rows.length) {
+    if (instances[key]?.tableApi) {
+      try { instances[key].tableApi.destroy(); } catch (e) {}
+      instances[key].tableApi = null;
+    }
+    contentEl.innerHTML = `<div class="glass-card"><div class="empty-state">尚無${escapeHtml(config.title)}</div></div>`;
+    return;
+  }
+
+  _renderSectionContent(key, containerId, instances);
+}
+
+/* ============================================
+   渲染區塊 HTML 骨架
+   ============================================ */
 function _renderSectionHtml(key, containerId) {
   const config = _getSectionConfig(key);
   return `
@@ -104,6 +177,9 @@ function _renderSectionHtml(key, containerId) {
   `;
 }
 
+/* ============================================
+   區塊設定
+   ============================================ */
 function _getSectionConfig(key) {
   switch (key) {
     case 'policy': return {
@@ -182,41 +258,11 @@ function _getSectionConfig(key) {
   }
 }
 
-function _initSection(key, containerId, instances) {
+/* ============================================
+   渲染區塊內容
+   ============================================ */
+function _renderSectionContent(key, containerId, instances) {
   const config = _getSectionConfig(key);
-  const contentEl = document.getElementById(`${containerId}-${key}-content`);
-  const toggleEl = document.getElementById(`${containerId}-${key}-view-toggle`);
-  const countEl = document.getElementById(`${containerId}-${key}-count`);
-  if (!contentEl || !toggleEl) return;
-
-  const rows = config.getRows();
-  if (countEl) countEl.textContent = `（${rows.length}）`;
-
-  if (!rows.length) {
-    contentEl.innerHTML = `<div class="glass-card"><div class="empty-state">尚無${escapeHtml(config.title)}</div></div>`;
-    return;
-  }
-
-  if (instances[key]) {
-    if (instances[key].viewToggle) { try { instances[key].viewToggle.destroy(); } catch (e) {} }
-    if (instances[key].tableApi) { try { instances[key].tableApi.destroy(); } catch (e) {} }
-  }
-
-  const viewToggle = initViewToggle({
-    containerId: `${containerId}-${key}-view-toggle`,
-    storageKey: `holdings-${key}-view`,
-    defaultView: 'table',
-    cardText: '卡片',
-    tableText: '表格',
-    autoApply: false,
-    onChange: () => _renderSectionContent(key, containerId, config, instances),
-  });
-
-  instances[key] = { viewToggle, tableApi: null };
-  _renderSectionContent(key, containerId, config, instances);
-}
-
-function _renderSectionContent(key, containerId, config, instances) {
   const contentEl = document.getElementById(`${containerId}-${key}-content`);
   if (!contentEl) return;
 
@@ -235,7 +281,6 @@ function _renderSectionContent(key, containerId, config, instances) {
 function _renderSectionTable(contentEl, rows, config, key, instances) {
   contentEl.innerHTML = `<div id="holdings-${key}-table-root"></div>`;
 
-  // 🆕 v101.8.0：依 canInput 決定是否提供操作按鈕
   const userCanInput = AppState.getCanInput();
 
   instances[key].tableApi = renderDataTable({
@@ -274,23 +319,26 @@ function _renderSectionCards(contentEl, rows, config) {
   `;
   if (window.lucide) window.lucide.createIcons();
 
-  contentEl.querySelector('.data-cards-grid')?.addEventListener('click', (e) => {
-    const btn = e.target.closest('button[data-action]');
-    if (!btn) return;
-    const id = btn.dataset.id;
-    const row = rows.find((r) => r.id === id);
-    if (!row) return;
-    const action = btn.dataset.action;
-    if (action === 'edit-item') _handleEdit(null, config.entityKey, row);
-    else if (action === 'delete-item') _handleDelete(null, config.entityKey, row);
-  });
+  const cardsGrid = contentEl.querySelector('.data-cards-grid');
+  if (cardsGrid) {
+    // 移除舊監聽器（透過重新綁定，無累積風險）
+    cardsGrid.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const id = btn.dataset.id;
+      const row = rows.find((r) => r.id === id);
+      if (!row) return;
+      const action = btn.dataset.action;
+      if (action === 'edit-item') _handleEdit(null, config.entityKey, row);
+      else if (action === 'delete-item') _handleDelete(null, config.entityKey, row);
+    });
+  }
 }
 
 function _renderSectionCard(row, config) {
   const amount = config.cardAmount(row);
   const subtitle = config.cardSubtitle(row);
   const fields = config.cardFields(row);
-  // 🆕 v101.8.0：依 canInput 決定是否顯示按鈕
   const userCanInput = AppState.getCanInput();
 
   const actionsHtml = userCanInput ? `
@@ -319,6 +367,9 @@ function _renderSectionCard(row, config) {
   `;
 }
 
+/* ============================================
+   編輯 / 刪除處理
+   ============================================ */
 function _handleEdit(sectionKey, entityKey, row) {
   if (!AppState.getCanInput()) return;
   openEntityModal({ entity: entityKey, mode: 'edit', id: row.id, allRows: _getRowsByEntityKey(entityKey) });

@@ -1,13 +1,12 @@
 // ============================================
-// entity-definitions.js — 實體表單定義 SSOT（v101.6）
+// entity-definitions.js — 實體表單定義 SSOT（v101.10.0）
 // 位置：js/config/entity-definitions.js
 // ============================================
-// v101.6 修正：
-//   ✅ 移除 fixedTemplate（廢除固定支出）
-//   ✅ 每個實體新增 ui 配置（listColumns / cardFields / sortOptions 等）
-//   ✅ 支援 8 個實體（移除 fixedTemplate）
-//   ✅ 所有欄位依配置驅動原則設計
-//   ✅ 排序欄位 type 改為 number-plain（避免被格式化為 HK$）
+// v101.10.0 修正：
+//   ✅ [P1-3] POLICY 新增 monthlyPremium 欄位（基金保險專用）
+//       - 原本基金保險無法輸入月供金額 → 年度供款永遠為 0
+//       - 新增欄位 + fromForm 處理
+//   ✅ 保留 v101.6 全部功能
 // ============================================
 
 import {
@@ -135,7 +134,7 @@ const ENTITY_DEFS = {
   },
 
   /* ============================================
-     3. 保單
+     3. 保單（v101.10.0：新增 monthlyPremium 欄位）
      ============================================ */
   [ENTITY_KEYS.POLICY]: {
     key: ENTITY_KEYS.POLICY,
@@ -198,9 +197,17 @@ const ENTITY_DEFS = {
         id: 'account', label: '扣款帳戶（可選）', type: 'text',
         required: false, maxlength: 60,
       },
+      // 🆕 v101.10.0：基金保險專用月供金額
+      {
+        id: 'monthlyPremium', label: '月供金額（HK$）', type: 'number',
+        required: false, min: 0, step: 1, defaultValue: 0,
+        hint: '💡 基金保險（投資型）填此欄；普通保險留空即可',
+      },
+      // 普通保險年繳保費
       {
         id: 'annualPremium', label: '當前年度年繳保費（HK$）', type: 'number',
-        required: true, min: 0, step: 1, defaultValue: 0,
+        required: false, min: 0, step: 1, defaultValue: 0,
+        hint: '💡 普通保險（住院 / 人壽 / 意外）填此欄',
       },
     ],
 
@@ -222,11 +229,29 @@ const ENTITY_DEFS = {
       deleteConfirmText: (row) => `⚠️ 確定要刪除保單「${row.name}」嗎？\n\n這將會一併刪除所有相關的扣款紀錄與成員支出，此操作無法復原。`,
     },
 
+    validate: (data, allRows, currentId) => {
+      const type = data.type || 'normal';
+      const monthlyPremium = Number(data.monthlyPremium) || 0;
+      const annualPremium = Number(data.annualPremium) || 0;
+
+      // 基金保險必須填月供
+      if (type === 'fund_insurance' && monthlyPremium <= 0) {
+        return { field: 'monthlyPremium', message: '基金保險請填寫月供金額（大於 0）' };
+      }
+      // 普通保險必須填年繳
+      if (type === 'normal' && annualPremium <= 0) {
+        return { field: 'annualPremium', message: '普通保險請填寫年繳保費（大於 0）' };
+      }
+      return null;
+    },
+
     fromForm: (data) => {
+      const type = data.type || 'normal';
       const startYear = Number(data.firstStartYear);
       const startMonth = String(data.firstStartMonth || '01').padStart(2, '0');
       const currentPeriod = Number(data.currentPeriodIndex);
       const annualPremium = Math.round(Number(data.annualPremium) || 0);
+      const monthlyPremium = Math.round(Number(data.monthlyPremium) || 0);
       const totalYears = Number(data.totalPolicyYears);
 
       const periodRange = _getPeriodRange(startYear, startMonth, currentPeriod);
@@ -240,7 +265,7 @@ const ENTITY_DEFS = {
       };
 
       return {
-        type: data.type || 'normal',
+        type,
         memberId: data.memberId,
         policyHolderId: data.policyHolderId || data.memberId,
         name: data.name,
@@ -253,6 +278,8 @@ const ENTITY_DEFS = {
         totalPremium: annualPremium * totalYears,
         currentPeriodIndex: currentPeriod,
         account: data.account || '',
+        monthlyPremium,   // 🆕 v101.10.0
+        annualPremium,    // 保留供 data-table 顯示
         periods,
       };
     },
@@ -261,7 +288,8 @@ const ENTITY_DEFS = {
       const curPeriod = (row.periods || {})[String(row.currentPeriodIndex || 1)];
       return {
         ...row,
-        annualPremium: curPeriod ? curPeriod.annualPremium : 0,
+        annualPremium: curPeriod ? curPeriod.annualPremium : (row.annualPremium || 0),
+        monthlyPremium: row.monthlyPremium || 0,
       };
     },
   },

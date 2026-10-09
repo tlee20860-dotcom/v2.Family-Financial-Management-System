@@ -1,12 +1,12 @@
 // ============================================
-// entity-list-page.js — 實體列表頁骨架（v101.8.0）
+// entity-list-page.js — 實體列表頁骨架（v101.10.0）
 // 位置：js/shared/entity-list-page.js
 // ============================================
-// v101.8.0 修正：
-//   ✅ 依 AppState.canInput 隱藏「新增」按鈕
-//   ✅ 依 AppState.canInput 隱藏「編輯 / 刪除」按鈕
-//   ✅ 唯讀模式下，表格 / 卡片為純檢視
-//   ✅ 保留 v101.6.6 的 policy 刪除 extraArgs 修正
+// v101.10.0 修正：
+//   ✅ [P2-2] 唯讀模式改用 data-col-id="__actions__" 判定欄位
+//       - 原本依賴 th.textContent === '操作'，脆弱
+//       - 若 label 改字 / 圖示變化會失效
+//   ✅ 保留 v101.8.0 全部功能
 // ============================================
 
 import { getEntityDef, getEntityUi } from '../config/entity-definitions.js';
@@ -55,7 +55,7 @@ export function initEntityListPage(options) {
     deleteConfirmText,
   } = ui;
 
-  // 🆕 v101.8.0：依 canInput 決定實際權限
+  // 依 canInput 決定實際權限
   const userCanInput = AppState.getCanInput();
   const canCreate = rawCanCreate && userCanInput;
   const canEdit = rawCanEdit && userCanInput;
@@ -93,7 +93,6 @@ export function initEntityListPage(options) {
      內部：渲染骨架
      ============================================ */
   function _renderSkeleton() {
-    // 🆕 v101.8.0：若無新增權限，隱藏 header 的新增按鈕
     const headerHtml = showHeader ? `
       <div class="entity-list-header flex flex-between items-center flex-wrap gap-12 mb-16">
         <div class="text-muted" style="font-size:13px;">
@@ -162,8 +161,6 @@ export function initEntityListPage(options) {
     if (_tableApi) { try { _tableApi.destroy(); } catch (e) {} _tableApi = null; }
     if (_cardApi) { try { _cardApi.destroy(); } catch (e) {} _cardApi = null; }
 
-    // 🆕 v101.8.0：傳遞 canEdit / canDelete 給 data-table / data-card
-    // 透過 entity-definitions 的 ui 已控制，但這裡用 hooks 覆寫更保險
     if (_currentView === 'card') {
       _cardApi = renderDataCard({
         container: contentEl,
@@ -191,22 +188,25 @@ export function initEntityListPage(options) {
       });
     }
 
-    // 🆕 v101.8.0：若為唯讀，移除操作欄的按鈕
+    // 若為唯讀，移除操作欄的按鈕
     if (!canEdit && !canDelete) {
       _hideActionButtons(contentEl);
     }
   }
 
   /**
-   * 🆕 v101.8.0：唯讀模式下隱藏所有編輯 / 刪除按鈕
+   * v101.10.0：唯讀模式下隱藏操作欄
+   * - 改用 data-col-id="__actions__" 判定（由 data-table.js 設定）
+   * - 保留 th 文字判定作為 fallback
    */
   function _hideActionButtons(contentEl) {
     // 表格：隱藏 __actions__ 欄
     contentEl.querySelectorAll('th').forEach((th) => {
-      if (th.textContent.trim() === '操作') {
-        th.style.display = 'none';
-      }
+      const colId = th.dataset.colId || '';
+      const isAction = colId === '__actions__' || th.textContent.trim() === '操作';
+      if (isAction) th.style.display = 'none';
     });
+
     contentEl.querySelectorAll('td[data-label="操作"]').forEach((td) => {
       td.style.display = 'none';
     });
@@ -287,7 +287,6 @@ export function initEntityListPage(options) {
     });
     if (!ok) return;
 
-    // policy 需傳 policyHolderId（v101.6.6 修正）
     let extraArgs = [];
     if (entity === 'policy') {
       extraArgs = [row.policyHolderId || row.memberId];

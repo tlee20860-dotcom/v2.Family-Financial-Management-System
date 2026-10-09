@@ -1,11 +1,10 @@
 // ============================================
-// tab-yearrange.js — 基礎資料庫：年份範圍 Tab（v101.6）
+// tab-yearrange.js — 基礎資料庫：年份範圍 Tab（v101.10.0）
 // 位置：js/pages/database/tab-yearrange.js
 // ============================================
-// v101.6 修正：
-//   ✅ 使用 listener-group 統一管理訂閱
-//   ✅ 使用 setText / escapeHtml（utils.js）
-//   ✅ confirm 改用 openConfirm（已於 v101.5）
+// v101.10.0 更新：
+//   ✅ 版本號更新（無功能變更）
+//   ✅ 保留 v101.6 全部功能（listener-group / 預覽 / 重置）
 // ============================================
 
 import { listenYearRange, saveYearRange } from '../../core/db.js';

@@ -1,17 +1,9 @@
 /* ============================================
-   insurance.css — 保險頁面專屬樣式（v101）
+   insurance.css — 保險頁面專屬樣式（v101.10.0）
    ============================================
-   說明：
-     保險的主體樣式（.policy-card / .policy-table 等）已於
-     components.css 定義，本檔案只負責「保險頁專屬」的
-     額外微調與裝飾性樣式。
-
-   用途：
-     - 卡片 hover 效果強化
-     - 進度條顏色多樣化
-     - 已供滿區塊的裝飾
-     - 表格行的 hover 強調
-     - 列印友善
+   v101.10.0 修正：
+     ✅ [P3-5] .policy-card::before 圓角統一
+         - --radius-lg → --radius-sm
    ============================================ */
 
 /* ============================================
@@ -30,7 +22,7 @@
   right: 0;
   height: 2px;
   background: linear-gradient(90deg, var(--neon-cyan), var(--neon-magenta));
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   opacity: 0;
   transition: opacity 0.3s ease;
 }
@@ -197,11 +189,11 @@
   }
 
   .policy-card:hover {
-    transform: none;   /* 手機不做位移，避免誤觸 */
+    transform: none;
   }
 
   .policy-card::before {
-    opacity: 0.4;      /* 手機顯示淡色頂邊，不需 hover */
+    opacity: 0.4;
   }
 }
 

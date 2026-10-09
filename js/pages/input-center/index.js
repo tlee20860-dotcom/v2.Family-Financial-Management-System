@@ -1,11 +1,17 @@
 // ============================================
-// index.js — 綜合輸入中心入口（v101.8.0）
+// index.js — 綜合輸入中心入口（v101.10.0）
 // 位置：js/pages/input-center/index.js
 // ============================================
-// v101.8.0 修正：
-//   ✅ 依 AppState.canInput 隱藏上方 5 個按鈕
-//   ✅ 唯讀模式下顯示提示 banner
-//   ✅ 保留 v101.6.4 全部功能（4 Tab / lazy load）
+// v101.10.0 修正：
+//   ✅ [P2-5] _yearOptions 改用 getYearList()
+//       - 原本硬編碼 -3 ~ +3
+//       - 改用 app-config 的統一範圍
+//   ✅ [P3-8] 移除 formApi.destroy 動態覆寫
+//       - 改為 module 級別的 _modalListenerCleanups
+//   ✅ [P3-11] 移除 _itemsCache 5 秒 TTL
+//       - 改用 db.js 的 getItemsOnce()
+//   ✅ [P3-9] _destroy 補上監聽器清理
+//   ✅ 保留 v101.8.0 全部功能
 // ============================================
 
 import { initTabPanel } from '../../shared/tab-panel.js';
@@ -16,12 +22,13 @@ import { AppState } from '../../core/state.js';
 import {
   addExpense, saveIncome, saveBankBalance,
   getMembersOnce, getAllMemberExpensesOnce,
-  getIncomeOnce,
+  getIncomeOnce, getItemsOnce,
+  listenCategories, listenPaymentMethods, listenBanks,
 } from '../../core/db.js';
-import { getStatusesByCategory, getDefaultStatus } from '../../config/app-config.js';
+import { getStatusesByCategory, getDefaultStatus, getYearList } from '../../config/app-config.js';
 import { escapeHtml, formatHKD, todayISO } from '../../core/utils.js';
 import { buildForm } from '../../shared/form-builder.js';
-import { openModal, closeModal, openConfirm } from '../../shared/modal.js';
+import { openModal, closeModal } from '../../shared/modal.js';
 import { registerPageCleanup } from '../../core/app.js';
 
 /* ============================================
@@ -45,6 +52,16 @@ let _tabInstances = {
   fund:      null,
   bank:      null,
 };
+
+// v101.10.0：Modal 監聽器收集（每次開啟新 Modal 前先清空）
+let _modalListenerCleanups = [];
+
+function _cleanupModalListeners() {
+  _modalListenerCleanups.forEach((fn) => {
+    try { fn(); } catch (e) { /* noop */ }
+  });
+  _modalListenerCleanups = [];
+}
 
 /* ============================================
    主入口
@@ -84,7 +101,6 @@ export async function initInputCenterPage() {
    骨架
    ============================================ */
 function _renderSkeleton() {
-  // 🆕 v101.8.0：依 canInput 決定是否顯示新增按鈕
   const userCanInput = AppState.getCanInput();
 
   const buttonsHtml = userCanInput ? `
@@ -131,7 +147,7 @@ function _renderSkeleton() {
    ============================================ */
 function _bindButtons() {
   const root = document.getElementById('ic-buttons-root');
-  if (!root) return;   // 唯讀模式無此容器
+  if (!root) return;
 
   root.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-action]');
@@ -212,11 +228,13 @@ async function _initTabModule(key, containerId) {
 async function _openAddExpenseModal() {
   if (!AppState.getCanInput()) return;
 
+  // v101.10.0：清空舊 Modal 監聽器
+  _cleanupModalListeners();
+
   const MODAL_ID = 'ic-add-expense-modal';
   _destroyModal(MODAL_ID);
 
   const ym = AppState.getYearMonth();
-  const curYear = ym.year || String(new Date().getFullYear());
   const curMonth = ym.month === 'all' ? '01' : (ym.month || '01');
 
   const [members, statusList] = await Promise.all([
@@ -234,7 +252,8 @@ async function _openAddExpenseModal() {
   const formApi = buildForm({
     containerId: `${MODAL_ID}-form-root`,
     fields: [
-      { type: 'select', id: 'year',   label: '所屬年份', required: true, includeEmpty: false, options: _yearOptions(curYear), defaultValue: curYear },
+      // v101.10.0：改用 getYearList()
+      { type: 'select', id: 'year',   label: '所屬年份', required: true, includeEmpty: false, options: _yearOptions(), defaultValue: ym.year || String(new Date().getFullYear()) },
       { type: 'select', id: 'month',  label: '所屬月份', required: true, includeEmpty: false, options: _monthOptions(), defaultValue: curMonth },
       { type: 'select', id: 'member', label: '支出成員', required: true, includeEmpty: true, emptyText: '— 請選擇 —', options: memberOptions },
       { type: 'text',   id: 'date',   label: '支出日期', placeholder: 'YYYY-MM-DD', maxlength: 10, defaultValue: todayISO() },
@@ -276,7 +295,22 @@ async function _openAddExpenseModal() {
     });
   });
 
-  _populateExpenseForm(formApi);
+  // v101.10.0：改用 _modalListenerCleanups 收集訂閱
+  const unsubCat = listenCategories((list) => {
+    formApi.updateOptions('category', list.map((c) => ({ value: c.id, label: c.name })), {
+      includeEmpty: true,
+      emptyText: '— 請選擇類別 —',
+    });
+  });
+  _modalListenerCleanups.push(unsubCat);
+
+  const unsubPay = listenPaymentMethods((list) => {
+    formApi.updateOptions('payment', list.map((p) => ({ value: p.id, label: p.name })), {
+      includeEmpty: true,
+      emptyText: '— 請選擇 —',
+    });
+  });
+  _modalListenerCleanups.push(unsubPay);
 
   openModal(MODAL_ID);
   if (window.lucide) window.lucide.createIcons();
@@ -288,18 +322,19 @@ async function _openAddExpenseModal() {
 async function _openAddIncomeModal() {
   if (!AppState.getCanInput()) return;
 
+  _cleanupModalListeners();
+
   const MODAL_ID = 'ic-add-income-modal';
   _destroyModal(MODAL_ID);
 
   const ym = AppState.getYearMonth();
-  const curYear = ym.year || String(new Date().getFullYear());
   const curMonth = ym.month === 'all' ? '01' : (ym.month || '01');
 
   const members = await getMembersOnce();
   const sortedMembers = sortMembersLocal(members);
 
   const fields = [
-    { type: 'select', id: 'year',  label: '所屬年份', required: true, includeEmpty: false, options: _yearOptions(curYear), defaultValue: curYear },
+    { type: 'select', id: 'year',  label: '所屬年份', required: true, includeEmpty: false, options: _yearOptions(), defaultValue: ym.year || String(new Date().getFullYear()) },
     { type: 'select', id: 'month', label: '所屬月份', required: true, includeEmpty: false, options: _monthOptions(), defaultValue: curMonth },
   ];
   sortedMembers.forEach((m) => {
@@ -355,18 +390,19 @@ async function _openAddIncomeModal() {
 async function _openAddBankBalanceModal() {
   if (!AppState.getCanInput()) return;
 
+  _cleanupModalListeners();
+
   const MODAL_ID = 'ic-add-bank-modal';
   _destroyModal(MODAL_ID);
 
   const ym = AppState.getYearMonth();
-  const curYear = ym.year || String(new Date().getFullYear());
   const curMonth = ym.month === 'all' ? '01' : (ym.month || '01');
 
   _createModal(MODAL_ID, '新增銀行結餘');
   const formApi = buildForm({
     containerId: `${MODAL_ID}-form-root`,
     fields: [
-      { type: 'select', id: 'year',  label: '所屬年份', required: true, includeEmpty: false, options: _yearOptions(curYear), defaultValue: curYear },
+      { type: 'select', id: 'year',  label: '所屬年份', required: true, includeEmpty: false, options: _yearOptions(), defaultValue: ym.year || String(new Date().getFullYear()) },
       { type: 'select', id: 'month', label: '所屬月份', required: true, includeEmpty: false, options: _monthOptions(), defaultValue: curMonth },
       { type: 'select', id: 'bank',  label: '銀行', required: true, includeEmpty: true, emptyText: '— 請選擇銀行 —' },
       { type: 'number', id: 'amount', label: '結餘金額（HK$）', required: true, min: 0, step: 1, placeholder: '0' },
@@ -383,55 +419,25 @@ async function _openAddBankBalanceModal() {
     onCancel: () => closeModal(MODAL_ID),
   });
 
-  const { listenBanks } = await import('../../core/db.js');
-  const unsub = listenBanks((list) => {
+  // v101.10.0：改用 _modalListenerCleanups
+  const unsubBank = listenBanks((list) => {
     const options = list.map((b) => ({ value: b.id, label: b.name }));
     formApi.updateOptions('bank', options, {
       includeEmpty: true,
       emptyText: '— 請選擇銀行 —',
     });
   });
-
-  const origDestroy = formApi.destroy;
-  formApi.destroy = () => {
-    try { unsub(); } catch (e) { /* noop */ }
-    origDestroy();
-  };
+  _modalListenerCleanups.push(unsubBank);
 
   openModal(MODAL_ID);
   if (window.lucide) window.lucide.createIcons();
 }
 
 /* ============================================
-   表單填充輔助
+   項目查詢（v101.10.0：改用 db.js 的 getItemsOnce）
    ============================================ */
-async function _populateExpenseForm(formApi) {
-  const { listenCategories, listenPaymentMethods } = await import('../../core/db.js');
-
-  const unsubCat = listenCategories((list) => {
-    formApi.updateOptions('category', list.map((c) => ({ value: c.id, label: c.name })), {
-      includeEmpty: true,
-      emptyText: '— 請選擇類別 —',
-    });
-  });
-
-  const unsubPay = listenPaymentMethods((list) => {
-    formApi.updateOptions('payment', list.map((p) => ({ value: p.id, label: p.name })), {
-      includeEmpty: true,
-      emptyText: '— 請選擇 —',
-    });
-  });
-
-  const origDestroy = formApi.destroy;
-  formApi.destroy = () => {
-    try { unsubCat(); } catch (e) { /* noop */ }
-    try { unsubPay(); } catch (e) { /* noop */ }
-    origDestroy();
-  };
-}
-
 async function _getItemsByCategory(categoryId) {
-  const items = await _getItemsOnce();
+  const items = await getItemsOnce();
   const filtered = categoryId
     ? items.filter((i) => i.categoryId === categoryId)
     : items;
@@ -440,26 +446,9 @@ async function _getItemsByCategory(categoryId) {
 
 async function _getItemName(itemId) {
   if (!itemId) return '';
-  const items = await _getItemsOnce();
+  const items = await getItemsOnce();
   const found = items.find((i) => i.id === itemId);
   return found ? found.name : '';
-}
-
-let _itemsCache = null;
-let _itemsCacheTime = 0;
-
-async function _getItemsOnce() {
-  const now = Date.now();
-  if (_itemsCache && (now - _itemsCacheTime < 5000)) {
-    return _itemsCache;
-  }
-  const { get } = await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js');
-  const { familyRef } = await import('../../core/db.js');
-  const snap = await get(familyRef('expense_items'));
-  const val = snap.val() || {};
-  _itemsCache = Object.entries(val).map(([id, x]) => ({ id, ...x }));
-  _itemsCacheTime = now;
-  return _itemsCache;
 }
 
 /* ============================================
@@ -494,14 +483,11 @@ function _destroyModal(modalId) {
 /* ============================================
    年份 / 月份選項
    ============================================ */
-function _yearOptions(currentYear) {
-  const cur = Number(currentYear) || new Date().getFullYear();
-  const opts = [];
-  for (let i = -3; i <= 3; i++) {
-    const y = cur + i;
-    opts.push({ value: String(y), label: `${y} 年` });
-  }
-  return opts;
+
+// v101.10.0：改用 getYearList() 從 app-config 取得
+function _yearOptions() {
+  const years = getYearList();
+  return years.map((y) => ({ value: String(y), label: `${y} 年` }));
 }
 
 function _monthOptions() {
@@ -547,11 +533,20 @@ function _destroy() {
     _tabPanel = null;
   }
 
+  // v101.10.0：清理 Modal 監聽器
+  _cleanupModalListeners();
+
+  // v101.10.0：清理按鈕事件監聽器
+  const btnRoot = document.getElementById('ic-buttons-root');
+  if (btnRoot) {
+    // 因為使用 addEventListener 而未保存 handler，透過 clone 節點移除
+    const newRoot = btnRoot.cloneNode(false);
+    btnRoot.parentNode?.replaceChild(newRoot, btnRoot);
+  }
+
   _destroyModal('ic-add-expense-modal');
   _destroyModal('ic-add-income-modal');
   _destroyModal('ic-add-bank-modal');
 
-  _itemsCache = null;
-  _itemsCacheTime = 0;
   _container = null;
 }

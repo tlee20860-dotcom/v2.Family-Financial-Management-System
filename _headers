@@ -1,0 +1,50 @@
+# ============================================
+# _headers — Cloudflare Pages 回應標頭配置
+# 位置：根目錄 /_headers
+# ============================================
+# 說明：
+#   - 此檔案由 Cloudflare Pages 自動讀取
+#   - 為不同路徑設定 Cache-Control 標頭
+#   - 語法參考：https://developers.cloudflare.com/pages/configuration/headers/
+# ============================================
+
+# 靜態資源（JS / CSS）：短期快取 + 協商驗證
+# 注意：本專案 JS/CSS 檔名無 hash，因此不使用 immutable
+#       避免瀏覽器 HTTP 快取阻擋 SW 版本更新
+/css/*
+  Cache-Control: public, max-age=300, must-revalidate
+
+/js/*
+  Cache-Control: public, max-age=300, must-revalidate
+
+# Service Worker 本身：不快取（確保能偵測更新）
+/sw.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+# 圖示：長效快取（icon.svg 幾乎不變）
+/icons/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# PWA Manifest：1 天快取
+/manifest.json
+  Cache-Control: public, max-age=86400
+
+# HTML：每次驗證（依賴 ETag）
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+# 根路徑（等同 index.html）
+/
+  Cache-Control: public, max-age=0, must-revalidate
+
+# API：不快取
+/api/*
+  Cache-Control: no-store
+
+# ============================================
+# 安全性標頭（全站）
+# ============================================
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin

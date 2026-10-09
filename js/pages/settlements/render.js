@@ -1,13 +1,13 @@
 // ============================================
-// render.js — 結算清單渲染輔助（v101.8.6）
+// render.js — 結算清單渲染輔助（v101.10.0）
 // 位置：js/pages/settlements/render.js
 // ============================================
-// v101.8.6 修正：
-//   ✅ [一致性] _updateInsuranceStatus 支援 linkedId
-//       - 若 row._ref.linkedId 存在 → 同步更新 linked_xxx
-//       - 否則呼叫 api.insuranceSync（產生 linked）
-//   ✅ handleSettlementDelete 支援 linkedId
-//   ✅ 保留 v101.8.0 canInput 判斷
+// v101.10.0 修正：
+//   ✅ [P3-10] row._ref 無 fallback → 加入防護
+//       - _openPersonalEditForm 的 memberId 讀取加 optional chaining
+//       - updateRowStatus 的 row._ref 讀取加防護
+//       - handleSettlementDelete 的 row._ref 讀取加防護
+//   ✅ 保留 v101.8.6 全部功能（linkedId 支援）
 // ============================================
 
 import {
@@ -100,25 +100,30 @@ export function getMemberName(row) {
 export async function updateRowStatus(row, newStatus) {
   if (!row) throw new Error('找不到紀錄');
 
+  // v101.10.0：加防護
+  const ref = row._ref || {};
   const isDone = isDoneStatus(newStatus, row.source);
 
   switch (row.source) {
     case 'personal':
       return updateEntityStatus('personal', row, newStatus, isDone);
     case 'insurance':
-      return _updateInsuranceStatus(row, newStatus, isDone);
+      return _updateInsuranceStatus(row, newStatus, isDone, ref);
     default:
       throw new Error('未知的來源：' + row.source);
   }
 }
 
 /**
- * 🆕 v101.8.6：更新保險狀態（支援 linked_xxx）
+ * 更新保險狀態（支援 linked_xxx）
  */
-async function _updateInsuranceStatus(row, newStatus, isDone) {
-  const { policyId, memberId, linkedId } = row._ref;
+async function _updateInsuranceStatus(row, newStatus, isDone, ref) {
+  const { policyId, memberId, linkedId } = ref;
   const year = row.year;
   const month = row.month;
+
+  if (!policyId) throw new Error('缺少 policyId');
+  if (!memberId) throw new Error('缺少 memberId');
 
   if (isDone) {
     // 寫入 insurance_payments
@@ -127,7 +132,7 @@ async function _updateInsuranceStatus(row, newStatus, isDone) {
       amount: row.amount,
     });
 
-    // 🆕 若 linked 存在 → 同步更新；否則呼叫 insuranceSync 產生
+    // 若 linked 存在 → 同步更新；否則呼叫 insuranceSync 產生
     if (linkedId) {
       await updateExpense(year, month, memberId, linkedId, {
         status: newStatus,
@@ -146,7 +151,7 @@ async function _updateInsuranceStatus(row, newStatus, isDone) {
     // 移除 insurance_payments
     await removeInsurancePaymentBatch(policyId, year, month);
 
-    // 🆕 若 linked 存在 → 移除；否則呼叫 insuranceUnsync
+    // 若 linked 存在 → 移除；否則呼叫 insuranceUnsync
     if (linkedId) {
       await removeExpense(year, month, memberId, linkedId);
     } else {
@@ -161,7 +166,7 @@ async function _updateInsuranceStatus(row, newStatus, isDone) {
 }
 
 /* ============================================
-   編輯 Modal（v101.6.11：支援全部欄位）
+   編輯 Modal
    ============================================ */
 export async function openSettlementEditModal(row, onSuccess) {
   if (!row) return;
@@ -198,7 +203,7 @@ export async function openSettlementEditModal(row, onSuccess) {
 }
 
 /* ============================================
-   個人支出編輯表單（全部欄位）
+   個人支出編輯表單
    ============================================ */
 async function _openPersonalEditForm(row, containerId, modalId, onSuccess) {
   let members = [];
@@ -250,6 +255,11 @@ async function _openPersonalEditForm(row, containerId, modalId, onSuccess) {
     : [];
   const paymentOptions = payments.map((p) => ({ value: p.id, label: p.name }));
 
+  // v101.10.0：加防護
+  const ref = row._ref || {};
+  const currentMemberId = ref.memberId || row.memberId || '';
+  const currentExpenseId = ref.expenseId || '';
+
   const formApi = buildForm({
     containerId,
     fields: [
@@ -271,7 +281,7 @@ async function _openPersonalEditForm(row, containerId, modalId, onSuccess) {
     initialData: {
       year: String(row.year),
       month: String(row.month),
-      memberId: row._ref.memberId,
+      memberId: currentMemberId,
       name: row.name || '',
       amount: row.amount || 0,
       date: row.date || '',
@@ -282,10 +292,14 @@ async function _openPersonalEditForm(row, containerId, modalId, onSuccess) {
     },
     onSubmit: async (data) => {
       try {
-        const oldMemberId = row._ref.memberId;
+        const oldMemberId = currentMemberId;
         const oldYear = row.year;
         const oldMonth = row.month;
-        const oldExpenseId = row._ref.expenseId;
+        const oldExpenseId = currentExpenseId;
+
+        if (!oldExpenseId) {
+          throw new Error('缺少 expenseId，無法更新');
+        }
 
         const newYear = String(data.year);
         const newMonth = String(data.month);
@@ -403,6 +417,9 @@ function _openInsuranceEditForm(row, containerId, modalId, onSuccess) {
 export async function handleSettlementDelete(row, onSuccess) {
   if (!row) return;
 
+  // v101.10.0：加防護
+  const ref = row._ref || {};
+
   if (row.source === 'insurance') {
     const ok = await openConfirm(
       `確定要取消「${row.name}」在 ${row.year}-${row.month} 的扣款紀錄嗎？\n\n保單本身不會被刪除，僅取消此月份的扣款狀態（會同步移除對應的成員支出）。`,
@@ -411,10 +428,15 @@ export async function handleSettlementDelete(row, onSuccess) {
     if (!ok) return;
 
     try {
-      const { policyId, memberId, linkedId } = row._ref;
+      const { policyId, memberId, linkedId } = ref;
+
+      if (!policyId) {
+        showToast('缺少保單資訊', 'error');
+        return;
+      }
+
       await removeInsurancePaymentBatch(policyId, row.year, row.month);
 
-      // 🆕 v101.8.6：若 linked 存在 → 移除；否則呼叫 insuranceUnsync
       if (linkedId) {
         await removeExpense(row.year, row.month, memberId, linkedId);
       } else {
@@ -440,7 +462,13 @@ export async function handleSettlementDelete(row, onSuccess) {
     if (!ok) return;
 
     try {
-      const { memberId, expenseId } = row._ref;
+      const { memberId, expenseId } = ref;
+
+      if (!memberId || !expenseId) {
+        showToast('缺少必要資訊，無法刪除', 'error');
+        return;
+      }
+
       await removeExpense(row.year, row.month, memberId, expenseId);
       showToast('✅ 已刪除', 'success');
       if (typeof onSuccess === 'function') onSuccess();

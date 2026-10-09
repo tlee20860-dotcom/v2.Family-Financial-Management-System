@@ -1,10 +1,9 @@
 /* ============================================
    components.css — 卡片、按鈕、表格、Modal、表單
    -------------------------------------------------
-   v101.6.5 更新：
-     ✅ 統一圓角為 --radius-sm（小圓角 6px）
-     ✅ Tab 多行改為 grid 3 欄（手機 2 欄）
-     ✅ 保留所有既有樣式
+   v101.10.0 更新：
+     ✅ 版本註解更新（無樣式變更）
+     ✅ 保留所有 v101.6.5 / v101.7.0 / .2 / .4 / v101.9.0 追加樣式
    ============================================ */
 
 /* ================= GlassCard ================= */
@@ -13,7 +12,7 @@
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
   border: 1px solid var(--glass-border);
-  border-radius: var(--radius-sm);       /* 統一：--radius-lg → --radius-sm */
+  border-radius: var(--radius-sm);
   padding: 20px;
   transition: all var(--transition);
   position: relative;
@@ -271,7 +270,7 @@
   max-width: 440px;
   background: rgba(15, 23, 42, 0.95);
   border: 1px solid var(--glass-border-hover);
-  border-radius: var(--radius-sm);       /* 統一：--radius-lg → --radius-sm */
+  border-radius: var(--radius-sm);
   padding: 24px;
   box-shadow: 0 0 30px rgba(0, 240, 255, 0.15);
   animation: modalIn 0.2s ease-out;
@@ -837,7 +836,7 @@
 }
 @keyframes fadeIn {
   from { opacity: 0; }
-  to { opacity: 1; }
+  to   { opacity: 1; }
 }
 
 /* ============================================
@@ -889,7 +888,7 @@
 }
 
 /* ============================================
-   🆕 Tab 相關（v101.6.5：3 欄 grid + 統一圓角）
+   Tab 相關
    ============================================ */
 .tab-bar {
   display: flex;
@@ -897,7 +896,7 @@
   padding: 4px;
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
-  border-radius: var(--radius-sm);       /* 統一：--radius-md → --radius-sm */
+  border-radius: var(--radius-sm);
   overflow-x: auto;
   margin-bottom: 16px;
   scrollbar-width: thin;
@@ -942,7 +941,7 @@
   display: block;
 }
 
-/* 🆕 多行 Tab：使用 grid 3 欄（桌面）/ 2 欄（手機） */
+/* 多行 Tab：使用 grid 3 欄（桌面）/ 2 欄（手機） */
 .tab-bar.tab-bar-wrap {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -966,7 +965,7 @@
     min-width: 80px;
   }
 
-  /* 🆕 手機版：多行 Tab 改為 2 欄 */
+  /* 手機版：多行 Tab 改為 2 欄 */
   .tab-bar.tab-bar-wrap {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -1221,23 +1220,16 @@
   justify-content: flex-end;
   flex-wrap: wrap;
 }
-/* ============================================
-   🆕 v101.6.12：data-table 橫排表格（無 mobile-cards）
-   -------------------------------------------------
-   跟隨保險清單的設計：
-   - 表格模式永遠橫排
-   - 手機橫向滾動
-   - 欄位不足時自動撐開
-   ============================================ */
 
-/* 滾動容器（若外層沒有 wrapper，data-table 自帶） */
+/* ============================================
+   data-table 橫排表格（無 mobile-cards）
+   ============================================ */
 .data-table-scroll-wrapper {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   width: 100%;
 }
 
-/* 無 mobile-cards 的表格：橫排 + 橫向滾動 */
 .data-table:not(.mobile-cards) {
   min-width: 100%;
   table-layout: auto;
@@ -1248,7 +1240,6 @@
   white-space: nowrap;
 }
 
-/* 手機版：保留橫排表格，僅縮小 padding */
 @media (max-width: 640px) {
   .data-table:not(.mobile-cards) th,
   .data-table:not(.mobile-cards) td {
@@ -1261,11 +1252,10 @@
     font-size: 10px;
   }
 }
-/* ============================================
-   🆕 v101.7.0：data-table 可摺疊 + 每列展開
-   ============================================ */
 
-/* 表格 header */
+/* ============================================
+   data-table 可摺疊 + 每列展開
+   ============================================ */
 .data-table-header {
   display: flex;
   justify-content: space-between;
@@ -1293,25 +1283,6 @@
   flex-wrap: wrap;
 }
 
-/* 表格外層滾動容器 */
-.data-table-scroll-wrapper {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  width: 100%;
-}
-
-/* 橫排表格（無 mobile-cards） */
-.data-table:not(.mobile-cards) {
-  min-width: 100%;
-  table-layout: auto;
-}
-
-.data-table:not(.mobile-cards) th,
-.data-table:not(.mobile-cards) td {
-  white-space: nowrap;
-}
-
-/* 每列展開欄位 */
 .data-table .expand-col {
   width: 36px;
   padding: 4px !important;
@@ -1323,7 +1294,6 @@
   min-width: auto;
 }
 
-/* 每列展開的明細列 */
 .data-table .detail-row > .detail-cell {
   padding: 0 !important;
   background: rgba(0, 240, 255, 0.02);
@@ -1334,19 +1304,7 @@
   padding: 12px 16px;
 }
 
-/* 手機版：橫排表格 + 橫向滾動 */
 @media (max-width: 640px) {
-  .data-table:not(.mobile-cards) th,
-  .data-table:not(.mobile-cards) td {
-    padding: 8px 10px;
-    font-size: 12px;
-  }
-
-  .data-table:not(.mobile-cards) .btn-sm {
-    padding: 3px 6px;
-    font-size: 10px;
-  }
-
   .data-table-header {
     gap: 8px;
   }
@@ -1357,7 +1315,7 @@
 }
 
 /* ============================================
-   🆕 v101.7.0：統一卡片網格
+   統一卡片網格
    ============================================ */
 .data-cards-grid {
   display: grid;
@@ -1376,15 +1334,10 @@
     grid-template-columns: 1fr;
   }
 }
-/* ============================================
-   🆕 v101.7.2：統計卡 — 方案 C（整合卡）
-   -------------------------------------------------
-   桌面 / 系統設定 = 整合 時使用
-   - 單一玻璃卡片
-   - 內部 grid（4 欄 / 或 2x2）
-   - 卡片間虛線分隔
-   ============================================ */
 
+/* ============================================
+   統計卡 — 方案 C（整合卡）
+   ============================================ */
 .stats-integrated {
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
@@ -1408,12 +1361,10 @@
   position: relative;
 }
 
-/* 桌面 4 欄時：最後一欄右側無邊 */
 .stats-integrated-grid > .stats-integrated-cell:nth-child(4n) {
   border-right: none;
 }
 
-/* 桌面 4 欄時：最後一行下方無邊 */
 .stats-integrated-grid > .stats-integrated-cell:nth-last-child(-n+4) {
   border-bottom: none;
 }
@@ -1454,14 +1405,8 @@
 }
 
 /* ============================================
-   🆕 v101.7.2：統計卡 — 方案 B（緊湊獨立卡）
-   -------------------------------------------------
-   手機 / 系統設定 = 緊湊 / 卡片模式 時使用
-   - 獨立卡片
-   - 2 / 3 / 4 欄動態
-   - 緊湊 padding
+   統計卡 — 方案 B（緊湊獨立卡）
    ============================================ */
-
 .stats-compact-grid {
   display: grid;
   gap: 8px;
@@ -1498,10 +1443,8 @@
 }
 
 /* ============================================
-   🆕 v101.7.2：響應式調整
+   響應式調整
    ============================================ */
-
-/* 平板（≤ 1024px）：整合卡改為 2 欄 */
 @media (max-width: 1024px) {
   .stats-integrated-grid {
     grid-template-columns: repeat(2, 1fr);
@@ -1512,25 +1455,18 @@
     border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
   }
 
-  /* 2 欄時：偶數欄（2、4、6...）無右邊 */
   .stats-integrated-grid > .stats-integrated-cell:nth-child(2n) {
     border-right: none;
   }
 
-  /* 2 欄時：最後一行無下邊 */
   .stats-integrated-grid > .stats-integrated-cell:nth-last-child(-n+2) {
     border-bottom: none;
   }
 
-  /* 緊湊卡 4 欄改 2 欄 */
   .stats-compact-grid-4 { grid-template-columns: repeat(2, 1fr); }
-
-  /* 緊湊卡 3 欄改 3 欄（不變） */
 }
 
-/* 手機（≤ 640px） */
 @media (max-width: 640px) {
-  /* 整合卡在手機也變 2 欄（但通常手機是方案 B，此為保險） */
   .stats-integrated-grid {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -1552,7 +1488,6 @@
     font-size: 9px;
   }
 
-  /* 緊湊卡在手機：3 / 4 欄都變 2 欄 */
   .stats-compact-grid-3,
   .stats-compact-grid-4 {
     grid-template-columns: repeat(2, 1fr);
@@ -1566,28 +1501,20 @@
     font-size: 15px !important;
   }
 }
-/* ============================================
-   🆕 v101.7.4：settings 個人化 Panel 佈局
-   -------------------------------------------------
-   使用 auto-fit minmax，讓瀏覽器自動決定欄數：
-   - 寬 < 736px → 1 欄（全部 stacked）
-   - 寬 ≥ 736px → 2 欄（帳號 + 統計卡並排）
-   - 側邊欄排序永遠跨所有欄
-   ============================================ */
 
+/* ============================================
+   settings 個人化 Panel 佈局
+   ============================================ */
 .settings-personal-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
   gap: 16px;
   align-items: start;
 }
-/* ============================================
-   🆕 v101.9.0：Navbar 年月選擇器
-   -------------------------------------------------
-   桌面：顯示完整「2024 年」「9 月」
-   手機：精簡「2024」「9」（隱藏標題）
-   ============================================ */
 
+/* ============================================
+   Navbar 年月選擇器
+   ============================================ */
 .navbar-year-month {
   display: flex;
   align-items: center;
@@ -1631,19 +1558,12 @@
   min-width: 80px;
 }
 
-/* ============================================
-   🆕 v101.9.0：響應式
-   ============================================ */
-
-/* 平板（≤ 1024px） */
 @media (max-width: 1024px) {
   .navbar-ym-year { min-width: 80px; }
   .navbar-ym-month { min-width: 70px; }
 }
 
-/* 手機（≤ 640px） */
 @media (max-width: 640px) {
-  /* 精簡：隱藏標題，年月選擇器仍顯示 */
   .navbar-title {
     display: none !important;
   }
@@ -1674,7 +1594,6 @@
     max-width: 70px;
   }
 
-  /* 使用者資訊縮小 */
   .navbar-user-text {
     font-size: 11px !important;
     margin-right: 4px !important;

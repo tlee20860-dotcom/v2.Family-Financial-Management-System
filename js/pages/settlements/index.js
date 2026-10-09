@@ -1,20 +1,18 @@
 // ============================================
-// index.js — 結算清單入口（v101.9.0）
+// index.js — 結算清單入口（v101.10.0）
 // 位置：js/pages/settlements/index.js
 // ============================================
-// v101.9.0 修正：
-//   ✅ page-filter 移除 year / month（改由 Navbar 控制）
-//   ✅ 保留 source / status / member 篩選（Q4 保留原位置）
-//   ✅ _filters.year / month 從 AppState 讀取
-//   ✅ 監聽 ym-change 同步 _filters
+// v101.10.0 修正：
+//   ✅ [P2-7] 全年模式改用 /api/settlements-year 聚合 API
+//       - 原本 12 + N 次 API → 1 次
+//   ✅ [P2-8] 單月模式改 Firebase 單次讀取（不再逐保單讀取 payments）
+//   ✅ 保留 v101.9.0 全部功能（page-filter 只留 source/status/member）
 // ============================================
 
 import { AppState } from '../../core/state.js';
 import {
   listenMembers,
   listenAllMemberExpenses,
-  getInsurancePoliciesOnce,
-  getInsurancePaymentsOnce,
   getAllMemberExpensesOnce,
   getCategoriesOnce,
   getItemsOnce,
@@ -23,6 +21,7 @@ import {
 import {
   formatHKD, escapeHtml, setText,
 } from '../../core/utils.js';
+import { callApi } from '../../core/api.js';
 import { renderPageFilter } from '../../shared/page-filter.js';
 import { showToast } from '../../shared/toast.js';
 import { renderStatsCards } from '../../shared/stats-cards.js';
@@ -84,7 +83,7 @@ const TABLE_COLUMNS = [
 ];
 
 /* ============================================
-   🆕 v101.9.0：從 AppState 同步年月至 _filters
+   從 AppState 同步年月至 _filters
    ============================================ */
 function _syncYearMonthFromAppState() {
   const { year, month } = AppState.getYearMonth();
@@ -96,7 +95,6 @@ function _syncYearMonthFromAppState() {
    主入口
    ============================================ */
 export async function initSettlementsPage() {
-  // 🆕 v101.9.0：初始同步
   _syncYearMonthFromAppState();
 
   _viewToggle = initViewToggle({
@@ -109,10 +107,9 @@ export async function initSettlementsPage() {
     onChange: () => _render(),
   });
 
-  // 🆕 v101.9.0：page-filter 只保留 source / status / member
   _filterInstance = renderPageFilter({
     containerId: 'page-filter-root',
-    fields: [],   // 🆕 不渲染 year / month（由 Navbar 控制）
+    fields: [],
     renderExtra: () => `
       <div class="filter-group">
         <label class="field-label">來源</label>
@@ -136,7 +133,6 @@ export async function initSettlementsPage() {
       </div>
     `,
     onChange: (f) => {
-      // 🆕 v101.9.0：只更新 source / status / member
       _filters.source = f.source || '';
       _filters.status = f.status || '';
       _filters.member = f.member || '';
@@ -157,7 +153,6 @@ export async function initSettlementsPage() {
     })
   );
 
-  // 🆕 v101.9.0：監聽年月變更（由 Navbar 觸發）
   listenerGroup.add(AppState.on('ym-change', () => {
     _syncYearMonthFromAppState();
     _reload();
@@ -242,7 +237,7 @@ async function _reload() {
 }
 
 /* ============================================
-   單月載入
+   🆕 v101.10.0：單月載入（改 Firebase 單次讀取整月 payments）
    ============================================ */
 async function _loadMonthly(year, month) {
   if (_monthlyUnsub) {
@@ -251,7 +246,7 @@ async function _loadMonthly(year, month) {
   }
 
   _monthlyUnsub = listenAllMemberExpenses(year, month, async (memberExpenses) => {
-    const insuranceRows = await _loadInsurancePaymentsForMonth(year, month);
+    const insuranceRows = await _loadInsurancePaymentsForMonthOptimized(year, month);
 
     _rows = mergeSettlementData({
       memberExpenses,
@@ -267,7 +262,7 @@ async function _loadMonthly(year, month) {
 }
 
 /* ============================================
-   全年載入
+   🆕 v101.10.0：全年載入（改聚合 API）
    ============================================ */
 async function _loadAnnual(year) {
   if (_monthlyUnsub) {
@@ -275,95 +270,119 @@ async function _loadAnnual(year) {
     _monthlyUnsub = null;
   }
 
-  const [allExpenses, policies] = await Promise.all([
-    _loadAllMemberExpensesForYear(year),
-    getInsurancePoliciesOnce(),
-  ]);
+  try {
+    const result = await callApi(
+      `/api/settlements-year?familyId=${AppState.getFamilyId()}&year=${year}`
+    );
 
-  const paymentsCache = {};
-  await Promise.all(policies.map(async (p) => {
-    try {
-      paymentsCache[p.id] = await getInsurancePaymentsOnce(p.id);
-    } catch (e) {
-      paymentsCache[p.id] = {};
+    if (!result || !result.memberExpensesByMonth) {
+      throw new Error('聚合 API 回傳格式錯誤');
     }
-  }));
 
+    const { memberExpensesByMonth, policies, paymentsCache } = result;
+
+    const allRows = [];
+    for (let m = 1; m <= 12; m++) {
+      const mm = String(m).padStart(2, '0');
+      const monthExpenses = memberExpensesByMonth[mm] || [];
+      const insuranceRows = _buildInsuranceRowsFromCache(
+        policies || [],
+        paymentsCache || {},
+        year,
+        mm
+      );
+
+      const rows = mergeSettlementData({
+        memberExpenses: monthExpenses,
+        insuranceRows,
+        year,
+        month: mm,
+      });
+      allRows.push(...rows);
+    }
+
+    _rows = allRows;
+    _render();
+  } catch (err) {
+    console.error('[settlements] 全年聚合 API 失敗，改為逐月讀取：', err);
+    // Fallback：若聚合 API 失敗，改為逐月讀取（容錯）
+    await _loadAnnualFallback(year);
+  }
+}
+
+/**
+ * Fallback：逐月讀取（與舊版行為相容）
+ * 只在聚合 API 失敗時使用
+ */
+async function _loadAnnualFallback(year) {
   const allRows = [];
   for (let m = 1; m <= 12; m++) {
     const mm = String(m).padStart(2, '0');
-    const monthExpenses = allExpenses.filter((e) => e.month === mm);
-    const insuranceRows = _buildInsuranceRows(policies, paymentsCache, year, mm);
+    try {
+      const monthExpenses = await getAllMemberExpensesOnce(year, mm);
+      const insuranceRows = await _loadInsurancePaymentsForMonthOptimized(year, mm);
 
-    const rows = mergeSettlementData({
-      memberExpenses: monthExpenses,
-      insuranceRows,
-      year,
-      month: mm,
-    });
-    allRows.push(...rows);
+      const rows = mergeSettlementData({
+        memberExpenses: monthExpenses,
+        insuranceRows,
+        year,
+        month: mm,
+      });
+      allRows.push(...rows);
+    } catch (e) {
+      console.warn(`[settlements] fallback 載入 ${year}-${mm} 失敗：`, e);
+    }
   }
-
   _rows = allRows;
   _render();
 }
 
 /* ============================================
-   資料讀取輔助
+   🆕 v101.10.0：單月保險扣款（單次讀取）
    ============================================ */
-async function _loadAllMemberExpensesForYear(year) {
-  const promises = [];
-  const result = [];
-
-  for (let m = 1; m <= 12; m++) {
-    const mm = String(m).padStart(2, '0');
-    promises.push(
-      getAllMemberExpensesOnce(year, mm).then((list) => {
-        list.forEach((e) => {
-          e.year = year;
-          e.month = mm;
-          result.push(e);
-        });
-      }).catch(() => {})
-    );
-  }
-
-  await Promise.all(promises);
-  return result;
-}
-
-async function _loadInsurancePaymentsForMonth(year, month) {
+async function _loadInsurancePaymentsForMonthOptimized(year, month) {
   try {
-    const policies = await getInsurancePoliciesOnce();
+    // 一次讀取所有 insurance_payments（結構：{policyId: {year: {month: {...}}}}）
+    const { get } = await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js');
+    const { familyRef } = await import('../../core/db.js');
+    const snap = await get(familyRef('insurance_payments'));
+    const allPayments = snap.val() || {};
+
+    // 一次讀取所有 policies
+    const policiesSnap = await get(familyRef('insurance_policies'));
+    const policiesObj = policiesSnap.val() || {};
+    const policies = Object.entries(policiesObj).map(([id, p]) => ({ id, ...p }));
+
+    // 組裝 rows
     const rows = [];
+    policies.forEach((p) => {
+      const existing = allPayments?.[p.id]?.[year]?.[month];
 
-    await Promise.all(policies.map(async (p) => {
-      try {
-        const payments = await getInsurancePaymentsOnce(p.id);
-        const existing = payments?.[year]?.[month];
-
-        if (existing) {
-          rows.push(_buildInsuranceRow(p, existing, year, month));
-        } else {
-          const estimated = estimateMonthlyAmount(p, year, month);
-          if (estimated > 0 || p.type === 'fund_insurance') {
-            rows.push(_buildInsuranceRow(p, { status: '未扣款', amount: estimated, date: '' }, year, month));
-          }
+      if (existing) {
+        rows.push(_buildInsuranceRow(p, existing, year, month));
+      } else {
+        const estimated = estimateMonthlyAmount(p, year, month);
+        if (estimated > 0 || p.type === 'fund_insurance') {
+          rows.push(_buildInsuranceRow(p, { status: '未扣款', amount: estimated, date: '' }, year, month));
         }
-      } catch (e) { /* noop */ }
-    }));
+      }
+    });
 
     return rows;
   } catch (e) {
+    console.warn('[settlements] 載入保單扣款失敗：', e);
     return [];
   }
 }
 
-function _buildInsuranceRows(policies, paymentsCache, year, month) {
+/* ============================================
+   🆕 v101.10.0：從聚合 API 快取建立保險 rows
+   ============================================ */
+function _buildInsuranceRowsFromCache(policies, paymentsCache, year, month) {
   const rows = [];
 
   policies.forEach((p) => {
-    const existing = paymentsCache[p.id]?.[year]?.[month];
+    const existing = paymentsCache?.[p.id]?.[year]?.[month];
 
     if (existing) {
       rows.push(_buildInsuranceRow(p, existing, year, month));
@@ -378,6 +397,9 @@ function _buildInsuranceRows(policies, paymentsCache, year, month) {
   return rows;
 }
 
+/* ============================================
+   建立保險 Row
+   ============================================ */
 function _buildInsuranceRow(policy, payment, year, month) {
   return {
     policyId: policy.id,

@@ -1,5 +1,10 @@
 /* ============================================
-   annual-report.css — 年度報表專屬樣式（v101）
+   annual-report.css — 年度報表專屬樣式（v101.10.0）
+   ============================================
+   v101.10.0 修正：
+     ✅ [P3-4] 圓角統一：--radius-lg → --radius-sm
+         - .summary-table-wrapper
+         - .monthly-table-wrapper
    ============================================ */
 
 /* ================= 控制列 ================= */
@@ -88,7 +93,7 @@
 .summary-table-wrapper {
   overflow-x: auto;
   border: 1px solid var(--glass-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
 }
@@ -142,7 +147,7 @@
 .monthly-table-wrapper {
   overflow-x: auto;
   border: 1px solid var(--glass-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
 }
