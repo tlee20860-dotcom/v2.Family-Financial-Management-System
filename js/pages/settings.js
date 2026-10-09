@@ -2,10 +2,10 @@
 // settings.js — 系統設定（v102.0.0）
 // 位置：js/pages/settings.js
 // ============================================
-// v102.0.0 新增：
+// v102.0.0 修正：
+//   ✅ [P2-7] 銀行帳號 Tab 切回時呼叫 refresh()，避免顯示舊資料
 //   ✅ 「銀行帳號管理」Tab（整合 initBankAccountManager）
 //   ✅ Tab 順序：平台設定 / 銀行帳號 / 個人化
-//   ✅ 保留 v101.8.4 家庭成員區塊
 // ============================================
 
 import { showToast } from '../shared/toast.js';
@@ -19,7 +19,7 @@ import { initTabPanel } from '../shared/tab-panel.js';
 import { openConfirm } from '../shared/modal.js';
 import { registerPageCleanup } from '../core/app.js';
 import { STORAGE_KEYS } from '../config/constants.js';
-import { initBankAccountManager } from '../shared/bank-account-manager.js';   // 🆕 v102.0.0
+import { initBankAccountManager } from '../shared/bank-account-manager.js';
 
 /* ============================================
    Module 狀態
@@ -29,14 +29,13 @@ let _uiFormApi = null;
 let _logoutHandler = null;
 let _saveStatsModeHandler = null;
 let _familyMembersData = [];
-let _bankManagerInstance = null;      // 🆕 v102.0.0
+let _bankManagerInstance = null;
 
 /* ============================================
    主入口
    ============================================ */
 export function initSettingsPage() {
   const isSuper = AppState.isSuperAdmin;
-  const canInput = AppState.getCanInput();
 
   const tabs = [];
   if (isSuper) {
@@ -47,7 +46,6 @@ export function initSettingsPage() {
       panelId: 'settings-panel-platform',
     });
   }
-  // 🆕 v102.0.0：銀行帳號管理
   tabs.push({
     key: 'banks',
     label: '銀行帳號',
@@ -64,7 +62,7 @@ export function initSettingsPage() {
   _tabPanel = initTabPanel({
     containerId: 'settings-tabs',
     tabs,
-    defaultKey: isSuper ? 'platform' : 'banks',   // 🆕 預設改為銀行帳號
+    defaultKey: isSuper ? 'platform' : 'banks',
     storageKey: 'settings-tab',
     onChange: (key) => _onTabChange(key),
   });
@@ -87,7 +85,7 @@ export function initSettingsPage() {
 }
 
 /* ============================================
-   Tab 切換
+   Tab 切換（🆕 P2-7）
    ============================================ */
 function _onTabChange(key) {
   if (key === 'platform' && AppState.isSuperAdmin) {
@@ -96,11 +94,16 @@ function _onTabChange(key) {
   if (key === 'personal') {
     _renderFamilyMembers();
   }
-  // 🆕 v102.0.0：銀行帳號 Tab
-  if (key === 'banks' && !_bankManagerInstance) {
-    _bankManagerInstance = initBankAccountManager('bank-account-manager-root', {
-      canInput: AppState.getCanInput(),
-    });
+  // 🆕 P2-7：銀行帳號 Tab
+  if (key === 'banks') {
+    if (!_bankManagerInstance) {
+      _bankManagerInstance = initBankAccountManager('bank-account-manager-root', {
+        canInput: AppState.getCanInput(),
+      });
+    } else {
+      // 切回時重新載入
+      try { _bankManagerInstance.refresh?.(); } catch (e) { /* noop */ }
+    }
   }
 }
 
