@@ -4,55 +4,21 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>註冊 | 家庭財務</title>
-
-  <!-- 🆕 v101.10.0：preconnect / dns-prefetch -->
-  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
-  <link rel="dns-prefetch" href="https://family-fin-a6dd1-default-rtdb.asia-southeast1.firebasedatabase.app">
-
-  <!-- 🆕 v101.10.0：Critical CSS -->
-  <style>
-    :root{--bg-deep:#080B11;--neon-cyan:#00F0FF;--neon-magenta:#D946EF;--glass-bg:rgba(15,23,42,0.6);--glass-border:rgba(0,240,255,0.2);--glass-blur:12px;--text-primary:#E2E8F0;--text-muted:#64748B;--radius-sm:6px;--font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang TC","Microsoft JhengHei","Noto Sans TC",sans-serif;--font-mono:"JetBrains Mono","SF Mono","Consolas","Menlo",monospace;--transition:0.25s cubic-bezier(0.4,0,0.2,1)}
-    *{box-sizing:border-box;margin:0;padding:0}
-    html,body{height:100%;background:var(--bg-deep);color:var(--text-primary);font-family:var(--font-sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
-    body::before{content:"";position:fixed;inset:0;background:radial-gradient(ellipse at 20% 0%,rgba(0,240,255,0.08),transparent 50%),radial-gradient(ellipse at 80% 100%,rgba(217,70,239,0.06),transparent 50%);pointer-events:none;z-index:0}
-    button{font-family:inherit;cursor:pointer}
-    a{color:var(--neon-cyan);text-decoration:none}
-    .auth-page{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;position:relative;z-index:1}
-    .auth-card{width:100%;max-width:400px;padding:32px}
-    .auth-title{font-family:var(--font-mono);font-size:24px;font-weight:700;color:var(--neon-cyan);text-align:center;letter-spacing:2px;text-shadow:0 0 20px rgba(0,240,255,0.5);margin-bottom:8px}
-    .auth-subtitle{text-align:center;font-size:13px;color:var(--text-muted);margin-bottom:24px}
-    .glass-card{background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));border:1px solid var(--glass-border);border-radius:var(--radius-sm);padding:20px}
-    .btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;font-size:14px;font-weight:500;border-radius:var(--radius-sm);border:1px solid var(--glass-border);background:rgba(0,240,255,0.05);color:var(--neon-cyan);transition:all var(--transition);white-space:nowrap;font-family:inherit;cursor:pointer}
-    .btn-primary{background:rgba(0,240,255,0.15);border-color:rgba(0,240,255,0.5)}
-    .banner{padding:12px 16px;border-radius:var(--radius-sm);border:1px solid var(--glass-border);background:rgba(0,240,255,0.05);font-size:13px;margin-bottom:16px;color:var(--text-secondary)}
-    .banner-magenta{border-color:rgba(217,70,239,0.3);background:rgba(217,70,239,0.06);color:var(--neon-magenta)}
-  </style>
-
-  <link rel="stylesheet" href="./css/theme.css" media="print" onload="this.media='all'">
-  <link rel="stylesheet" href="./css/layout.css" media="print" onload="this.media='all'">
-  <link rel="stylesheet" href="./css/components.css" media="print" onload="this.media='all'">
-  <link rel="stylesheet" href="./css/utilities.css" media="print" onload="this.media='all'">
-  <noscript>
-    <link rel="stylesheet" href="./css/theme.css">
-    <link rel="stylesheet" href="./css/layout.css">
-    <link rel="stylesheet" href="./css/components.css">
-    <link rel="stylesheet" href="./css/utilities.css">
-  </noscript>
+  <link rel="stylesheet" href="./css/theme.css">
+  <link rel="stylesheet" href="./css/layout.css">
+  <link rel="stylesheet" href="./css/components.css">
+  <link rel="stylesheet" href="./css/utilities.css">
 </head>
 <body class="auth-page">
   <div class="glass-card auth-card" style="text-align:center;">
     <h1 class="auth-title">◈ FAMILY.FIN</h1>
     <p class="auth-subtitle">系統已關閉公開註冊</p>
-
     <div class="banner banner-magenta" style="margin:20px 0; text-align:left;">
       🔒 本系統為家庭專用。<br>
       請聯繫<b>超級管理員</b>（superadmin）為您開通帳號。
     </div>
-
-    <a href="login.html" class="btn btn-primary" style="justify-content:center;">
-      返回登入頁
-    </a>
+    <a href="login.html" class="btn btn-primary" style="justify-content:center;">返回登入頁</a>
   </div>
 
   <script type="module">
