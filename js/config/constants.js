@@ -1,17 +1,19 @@
 // ============================================
-// constants.js — 全站常數集中管理（v102.1.0-hotfix1）
+// constants.js — 全站常數集中管理（v103.0.0）
+// 位置：js/config/constants.js
 // ============================================
-// v102.1.0-hotfix1 修正：
-//   ✅ APP_VERSION → 'v102.1.0-hotfix1'
-//   ✅ SW_VERSION → 'family-fin-v134'
-//   ✅ 保留 v102.1.0 全部功能
+// v103.0.0 重構：
+//   ✅ 版本號 → v103.0.0 / family-fin-v135
+//   ✅ 新增 STORAGE_PREFIXES / ROLES / SOURCES
+//   ✅ 新增 ROUTES / SHOW_YEAR_MONTH_PAGES
+//   ✅ 保留 v102.1.0-hotfix1 全部常數
 // ============================================
 
 /* ============================================
    0. 版本號
    ============================================ */
-export const APP_VERSION = 'v102.1.0-hotfix1';
-export const SW_VERSION = 'family-fin-v135';
+export const APP_VERSION = 'v103.0.0';
+export const SW_VERSION  = 'family-fin-v135';
 
 /* ============================================
    1. localStorage Keys
@@ -32,6 +34,16 @@ export const STORAGE_KEYS = {
   UI_PREFIX: 'fin_ui_',
 };
 
+export const STORAGE_PREFIXES = {
+  UI: 'fin_ui_',
+  COLUMN_SETTINGS: 'fin_ui_columns_',
+  COLLAPSE: 'fin_ui_collapse_',
+  VIEW: 'fin_ui_view_',
+  AUTH_CONTEXT: 'fin_auth_context_',
+  APP_CONFIG: 'fin_app_config_cache_',
+  BANK_CACHE: 'fin_bank_cache_',
+};
+
 /* ============================================
    2. sessionStorage Keys
    ============================================ */
@@ -42,8 +54,8 @@ export const SESSION_KEYS = {
 };
 
 export const AUTH_CONTEXT_TTL_MS = 5 * 60 * 1000;
-export const APP_CONFIG_TTL_MS = 5 * 60 * 1000;
-export const BANK_CACHE_TTL_MS = 2 * 60 * 1000;
+export const APP_CONFIG_TTL_MS   = 5 * 60 * 1000;
+export const BANK_CACHE_TTL_MS   = 2 * 60 * 1000;
 
 /* ============================================
    3. 數值限制
@@ -71,7 +83,23 @@ export const RESERVED_IDS = {
 };
 
 /* ============================================
-   5. 保險連動前綴
+   5. 角色 / 來源
+   ============================================ */
+export const ROLES = {
+  SUPERADMIN: 'superadmin',
+  OWNER: 'owner',
+  MEMBER: 'member',
+};
+
+export const SOURCES = {
+  PERSONAL: 'personal',
+  FIXED: 'fixed',
+  INSURANCE: 'insurance',
+  INCOME: 'income',
+};
+
+/* ============================================
+   6. 保險連動前綴
    ============================================ */
 export const LINKED_PREFIX = 'linked_';
 
@@ -84,7 +112,7 @@ export function isLinkedKey(key) {
 }
 
 /* ============================================
-   6. 銀行交易類型
+   7. 銀行交易類型
    ============================================ */
 export const BANK_TXN_TYPES = {
   IN: 'in',
@@ -99,7 +127,7 @@ export const BANK_TXN_TYPE_LABELS = {
 };
 
 /* ============================================
-   7. 銀行交易分類
+   8. 銀行交易分類
    ============================================ */
 export const BANK_TXN_CATEGORIES = {
   CONTRIBUTION: 'contribution',
@@ -126,7 +154,7 @@ export const BANK_TXN_CATEGORY_BADGES = {
 };
 
 /* ============================================
-   8. 銀行帳號類型
+   9. 銀行帳號類型
    ============================================ */
 export const BANK_ACCOUNT_TYPES = {
   FAMILY: 'family',
@@ -139,7 +167,7 @@ export const BANK_ACCOUNT_TYPE_LABELS = {
 };
 
 /* ============================================
-   9. 保單付款模式
+   10. 保單付款模式
    ============================================ */
 export const PAYMENT_MODES = {
   DIRECT: 'direct',
@@ -152,7 +180,7 @@ export const PAYMENT_MODE_LABELS = {
 };
 
 /* ============================================
-   10. 平台資源對照表
+   11. 平台資源對照表
    ============================================ */
 export const PLATFORM_RESOURCES = {
   members:     { path: 'members',             type: 'list' },
@@ -168,7 +196,7 @@ export const PLATFORM_RESOURCES = {
 };
 
 /* ============================================
-   11. 實體識別碼
+   12. 實體識別碼
    ============================================ */
 export const ENTITY_KEYS = {
   MEMBER:   'member',
@@ -182,7 +210,9 @@ export const ENTITY_KEYS = {
 };
 
 /* ============================================
-   12. 狀態 badge class 對照
+   13. 狀態 badge class 對照（舊版相容）
+   -------------------------------------------------
+   ⚠️ 新程式碼請改用 status-registry.js 的 badgeClass()
    ============================================ */
 export const STATUS_BADGE_CLASS = {
   done:    'badge-success',
@@ -197,7 +227,7 @@ export function getStatusBadgeClass(isDone, isSkipped = false) {
 }
 
 /* ============================================
-   13. policyHolderId fallback 規則
+   14. policyHolderId fallback 規則
    ============================================ */
 export const POLICY_HOLDER_FALLBACK = {
   primary: 'policyHolderId',
@@ -210,7 +240,7 @@ export function getPolicyEffectiveMemberId(policy) {
 }
 
 /* ============================================
-   14. 表格欄位設定前綴
+   15. 表格欄位設定前綴
    ============================================ */
 export const COLUMN_SETTINGS_PREFIX = 'fin_ui_columns_';
 
@@ -219,13 +249,13 @@ export function buildColumnSettingsKey(tableId) {
 }
 
 /* ============================================
-   15. 帳號網域
+   16. 帳號網域
    ============================================ */
 export const SUPERADMIN_DOMAIN = '@familyfin.local';
-export const SUPERADMIN_EMAIL = `superadmin${SUPERADMIN_DOMAIN}`;
+export const SUPERADMIN_EMAIL  = `superadmin${SUPERADMIN_DOMAIN}`;
 
 /* ============================================
-   16. 預設狀態清單
+   17. 預設狀態清單
    ============================================ */
 export const DEFAULT_STATUSES = [
   { key: 'status_untreated', name: '未處理', category: 'personal',  isDone: false, order: 1 },
@@ -240,7 +270,7 @@ export const DEFAULT_STATUSES = [
 ];
 
 /* ============================================
-   17. 預設下拉選項
+   18. 預設下拉選項
    ============================================ */
 export const DEFAULT_OPTIONS = {
   memberRoles: [
@@ -279,8 +309,8 @@ export const DEFAULT_YEAR_RANGE = {
 
 export const DEFAULT_UI_CONSTANTS = {
   nameMaxLenDesktop: LIMITS.NAME_MAX_LEN_DESKTOP,
-  nameMaxLenMobile: LIMITS.NAME_MAX_LEN_MOBILE,
-  toastDuration: LIMITS.TOAST_DURATION_DEFAULT,
+  nameMaxLenMobile:  LIMITS.NAME_MAX_LEN_MOBILE,
+  toastDuration:     LIMITS.TOAST_DURATION_DEFAULT,
 };
 
 export const DEFAULT_COMPANIES = ['富通', '保誠', 'FWD', 'AIA', '宏利', 'AXA'];
@@ -330,7 +360,7 @@ export const DEFAULT_PAYMENTS = [
 ];
 
 /* ============================================
-   18. 側邊欄分類群組
+   19. 側邊欄分類群組
    ============================================ */
 export const SIDEBAR_GROUPS = [
   { key: 'overview', label: '總覽', icon: 'home', defaultOpen: true,
@@ -359,21 +389,50 @@ export const SIDEBAR_GROUPS = [
 ];
 
 /* ============================================
-   19. 快速摘要卡類型
+   20. 路由 / 頁面清單
+   ============================================ */
+export const ROUTES = {
+  LOGIN:            'login.html',
+  REGISTER:         'register.html',
+  DASHBOARD:        'index.html',
+  ADMIN:            'admin.html',
+  INPUT_CENTER:     'input-center.html',
+  DATABASE:         'database.html',
+  INSURANCE:        'insurance.html',
+  PORTFOLIO:        'portfolio.html',
+  SETTLEMENTS:      'settlements.html',
+  FINANCE_OVERVIEW: 'finance-overview.html',
+  ANNUAL_REPORT:    'annual-report.html',
+  MEMBER_REPORT:    'member-report.html',
+  SETTINGS:         'settings.html',
+};
+
+export const SHOW_YEAR_MONTH_PAGES = [
+  ROUTES.INSURANCE,
+  ROUTES.PORTFOLIO,
+  ROUTES.SETTLEMENTS,
+  ROUTES.FINANCE_OVERVIEW,
+  ROUTES.MEMBER_REPORT,
+];
+
+/* ============================================
+   21. 快速摘要卡類型
    ============================================ */
 export const QUICK_SUMMARY_TYPES = {
-  TOP_CATEGORIES: 'top-categories',
-  RECENT_ACTIVITY: 'recent-activity',
-  MEMBER_TREND: 'member-trend',
-  PENDING_FIXED: 'pending-fixed',
-  ASSET_PIE: 'asset-pie',
+  TOP_CATEGORIES:   'top-categories',
+  RECENT_ACTIVITY:  'recent-activity',
+  MEMBER_TREND:     'member-trend',
+  PENDING_FIXED:    'pending-fixed',
+  ASSET_PIE:        'asset-pie',
 };
 
 /* ============================================
-   20. 狀態分類
+   22. 狀態分類（舊版相容）
+   -------------------------------------------------
+   ⚠️ 新程式碼請改用 status-registry.js 的 SOURCES
    ============================================ */
 export const STATUS_CATEGORIES = {
-  PERSONAL: 'personal',
-  FIXED: 'fixed',
+  PERSONAL:  'personal',
+  FIXED:     'fixed',
   INSURANCE: 'insurance',
 };
