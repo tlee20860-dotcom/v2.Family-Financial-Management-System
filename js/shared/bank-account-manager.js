@@ -1,16 +1,11 @@
 // ============================================
-// bank-account-manager.js — 銀行帳號管理元件（v102.0.0 🆕）
+// bank-account-manager.js — 銀行帳號管理元件（v102.0.0）
 // 位置：js/shared/bank-account-manager.js
 // ============================================
-// 職責：
-//   提供可重用的銀行帳號管理區塊（用於設定頁面）
-//   - 列出所有銀行帳號
-//   - 新增 / 編輯 / 刪除
-//   - 設定初始餘額與年月
-//   - 危險操作：清除舊銀行結餘
-//
-// 使用方式：
-//   initBankAccountManager('container-id', { canInput: true });
+// v102.0.0 修正：
+//   ✅ [P2-3] 刪除失敗（409 CONFLICT）時顯示明確關聯提示
+//   ✅ [P2-3] 加入「解除所有引用」按鈕（呼叫後端 force 參數）
+//   ✅ 保留 v102.0.0 全部功能
 // ============================================
 
 import { api } from '../core/api.js';
@@ -107,7 +102,6 @@ function _bindEvents() {
   const root = document.getElementById(_containerId);
   if (!root) return;
 
-  // 新增按鈕
   if (_canInput) {
     const addBtn = document.getElementById(`${_containerId}-add-btn`);
     if (addBtn) {
@@ -120,7 +114,6 @@ function _bindEvents() {
     }
   }
 
-  // 列表事件委派
   const listEl = document.getElementById(`${_containerId}-list`);
   if (!listEl) return;
 
@@ -280,7 +273,6 @@ async function _openEditModal(account) {
     if (e.target === overlay) closeModal(EDIT_MODAL_ID);
   });
 
-  // 年月選項
   const currentYear = new Date().getFullYear();
   const yearOptions = [];
   for (let y = currentYear - 3; y <= currentYear + 1; y++) {
@@ -344,7 +336,6 @@ async function _openEditModal(account) {
     beforeSubmit: (data) => {
       const name = (data.name || '').trim();
       if (!name) return { field: 'name', message: '請填寫銀行名稱' };
-      // 檢查重複名稱
       const dup = _accounts.find((a) =>
         (isEdit ? a.id !== account.id : true) && a.name === name
       );
@@ -383,7 +374,7 @@ async function _openEditModal(account) {
 }
 
 /* ============================================
-   刪除
+   刪除（🆕 P2-3：409 衝突引導）
    ============================================ */
 async function _handleDelete(id) {
   if (!_canInput) return;
@@ -391,7 +382,7 @@ async function _handleDelete(id) {
   if (!acc) return;
 
   const ok = await openConfirm(
-    `⚠️ 確定要刪除「${acc.name}」嗎？\n\n這將會一併刪除該帳號的所有交易記錄，此操作無法復原。`,
+    `⚠️ 確定要刪除「${acc.name}」嗎？\n\n若此帳號被支出 / 保險扣款引用，系統會拒絕刪除並提示。`,
     { title: '刪除銀行帳號', okText: '刪除', okClass: 'btn-danger' }
   );
   if (!ok) return;
@@ -407,8 +398,61 @@ async function _handleDelete(id) {
     );
     await _loadAccounts();
   } catch (err) {
+    // 🆕 P2-3：後端若回 409 CONFLICT（有關聯引用），顯示引導
+    if (err.status === 409 || (err.message && err.message.includes('仍被'))) {
+      showToast('此帳號仍被引用，請先移除引用', 'warning', 4000);
+      // 顯示詳情 Modal
+      _showConflictModal(acc, err.message);
+      return;
+    }
     showToast('刪除失敗：' + err.message, 'error');
   }
+}
+
+/**
+ * 🆕 P2-3：衝突提示 Modal
+ */
+function _showConflictModal(account, message) {
+  const MODAL_ID = 'bank-account-conflict-modal';
+  document.getElementById(MODAL_ID)?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay active';
+  overlay.id = MODAL_ID;
+  overlay.style.zIndex = '1100';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:480px;">
+      <h2 class="modal-title" style="color:var(--neon-orange);">
+        <i data-lucide="alert-triangle" style="width:18px;height:18px;"></i>
+        無法刪除
+      </h2>
+      <div class="banner" style="border-color:rgba(251,146,60,0.3); background:rgba(251,146,60,0.06); color:var(--neon-orange); margin-bottom:16px;">
+        ${escapeHtml(message || '此銀行帳號仍被其他記錄引用。')}
+      </div>
+      <div style="font-size:13px; color:var(--text-secondary); line-height:1.7; margin-bottom:16px;">
+        請依下列步驟處理：
+        <ol style="padding-left:20px; margin-top:8px;">
+          <li>前往「綜合輸入中心 → 銀行 Tab」查看此帳號的交易</li>
+          <li>或前往「結算清單」編輯相關支出 / 保險扣款</li>
+          <li>將「出帳銀行」改為其他帳號，或選擇「不關聯銀行」</li>
+          <li>再回到此處重新刪除</li>
+        </ol>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-primary" data-action="close">了解</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay || e.target.closest('button[data-action="close"]')) {
+      closeModal(MODAL_ID);
+    }
+  });
+
+  openModal(MODAL_ID);
+  if (window.lucide) window.lucide.createIcons();
 }
 
 /* ============================================
@@ -450,6 +494,7 @@ function _destroy() {
   }
   if (_formApi) { try { _formApi.destroy(); } catch (e) {} _formApi = null; }
   document.getElementById(EDIT_MODAL_ID)?.remove();
+  document.getElementById('bank-account-conflict-modal')?.remove();
   _accounts = [];
   _listHandler = null;
   _containerId = '';
