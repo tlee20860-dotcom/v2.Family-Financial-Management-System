@@ -3,9 +3,9 @@
 // 位置：js/pages/annual-report.js
 // ============================================
 // v102.0.0 修正：
+//   ✅ [P2-2] Excel 匯出「個人收入小計」列補上每月欄位
 //   ✅ 收入區塊拆分為「家庭收入（家用轉入）」與「個人收入」
 //   ✅ 個人收入顯示：owner 可見全部，member 僅見自己
-//   ✅ Excel 匯出新增「個人收入」分頁
 //   ✅ 保留 v101.7.3 全部功能
 // ============================================
 
@@ -37,9 +37,8 @@ let _summaryTableApi = null;
 let _yearSwitcherHandler = null;
 let _monthSwitcherHandler = null;
 
-// 🆕 v102.0.0
 let _members = [];
-let _personalIncomeRaw = {};   // { memberId: { year: { month: amount } } }
+let _personalIncomeRaw = {};
 let _isOwner = false;
 
 const listenerGroup = createListenerGroup();
@@ -77,12 +76,10 @@ export function initAnnualReportPage() {
   document.getElementById('view-monthly-btn')?.addEventListener('click', () => _switchView('monthly'));
   document.getElementById('export-excel-btn')?.addEventListener('click', _exportToExcel);
 
-  // 監聽成員
   listenerGroup.add(listenMembers((list) => {
     _members = list || [];
   }));
 
-  // 🆕 v102.0.0：監聽個人收入（僅 owner 可讀全部）
   if (_isOwner) {
     listenerGroup.add(listenAllPersonalIncome((data) => {
       _personalIncomeRaw = data || {};
@@ -339,7 +336,6 @@ function _renderStats() {
     },
   ];
 
-  // 🆕 v102.0.0：owner 加第 4 張「個人收入」
   if (_isOwner) {
     cards.push({
       title: `${_currentYear} 個人收入合計`,
@@ -392,13 +388,12 @@ function _renderSummaryTable() {
 
   const columns = [
     { id: 'name', label: '成員', defaultVisible: true, defaultWidth: 100 },
-    { id: 'income', label: '家用轉入', defaultVisible: true, defaultWidth: 120 },   // 🔄 改名
+    { id: 'income', label: '家用轉入', defaultVisible: true, defaultWidth: 120 },
     { id: 'expense', label: '總支出', defaultVisible: true, defaultWidth: 120 },
     ...catOrder.map((c) => ({ id: `cat_${c}`, label: c, defaultVisible: true, defaultWidth: 110, type: 'number' })),
     { id: 'net', label: '淨結餘', defaultVisible: true, defaultWidth: 130 },
   ];
 
-  // 🆕 v102.0.0：owner 加「個人收入」欄位
   if (_isOwner) {
     columns.splice(2, 0, { id: 'personalIncome', label: '個人收入', defaultVisible: true, defaultWidth: 120 });
   }
@@ -427,7 +422,6 @@ function _renderSummaryTable() {
       expense: totalExpense,
       net: totalIncome - totalExpense,
     };
-    // 🆕 v102.0.0
     if (_isOwner) {
       const personalArr = _getPersonalIncomeForMember(m.id);
       row.personalIncome = personalArr.reduce((s, x) => s + x, 0);
@@ -498,7 +492,7 @@ function _renderSummaryTable() {
           return escapeHtml(row.name);
         },
         income: (val) => val > 0 ? `<span class="text-emerald">${formatHKD(val)}</span>` : '<span class="text-muted">—</span>',
-        personalIncome: (val) => val > 0 ? `<span class="text-cyan">${formatHKD(val)}</span>` : '<span class="text-muted">—</span>',   // 🆕
+        personalIncome: (val) => val > 0 ? `<span class="text-cyan">${formatHKD(val)}</span>` : '<span class="text-muted">—</span>',
         expense: (val) => val > 0 ? `<span class="text-red">${formatHKD(val)}</span>` : '<span class="text-muted">—</span>',
         net: (val) => `<span class="${val >= 0 ? 'text-emerald' : 'text-red'}">${formatHKD(val)}</span>`,
       },
@@ -714,7 +708,6 @@ function _renderMonthly() {
     rows.push(`<tr class="subtotal-row"><td>收入小計</td><td class="num">${formatNumber(totalCurrent)}</td><td class="num">${formatNumber(totalAnnual)}</td></tr>`);
   }
 
-  // 🆕 v102.0.0：個人收入（owner 可見）
   if (_isOwner) {
     const personalRows = _annualData.members
       .filter((m) => m.id !== 'extra')
@@ -815,7 +808,7 @@ function _renderMonthly() {
 }
 
 /* ============================================
-   匯出 Excel
+   匯出 Excel（🆕 P2-2：個人收入小計補每月欄位）
    ============================================ */
 async function _exportToExcel() {
   if (!_annualData) { alert('資料尚未載入完成'); return; }
@@ -844,7 +837,7 @@ async function _exportToExcel() {
   });
   rows.push(['家庭收入小計', ...data.monthly.income.map((v) => Math.round(v)), totalIncome]);
 
-  // 🆕 v102.0.0：個人收入
+  // 🆕 P2-2：個人收入
   if (_isOwner) {
     const personalRows = data.members
       .filter((m) => m.id !== 'extra')
@@ -857,8 +850,14 @@ async function _exportToExcel() {
         const subtotal = Math.round(arr.reduce((s, x) => s + x, 0));
         rows.push([`  ${m.name}`, ...arr.map((v) => Math.round(v)), subtotal]);
       });
-      const totalPersonal = personalRows.reduce((s, { arr }) => s + arr.reduce((a, b) => a + b, 0), 0);
-      rows.push(['個人收入小計', '', '', '', '', '', '', '', '', '', '', '', '', Math.round(totalPersonal)]);
+
+      // 🆕 P2-2：個人收入小計補每月欄位
+      const monthlyPersonalTotal = Array(12).fill(0);
+      personalRows.forEach(({ arr }) => {
+        arr.forEach((v, i) => { monthlyPersonalTotal[i] += Math.round(v); });
+      });
+      const totalPersonal = monthlyPersonalTotal.reduce((s, x) => s + x, 0);
+      rows.push(['個人收入小計', ...monthlyPersonalTotal, totalPersonal]);
     }
   }
 
