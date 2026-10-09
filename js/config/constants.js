@@ -1,17 +1,17 @@
 // ============================================
-// constants.js — 全站常數集中管理（v102.1.0）
+// constants.js — 全站常數集中管理（v102.1.0-hotfix1）
 // ============================================
-// v102.1.0 修正：
-//   ✅ APP_VERSION → v102.1.0
-//   ✅ SW_VERSION → family-fin-v133
-//   ✅ 保留 v102.0.0 全部功能
+// v102.1.0-hotfix1 修正：
+//   ✅ APP_VERSION → 'v102.1.0-hotfix1'
+//   ✅ SW_VERSION → 'family-fin-v134'
+//   ✅ 保留 v102.1.0 全部功能
 // ============================================
 
 /* ============================================
    0. 版本號
    ============================================ */
-export const APP_VERSION = 'v102.1.0';
-export const SW_VERSION = 'family-fin-v133';
+export const APP_VERSION = 'v102.1.0-hotfix1';
+export const SW_VERSION = 'family-fin-v134';
 
 /* ============================================
    1. localStorage Keys
