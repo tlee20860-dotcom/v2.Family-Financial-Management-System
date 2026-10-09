@@ -1,15 +1,13 @@
 // ============================================
-// render.js — 結算清單渲染輔助（v102.0.0）
+// render.js — 結算清單渲染輔助（v102.1.0-hotfix2）
 // 位置：js/pages/settlements/render.js
 // ============================================
-// v102.0.0 修正：
-//   ✅ [P0-5] _writeInsurancePaymentDone 不再重複建立銀行交易
-//   ✅ [P1-3] _openBankSelectModal 監聽器洩漏（加入 unsubscribe）
-//   ✅ [P1-3] _openPersonalEditForm 監聽器洩漏（加入 unsubscribe）
-//   ✅ [P2-9/P3-6] _openInsuranceEditForm 顯示銀行名稱
-//   ✅ 保險結算時彈出「選擇銀行」Modal
-//   ✅ 依 paymentMode 分派（direct / advance）
-//   ✅ 支出編輯新增「出帳銀行」欄位 + 同步銀行交易
+// v102.1.0-hotfix2 修正：
+//   ✅ [BUG-1] _openBankSelectModal 改為返回 Promise，等待使用者確認 / 取消
+//   ✅ [BUG-1] _updateInsuranceStatus 改為 await _openBankSelectModal
+//       - 確保 Modal 確認後才更新本地狀態
+//       - Modal 取消 → 不更新本地狀態，UI 保持舊值
+//   ✅ 保留 v102.1.0 全部功能
 // ============================================
 
 import {
@@ -26,7 +24,7 @@ import {
   getMemberAdvancesOnce,
   updateMemberAdvance,
   listenBankAccounts,
-  getBankAccountsOnce,          // 🆕 P2-9
+  getBankAccountsOnce,
 } from '../../core/db.js';
 import { api } from '../../core/api.js';
 import { getStatusesByCategory } from '../../config/app-config.js';
@@ -122,6 +120,7 @@ export async function updateRowStatus(row, newStatus) {
 
 /* ============================================
    保險狀態更新（含銀行選擇）
+   🆕 hotfix2：await Modal 完成
    ============================================ */
 async function _updateInsuranceStatus(row, newStatus, isDone, ref) {
   const { policyId, memberId, linkedId } = ref;
@@ -145,7 +144,7 @@ async function _updateInsuranceStatus(row, newStatus, isDone, ref) {
      情境 1：已扣款（需要銀行）
      ============================================ */
   if (isDone) {
-    // 已有 bankId/txnId → 直接更新（P0-5：不再建立新交易）
+    // 已有 bankId/txnId → 直接更新（不重複彈 Modal）
     if (row.bankId && row.txnId) {
       return await _writeInsurancePaymentDone(
         row, policy, paymentMode,
@@ -154,8 +153,8 @@ async function _updateInsuranceStatus(row, newStatus, isDone, ref) {
       );
     }
 
-    // 彈出「選擇銀行」Modal
-    await _openBankSelectModal({
+    // 🆕 hotfix2：彈出「選擇銀行」Modal，並 await 使用者確認
+    const bankId = await _openBankSelectModal({
       title: paymentMode === 'advance' ? '代墊還款（選擇銀行）' : '保險扣款（選擇銀行）',
       amount: row.amount,
       policyId,
@@ -166,15 +165,19 @@ async function _updateInsuranceStatus(row, newStatus, isDone, ref) {
       advanceHolderId: policy.advanceHolderId || '',
       status: newStatus,
       linkedId,
-      onConfirm: async (bankId) => {
-        return await _writeInsurancePaymentDone(
-          row, policy, paymentMode,
-          bankId, '',
-          linkedId, memberId, year, month, newStatus
-        );
-      },
     });
-    return;
+
+    // 🆕 hotfix2：使用者取消 → 拋出中斷，不更新本地狀態
+    if (!bankId) {
+      throw new Error('CANCELLED');
+    }
+
+    // 🆕 hotfix2：使用者確認後才真正寫入
+    return await _writeInsurancePaymentDone(
+      row, policy, paymentMode,
+      bankId, '',
+      linkedId, memberId, year, month, newStatus
+    );
   }
 
   /* ============================================
@@ -182,7 +185,6 @@ async function _updateInsuranceStatus(row, newStatus, isDone, ref) {
      ============================================ */
   await removeInsurancePaymentBatch(policyId, year, month);
 
-  // 清理銀行交易
   if (row.bankId && row.txnId) {
     const { removeBankTransaction } = await import('../../core/db.js');
     try {
@@ -192,14 +194,12 @@ async function _updateInsuranceStatus(row, newStatus, isDone, ref) {
     }
   }
 
-  // 清理 linked 支出
   if (linkedId) {
     await removeExpense(year, month, memberId, linkedId);
   } else {
     await api.insuranceUnsync({ policyId, memberId, year, month });
   }
 
-  // 若為代墊模式，退還 remainingAmount
   if (paymentMode === 'advance' && policy.advanceHolderId) {
     try {
       const advances = await getMemberAdvancesOnce(policy.advanceHolderId);
@@ -218,8 +218,6 @@ async function _updateInsuranceStatus(row, newStatus, isDone, ref) {
 
 /**
  * 寫入保險付款（含銀行交易）
- * 🆕 P0-5：若 existingTxnId 存在，跳過建立步驟
- * 🆕 P0-3 衍生：改用 insuranceSync 統一處理（含代墊扣減）
  */
 async function _writeInsurancePaymentDone(
   row, policy, paymentMode,
@@ -260,10 +258,7 @@ async function _writeInsurancePaymentDone(
   }
 
   /* ============================================
-     2. 統一透過 insuranceSync 寫入（含代墊扣減，後端冪等）
-     - 寫入/更新 linked 支出
-     - 寫入 insurance_payments（含 paymentMode）
-     - 代墊模式：後端自動扣減 remainingAmount（paidMonths 冪等）
+     2. 統一透過 insuranceSync 寫入
      ============================================ */
   await api.insuranceSync({
     policyId: policy.id,
@@ -282,89 +277,98 @@ async function _writeInsurancePaymentDone(
 }
 
 /* ============================================
-   選擇銀行 Modal
+   🆕 hotfix2：選擇銀行 Modal（返回 Promise）
+   -------------------------------------------------
+   回傳：bankId（成功）| null（取消）
    ============================================ */
 async function _openBankSelectModal({
-  title, amount, policyId, memberId, year, month, paymentMode, advanceHolderId, status, linkedId, onConfirm,
+  title, amount, policyId, memberId, year, month,
+  paymentMode, advanceHolderId, status, linkedId,
 }) {
   const MODAL_ID = 'settlements-bank-select-modal';
   document.getElementById(MODAL_ID)?.remove();
 
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay active';
-  overlay.id = MODAL_ID;
-  overlay.innerHTML = `
-    <div class="modal" style="max-width:480px;">
-      <h2 class="modal-title">${escapeHtml(title)}</h2>
-      <div id="${MODAL_ID}-form-root"></div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay active';
+    overlay.id = MODAL_ID;
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:480px;">
+        <h2 class="modal-title">${escapeHtml(title)}</h2>
+        <div id="${MODAL_ID}-form-root"></div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
 
-  // 🆕 P1-3：保存 unsubscribe，Modal 關閉時清理
-  let _unsubBank = null;
-  const _cleanup = () => {
-    if (_unsubBank) {
-      try { _unsubBank(); } catch (e) { /* noop */ }
-      _unsubBank = null;
-    }
-  };
+    let _unsubBank = null;
+    let _resolved = false;
 
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) {
-      _cleanup();
-      closeModal(MODAL_ID);
-    }
-  });
-
-  const infoHtml = `
-    <div class="glass-card-hint" style="margin-bottom:12px;">
-      金額：<b class="mono text-cyan">${formatHKD(amount)}</b>
-      ${paymentMode === 'advance'
-        ? `<br>代墊成員：<b>${escapeHtml(_memberName(advanceHolderId))}</b>（將從家庭帳號還款給該成員）`
-        : `<br>將從家庭帳號支付給保險公司`}
-    </div>
-  `;
-
-  const formApi = buildForm({
-    containerId: `${MODAL_ID}-form-root`,
-    fields: [
-      { type: 'custom', id: 'info', html: infoHtml },
-      { type: 'select', id: 'bankId', label: '選擇銀行', required: true, includeEmpty: true, emptyText: '— 請選擇銀行 —' },
-    ],
-    submitText: '確認',
-    showCancel: true,
-    cancelText: '取消',
-    onSubmit: async (data) => {
-      if (!data.bankId) {
-        showToast('請選擇銀行', 'warning');
-        return;
+    const _cleanup = () => {
+      if (_unsubBank) {
+        try { _unsubBank(); } catch (e) { /* noop */ }
+        _unsubBank = null;
       }
-      try {
-        await onConfirm(data.bankId);
-        _cleanup();
+    };
+
+    const _done = (value) => {
+      if (_resolved) return;
+      _resolved = true;
+      _cleanup();
+      resolve(value);
+    };
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        _done(null);
         closeModal(MODAL_ID);
-      } catch (err) {
-        console.error('[settlements] 確認失敗：', err);
-        showToast('失敗：' + err.message, 'error');
       }
-    },
-    onCancel: () => {
-      _cleanup();
-      closeModal(MODAL_ID);
-    },
-  });
-
-  // 🆕 P1-3：動態載入銀行帳號（保存 unsubscribe）
-  _unsubBank = listenBankAccounts((list) => {
-    formApi.updateOptions('bankId', list.map((b) => ({ value: b.id, label: b.name })), {
-      includeEmpty: true,
-      emptyText: '— 請選擇銀行 —',
     });
-  });
 
-  openModal(MODAL_ID);
-  if (window.lucide) window.lucide.createIcons();
+    const infoHtml = `
+      <div class="glass-card-hint" style="margin-bottom:12px;">
+        金額：<b class="mono text-cyan">${formatHKD(amount)}</b>
+        ${paymentMode === 'advance'
+          ? `<br>代墊成員：<b>${escapeHtml(_memberName(advanceHolderId))}</b>（將從家庭帳號還款給該成員）`
+          : `<br>將從家庭帳號支付給保險公司`}
+      </div>
+    `;
+
+    const formApi = buildForm({
+      containerId: `${MODAL_ID}-form-root`,
+      fields: [
+        { type: 'custom', id: 'info', html: infoHtml },
+        { type: 'select', id: 'bankId', label: '選擇銀行', required: true, includeEmpty: true, emptyText: '— 請選擇銀行 —' },
+      ],
+      submitText: '確認',
+      showCancel: true,
+      cancelText: '取消',
+      onSubmit: async (data) => {
+        if (!data.bankId) {
+          showToast('請選擇銀行', 'warning');
+          return;
+        }
+        // 🆕 hotfix2：回傳 bankId
+        _done(data.bankId);
+        closeModal(MODAL_ID);
+      },
+      onCancel: () => {
+        // 🆕 hotfix2：取消回傳 null
+        _done(null);
+        closeModal(MODAL_ID);
+      },
+    });
+
+    // 動態載入銀行帳號
+    _unsubBank = listenBankAccounts((list) => {
+      formApi.updateOptions('bankId', list.map((b) => ({ value: b.id, label: b.name })), {
+        includeEmpty: true,
+        emptyText: '— 請選擇銀行 —',
+      });
+    });
+
+    openModal(MODAL_ID);
+    if (window.lucide) window.lucide.createIcons();
+  });
 }
 
 function _memberName(memberId) {
@@ -410,7 +414,7 @@ export async function openSettlementEditModal(row, onSuccess) {
 }
 
 /* ============================================
-   個人支出編輯表單（含出帳銀行）
+   個人支出編輯表單
    ============================================ */
 async function _openPersonalEditForm(row, containerId, modalId, onSuccess) {
   let members = [];
@@ -466,7 +470,6 @@ async function _openPersonalEditForm(row, containerId, modalId, onSuccess) {
   const currentMemberId = ref.memberId || row.memberId || '';
   const currentExpenseId = ref.expenseId || '';
 
-  // 🆕 P1-3：保存 unsubscribe
   let _unsubBank = null;
 
   const formApi = buildForm({
@@ -521,7 +524,6 @@ async function _openPersonalEditForm(row, containerId, modalId, onSuccess) {
 
         const pathChanged = newYear !== oldYear || newMonth !== oldMonth || newMemberId !== oldMemberId;
 
-        // 同步銀行交易
         const newTxnId = await syncExpenseToBank({
           oldBankId,
           oldTxnId,
@@ -581,7 +583,6 @@ async function _openPersonalEditForm(row, containerId, modalId, onSuccess) {
     },
   });
 
-  // 🆕 P1-3：動態載入銀行（保存 unsubscribe）
   _unsubBank = listenBankAccounts((list) => {
     formApi.updateOptions('bankId', list.map((b) => ({ value: b.id, label: b.name })), {
       includeEmpty: true,
@@ -604,13 +605,11 @@ async function _openPersonalEditForm(row, containerId, modalId, onSuccess) {
 }
 
 /* ============================================
-   保險扣款編輯表單（僅狀態 + 銀行）
-   🆕 P2-9/P3-6：顯示銀行名稱
+   保險扣款編輯表單
    ============================================ */
 async function _openInsuranceEditForm(row, containerId, modalId, onSuccess) {
   const statuses = getStatusesByCategory('insurance');
 
-  // 🆕 P2-9：取得銀行名稱（顯示用）
   let bankLabel = '';
   if (row.bankId) {
     try {
@@ -661,6 +660,10 @@ async function _openInsuranceEditForm(row, containerId, modalId, onSuccess) {
         showToast('✅ 已儲存', 'success');
         if (typeof onSuccess === 'function') onSuccess();
       } catch (err) {
+        // 🆕 hotfix2：使用者取消 Modal 時，不視為錯誤
+        if (err && err.message === 'CANCELLED') {
+          return;
+        }
         console.error('[settlements] 儲存失敗：', err);
         showToast('儲存失敗：' + err.message, 'error');
       }
