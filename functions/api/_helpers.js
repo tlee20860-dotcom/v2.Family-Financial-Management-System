@@ -1,12 +1,12 @@
 // ============================================
-// _helpers.js — API 共用輔助函式（v101.10.0）
+// _helpers.js — API 共用輔助函式（v102.0.0）
 // 位置：functions/api/_helpers.js
 // ============================================
-// v101.10.0 修正：
-//   ✅ [P1-1] verifyFamilyAccess 內部 _getMemberAccount 傳入 token
-//   ✅ [P1-1] verifyFamilyAccessByUid 加入 token 參數
-//   ✅ [P1-1] 內部所有 dbGet 呼叫都傳 token
-//   ✅ 保留 v101.8.0 全部功能
+// v102.0.0 修正：
+//   ✅ [P3-14] verifyFamilyAccess 舊版帳號（無 memberAccount）isOwner 收緊
+//       原本：!memberAccount → isOwner=true（權限過寬）
+//       改為：!memberAccount → isOwner=false, canInput=false
+//   ✅ 保留 v101.10.0 全部功能
 // ============================================
 
 import { SUPERADMIN_EMAIL, jsonResponse, dbGet } from './_config.js';
@@ -118,11 +118,13 @@ export async function verifySuperAdmin(token) {
 }
 
 /**
- * 驗證家庭存取權（v101.10.0 修正：內部 dbGet 傳 token）
+ * 驗證家庭存取權（v102.0.0 修正：收緊舊版帳號 isOwner）
  *
  * 判斷順序：
  * 1. superadmin → 通過
  * 2. user.uid === familyId → 通過（舊版）
+ *    - 若有 memberAccounts 記錄：依其 role / canInput
+ *    - 若無 memberAccounts 記錄（P3-14）：isOwner=false, canInput=false
  * 3. platform/families/{familyId}/memberAccounts/{uid} 存在 → 通過（新版）
  *
  * @param {string} token
@@ -140,13 +142,25 @@ export async function verifyFamilyAccess(token, familyId) {
 
   // 舊版：UID = familyId
   if (user.localId === familyId) {
-    // 檢查是否有 memberAccounts 記錄（若有，讀取 canInput）
     const memberAccount = await _getMemberAccount(familyId, user.localId, token);
+
+    // 🆕 P3-14：無 memberAccount 時收緊權限（唯讀，非 owner）
+    if (!memberAccount) {
+      return {
+        user,
+        isSuper: false,
+        isOwner: false,
+        canInput: false,
+        isLegacy: true,
+      };
+    }
+
     return {
       user,
       isSuper: false,
-      isOwner: memberAccount?.role === 'owner' || !memberAccount,
-      canInput: memberAccount ? memberAccount.canInput !== false : true,
+      isOwner: memberAccount.role === 'owner',
+      canInput: memberAccount.canInput !== false,
+      isLegacy: true,
     };
   }
 
@@ -165,20 +179,11 @@ export async function verifyFamilyAccess(token, familyId) {
 }
 
 /**
- * v101.10.0 修正：從 UID 查詢所屬家庭（傳入 token）
- *
- * 判斷順序：
- * 1. platform/uid_index/{uid} → familyId（新版）
- * 2. 檢查 UID 本身是否為 familyId（舊版 fallback）
- *
- * @param {string} uid
- * @param {string} [token='']
- * @returns {Promise<{ familyId, memberAccount, isLegacy } | null>}
+ * 從 UID 查詢所屬家庭
  */
 export async function verifyFamilyAccessByUid(uid, token = '') {
   if (!uid) return null;
 
-  // 1. 新版：從 uid_index 查詢
   const familyId = await dbGet(`platform/uid_index/${uid}`, token);
   if (familyId && typeof familyId === 'string') {
     const memberAccount = await _getMemberAccount(familyId, uid, token);
@@ -189,7 +194,6 @@ export async function verifyFamilyAccessByUid(uid, token = '') {
     };
   }
 
-  // 2. 舊版 fallback：UID 即 familyId
   const familySnap = await dbGet(`platform/families/${uid}`, token);
   if (familySnap) {
     return {
@@ -208,7 +212,7 @@ export async function verifyFamilyAccessByUid(uid, token = '') {
 }
 
 /* ============================================
-   4. 內部工具：讀取 memberAccount（v101.10.0 修正：傳 token）
+   4. 內部工具：讀取 memberAccount
    ============================================ */
 
 async function _getMemberAccount(familyId, uid, token = '') {
