@@ -2,7 +2,7 @@
 // sw.js — Service Worker（v102.1.0）
 // ============================================
 // v102.1.0 更新：
-//   ✅ CACHE_NAME = family-fin-v134（v133 → v134）
+//   ✅ CACHE_NAME = family-fin-v134.1（v133 → v134）
 // ============================================
 
 const CACHE_NAME = 'family-fin-v133';
