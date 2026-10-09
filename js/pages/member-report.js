@@ -1,11 +1,10 @@
 // ============================================
-// member-report.js — 成員與家庭收入與支出明細（v102.0.0）
+// member-report.js — 成員與家庭收入與支出明細（v102.1.0）
 // 位置：js/pages/member-report.js
 // ============================================
-// v102.0.0 修正：
-//   ✅ 收入顯示改為「家用轉入」
-//   ✅ owner 可見所有成員個人收入
-//   ✅ 保留 v101.9.0 全部功能
+// v102.1.0 修正：
+//   ✅ [P3-10] _renderMemberRowDetail 加入個人收入明細區塊
+//   ✅ 保留 v102.0.0 全部功能
 // ============================================
 
 import { AppState } from '../core/state.js';
@@ -13,7 +12,7 @@ import {
   listenMembers,
   listenAllIncome,
   listenAllExpenses,
-  listenAllPersonalIncome,          // 🆕
+  listenAllPersonalIncome,
 } from '../core/db.js';
 import {
   escapeHtml, formatHKD, sortMembers, setText,
@@ -28,7 +27,7 @@ import { registerPageCleanup } from '../core/app.js';
 let _members = [];
 let _allIncome = [];
 let _allExpenses = [];
-let _personalIncomeRaw = {};      // 🆕
+let _personalIncomeRaw = {};
 let _selectedMemberId = null;
 let _currentYear = '';
 let _memberRows = [];
@@ -74,7 +73,6 @@ export async function initMemberReportPage() {
     _render();
   }));
 
-  // 🆕 v102.0.0：監聽個人收入（owner）
   if (_isOwner) {
     listenerGroup.add(listenAllPersonalIncome((data) => {
       _personalIncomeRaw = data || {};
@@ -187,7 +185,7 @@ function _renderStats() {
 }
 
 /* ============================================
-   計算成員資料（🆕 加個人收入）
+   計算成員資料
    ============================================ */
 function _computeRows() {
   const list = [];
@@ -203,7 +201,6 @@ function _computeRows() {
     const expense = expenseRecords.filter((e) => !e.isAutoLinked).reduce((s, e) => s + (Number(e.amount) || 0), 0);
     const insurance = expenseRecords.filter((e) => e.isAutoLinked).reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
-    // 🆕 個人收入
     let personalIncome = 0;
     if (_isOwner && !m.isShared) {
       const yearData = _personalIncomeRaw[m.id]?.[_currentYear] || {};
@@ -231,13 +228,12 @@ function _renderTable() {
 
   const columns = [
     { id: 'name',      label: '成員', defaultVisible: true, defaultWidth: 140 },
-    { id: 'income',    label: '家用轉入', defaultVisible: true, defaultWidth: 140 },   // 🔄 改名
+    { id: 'income',    label: '家用轉入', defaultVisible: true, defaultWidth: 140 },
     { id: 'expense',   label: '支出', defaultVisible: true, defaultWidth: 140 },
     { id: 'insurance', label: '保險', defaultVisible: true, defaultWidth: 140 },
     { id: 'net',       label: '淨額', defaultVisible: true, defaultWidth: 140 },
   ];
 
-  // 🆕 v102.0.0：owner 加「個人收入」
   if (_isOwner) {
     columns.splice(2, 0, { id: 'personalIncome', label: '個人收入', defaultVisible: true, defaultWidth: 130 });
   }
@@ -252,7 +248,7 @@ function _renderTable() {
       resolvers: {
         name: (_, row) => escapeHtml(row.name) + (row.isShared ? ' <span class="badge badge-muted" style="font-size:10px;">🏠</span>' : ''),
         income: (_, row) => row.isShared ? '<span class="text-muted">—</span>' : `<span class="text-emerald">${formatHKD(row.income)}</span>`,
-        personalIncome: (_, row) => (row.isShared || row.personalIncome === 0) ? '<span class="text-muted">—</span>' : `<span class="text-cyan">${formatHKD(row.personalIncome)}</span>`,   // 🆕
+        personalIncome: (_, row) => (row.isShared || row.personalIncome === 0) ? '<span class="text-muted">—</span>' : `<span class="text-cyan">${formatHKD(row.personalIncome)}</span>`,
         expense: (_, row) => `<span class="text-red">${formatHKD(row.expense)}</span>`,
         insurance: (_, row) => row.insurance === 0 ? '<span class="text-muted">—</span>' : `<span class="text-magenta">${formatHKD(row.insurance)}</span>`,
         net: (_, row) => row.isShared ? '<span class="text-muted">—</span>' : `<span class="${row.net >= 0 ? 'text-emerald' : 'text-red'}">${formatHKD(row.net)}</span>`,
@@ -278,6 +274,9 @@ function _renderTable() {
   if (window.lucide) window.lucide.createIcons();
 }
 
+/* ============================================
+   🆕 P3-10：展開明細（加入個人收入區塊）
+   ============================================ */
 function _renderMemberRowDetail(row) {
   const months = [];
   for (let m = 1; m <= 12; m++) {
@@ -288,30 +287,59 @@ function _renderMemberRowDetail(row) {
     const records = _allExpenses.filter((e) => e.year === _currentYear && e.month === mm && e.memberId === row.id);
     const expense = records.filter((e) => !e.isAutoLinked).reduce((s, e) => s + (Number(e.amount) || 0), 0);
     const insurance = records.filter((e) => e.isAutoLinked).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-    if (income === 0 && expense === 0 && insurance === 0) continue;
-    months.push({ month: m, income, expense, insurance });
+
+    // 🆕 P3-10：個人收入
+    let personalIncome = 0;
+    if (_isOwner && !row.isShared) {
+      const yearData = _personalIncomeRaw[row.id]?.[_currentYear] || {};
+      personalIncome = Number(yearData[mm]) || 0;
+    }
+
+    if (income === 0 && expense === 0 && insurance === 0 && personalIncome === 0) continue;
+    months.push({ month: m, mm, income, expense, insurance, personalIncome });
   }
 
   if (months.length === 0) {
     return `<div class="empty-state" style="padding:12px;">${escapeHtml(row.name)} 尚無資料</div>`;
   }
 
+  // 🆕 P3-10：依角色決定是否顯示個人收入欄
+  const showPersonal = _isOwner && !row.isShared;
+  const gridCols = showPersonal
+    ? '80px 1fr 1fr 1fr 1fr'
+    : (row.isShared ? '80px 1fr 1fr' : '80px 1fr 1fr 1fr');
+
+  const header = showPersonal
+    ? '<div>月份</div><div>家用轉入</div><div>個人收入</div><div>支出</div><div>保險</div>'
+    : (row.isShared
+      ? '<div>月份</div><div>支出</div><div>保險</div>'
+      : '<div>月份</div><div>家用轉入</div><div>支出</div><div>保險</div>');
+
   return `
     <div style="font-size:13px;">
-      <div style="display:grid; grid-template-columns:80px 1fr 1fr 1fr; gap:6px 16px; font-size:11px; color:var(--text-muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:1px;">
-        <div>月份</div>
-        ${!row.isShared ? '<div>家用轉入</div>' : '<div></div>'}
-        <div>支出</div>
-        <div>保險</div>
+      <div style="display:grid; grid-template-columns:${gridCols}; gap:6px 16px; font-size:11px; color:var(--text-muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:1px;">
+        ${header}
       </div>
-      ${months.map((m) => `
-        <div style="display:grid; grid-template-columns:80px 1fr 1fr 1fr; gap:6px 16px; padding:6px 0; border-top:1px solid rgba(255,255,255,0.04);">
-          <div class="mono" style="color:var(--neon-cyan); font-weight:600;">${m.month} 月</div>
-          ${!row.isShared ? `<div class="mono text-emerald">${formatHKD(m.income)}</div>` : '<div></div>'}
-          <div class="mono text-red">${formatHKD(m.expense)}</div>
-          <div class="mono text-magenta">${m.insurance > 0 ? formatHKD(m.insurance) : '—'}</div>
-        </div>
-      `).join('')}
+      ${months.map((m) => {
+        const rowHtml = showPersonal
+          ? `<div class="mono text-emerald">${m.income > 0 ? formatHKD(m.income) : '—'}</div>
+             <div class="mono text-cyan">${m.personalIncome > 0 ? formatHKD(m.personalIncome) : '—'}</div>
+             <div class="mono text-red">${m.expense > 0 ? formatHKD(m.expense) : '—'}</div>
+             <div class="mono text-magenta">${m.insurance > 0 ? formatHKD(m.insurance) : '—'}</div>`
+          : (row.isShared
+            ? `<div class="mono text-red">${m.expense > 0 ? formatHKD(m.expense) : '—'}</div>
+               <div class="mono text-magenta">${m.insurance > 0 ? formatHKD(m.insurance) : '—'}</div>`
+            : `<div class="mono text-emerald">${m.income > 0 ? formatHKD(m.income) : '—'}</div>
+               <div class="mono text-red">${m.expense > 0 ? formatHKD(m.expense) : '—'}</div>
+               <div class="mono text-magenta">${m.insurance > 0 ? formatHKD(m.insurance) : '—'}</div>`);
+
+        return `
+          <div style="display:grid; grid-template-columns:${gridCols}; gap:6px 16px; padding:6px 0; border-top:1px solid rgba(255,255,255,0.04);">
+            <div class="mono" style="color:var(--neon-cyan); font-weight:600;">${m.month} 月</div>
+            ${rowHtml}
+          </div>
+        `;
+      }).join('')}
     </div>
   `;
 }
