@@ -1,4 +1,12 @@
-// annual-report.js — 年度報表（v103.0.18）
+// ============================================
+// annual-report.js — 年度報表（v103.0.19）
+// 位置：js/pages/annual-report.js
+// ============================================
+// v103.0.19 修正：
+//   ✅ 修 view toggle：使用 cardValue/tableValue
+//      （'summary' / 'monthly' 為值，而非顯示文字）
+// ============================================
+
 import { formatHKD } from '../lib/format.js';
 import { esc } from '../lib/dom.js';
 import { AppState } from '../core/state.js';
@@ -30,8 +38,8 @@ export default {
 
   customMount: (ctx) => {
     let _toggle = null;
-    let _sumView = document.getElementById('annual-summary-view');
-    let _monView = document.getElementById('annual-monthly-view');
+    const _sumView = document.getElementById('annual-summary-view');
+    const _monView = document.getElementById('annual-monthly-view');
 
     const paintSummary = () => {
       const rows = ctx.derived.membersRows;
@@ -58,14 +66,16 @@ export default {
 
     _renderYearSwitcher(ctx, paint);
     _renderMonthSwitcher(ctx, paint);
-    paint();
 
+    /* 🆕 用 cardValue / tableValue 傳自訂值 */
     _toggle = initViewToggle({
       containerId: 'annual-view-toggle',
       storageKey: 'annual-report-view',
       defaultView: 'summary',
       cardText: '全年總合',
       tableText: '月度明細',
+      cardValue: 'summary',
+      tableValue: 'monthly',
       onChange: (view) => {
         ctx.state.view = view;
         _sumView.style.display = view === 'summary' ? 'block' : 'none';
@@ -74,9 +84,10 @@ export default {
       },
     });
 
-    const initView = _toggle?.getView() || 'summary';
-    _sumView.style.display = initView === 'summary' ? 'block' : 'none';
-    _monView.style.display = initView === 'monthly' ? 'block' : 'none';
+    ctx.state.view = _toggle?.getView() || 'summary';
+    _sumView.style.display = ctx.state.view === 'summary' ? 'block' : 'none';
+    _monView.style.display = ctx.state.view === 'monthly' ? 'block' : 'none';
+    paint();
 
     const unsub = ctx.onDataChange((key) => {
       if (key === '__APP__') {
@@ -137,7 +148,6 @@ function _renderMonthSwitcher(ctx, onChange) {
   });
 }
 
-/* ============ Derived ============ */
 function _annualRows(members, allIncome, allExpenses, allPersonalIncome, year) {
   const yk = String(year || '');
   const yi = (allIncome || {})[yk] || {};
@@ -238,3 +248,10 @@ function _exportCsv(ctx) {
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+/* ═══════════════════════════════════════════
+   END OF FILE
+   File: js/pages/annual-report.js
+   Version: v103.0.19
+   Batch: B20
+   ═══════════════════════════════════════════ */

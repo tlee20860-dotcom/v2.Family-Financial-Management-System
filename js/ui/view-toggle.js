@@ -1,18 +1,16 @@
 // ============================================
-// view-toggle.js — 卡片 / 表格切換（v103.0.11）
+// view-toggle.js — 卡片 / 表格切換（v103.0.19）
 // 位置：js/ui/view-toggle.js
 // ============================================
-// v103.0.11 修正：
-//   ✅ [M05] localStorage key 前綴改用 STORAGE_PREFIXES.VIEW
+// v103.0.19 修正：
+//   ✅ 加 cardValue / tableValue 參數（支援自訂 view 值）
+//   ✅ 向後相容：不傳參數時預設 'card' / 'table'
 // ============================================
 
 import { esc } from '../lib/dom.js';
 import { AppState } from '../core/state.js';
 import { STORAGE_PREFIXES } from '../config/constants.js';
 
-/* ============================================
-   主函式
-   ============================================ */
 export function initViewToggle(options) {
   const {
     containerId,
@@ -20,6 +18,8 @@ export function initViewToggle(options) {
     defaultView = 'card',
     cardText = '卡片模式',
     tableText = '表格模式',
+    cardValue = 'card',
+    tableValue = 'table',
     onChange,
     autoApply = true,
   } = options;
@@ -31,18 +31,21 @@ export function initViewToggle(options) {
   }
 
   const storageFullKey = _fullKey(storageKey);
-  let _currentView = _loadView(storageFullKey, defaultView);
+  const validValues = [cardValue, tableValue];
+  let _currentView = _loadView(storageFullKey, defaultView, validValues);
 
-  AppState.setCurrentView(_currentView);
+  if (validValues.includes(_currentView)) {
+    AppState.setCurrentView(_currentView);
+  }
 
   root.innerHTML = `
     <div class="view-toggle-group">
-      <button type="button" class="btn btn-sm ${_currentView === 'card' ? 'btn-primary' : 'btn-ghost'}" data-view="card">${esc(cardText)}</button>
-      <button type="button" class="btn btn-sm ${_currentView === 'table' ? 'btn-primary' : 'btn-ghost'}" data-view="table">${esc(tableText)}</button>
+      <button type="button" class="btn btn-sm ${_currentView === cardValue ? 'btn-primary' : 'btn-ghost'}" data-view="${esc(cardValue)}">${esc(cardText)}</button>
+      <button type="button" class="btn btn-sm ${_currentView === tableValue ? 'btn-primary' : 'btn-ghost'}" data-view="${esc(tableValue)}">${esc(tableText)}</button>
     </div>
   `;
 
-  if (autoApply) applyViewToDom(_currentView);
+  if (autoApply) _applyIfStandard(_currentView);
 
   const clickHandler = (e) => {
     const btn = e.target.closest('button[data-view]');
@@ -54,7 +57,7 @@ export function initViewToggle(options) {
   if (window.lucide) window.lucide.createIcons();
 
   function setView(view) {
-    if (view !== 'card' && view !== 'table') return;
+    if (!validValues.includes(view)) return;
     if (view === _currentView) return;
 
     _currentView = view;
@@ -67,8 +70,7 @@ export function initViewToggle(options) {
 
     try { localStorage.setItem(storageFullKey, view); } catch (e) { /* noop */ }
 
-    if (autoApply) applyViewToDom(view);
-
+    if (autoApply) _applyIfStandard(view);
     AppState.setCurrentView(view);
 
     if (typeof onChange === 'function') {
@@ -81,7 +83,7 @@ export function initViewToggle(options) {
     getView: () => _currentView,
     setView,
     refresh: () => {
-      if (autoApply) applyViewToDom(_currentView);
+      if (autoApply) _applyIfStandard(_currentView);
       if (typeof onChange === 'function') onChange(_currentView);
     },
     destroy: () => {
@@ -90,21 +92,32 @@ export function initViewToggle(options) {
   };
 }
 
-/* ============================================
-   工具函式
-   ============================================ */
+/**
+ * 僅當 view 為標準 'card' / 'table' 時，才做 body class 切換
+ */
+function _applyIfStandard(view) {
+  if (view === 'card' || view === 'table') applyViewToDom(view);
+}
+
 export function buildToggleHTML(config = {}) {
-  const { cardText = '卡片模式', tableText = '表格模式', currentView = 'card' } = config;
+  const {
+    cardText = '卡片模式',
+    tableText = '表格模式',
+    cardValue = 'card',
+    tableValue = 'table',
+    currentView = cardValue,
+  } = config;
   return `
     <div class="view-toggle-group">
-      <button type="button" class="btn btn-sm ${currentView === 'card' ? 'btn-primary' : 'btn-ghost'}" data-view="card">${esc(cardText)}</button>
-      <button type="button" class="btn btn-sm ${currentView === 'table' ? 'btn-primary' : 'btn-ghost'}" data-view="table">${esc(tableText)}</button>
+      <button type="button" class="btn btn-sm ${currentView === cardValue ? 'btn-primary' : 'btn-ghost'}" data-view="${esc(cardValue)}">${esc(cardText)}</button>
+      <button type="button" class="btn btn-sm ${currentView === tableValue ? 'btn-primary' : 'btn-ghost'}" data-view="${esc(tableValue)}">${esc(tableText)}</button>
     </div>
   `;
 }
 
 export function getSavedView(storageKey, defaultView = 'card') {
-  return _loadView(_fullKey(storageKey), defaultView);
+  const valid = ['card', 'table'];
+  return _loadView(_fullKey(storageKey), defaultView, valid);
 }
 
 export function saveView(storageKey, view) {
@@ -123,13 +136,6 @@ export function applyViewToDom(view) {
   });
 }
 
-/* ============================================
-   內部工具
-   ============================================ */
-
-/**
- * 🆕 v103.0.11：統一使用 STORAGE_PREFIXES.VIEW
- */
 function _fullKey(storageKey) {
   if (!storageKey) return `${STORAGE_PREFIXES.VIEW}default`;
   return storageKey.startsWith(STORAGE_PREFIXES.VIEW)
@@ -137,10 +143,17 @@ function _fullKey(storageKey) {
     : `${STORAGE_PREFIXES.VIEW}${storageKey}`;
 }
 
-function _loadView(fullKey, defaultView) {
+function _loadView(fullKey, defaultValue, validValues) {
   try {
     const saved = localStorage.getItem(fullKey);
-    if (saved === 'card' || saved === 'table') return saved;
+    if (validValues.includes(saved)) return saved;
   } catch (e) { /* noop */ }
-  return defaultView;
+  return defaultValue;
 }
+
+/* ═══════════════════════════════════════════
+   END OF FILE
+   File: js/ui/view-toggle.js
+   Version: v103.0.19
+   Batch: B20
+   ═══════════════════════════════════════════ */

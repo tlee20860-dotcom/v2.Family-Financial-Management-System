@@ -1,4 +1,11 @@
-// insurance.js — 保險清單表（v103.0.18）
+// ============================================
+// insurance.js — 保險清單表（v103.0.19）
+// 位置：js/pages/insurance.js
+// ============================================
+// v103.0.19 修正：
+//   ✅ 已供滿保單區塊加展開 / 收合
+// ============================================
+
 import { formatHKD } from '../lib/format.js';
 import { esc } from '../lib/dom.js';
 import { computeEnrichedPolicies, calcProgress, getPolicyHolderId } from '../lib/insurance.js';
@@ -24,7 +31,8 @@ export default {
   customMount: (ctx) => {
     let _payments = {};
     let _statsApi = null;
-    let _handler = null;
+    let _clickHandler = null;
+    let _toggleHandler = null;
     let _lastIds = '';
 
     const render = () => {
@@ -33,7 +41,6 @@ export default {
       const targetYear = Number(year) || new Date().getFullYear();
       const enriched = computeEnrichedPolicies(policies, _payments, targetYear);
 
-      /* Stats */
       const statsRoot = document.getElementById('insurance-stats-root');
       if (statsRoot) {
         if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} }
@@ -49,15 +56,15 @@ export default {
         });
       }
 
-      _paintSection('completed-section', 'completed-grid', 'completed-count', enriched.filter((p) => p._isCompleted));
+      _paintSection(enriched.filter((p) => p._isCompleted));
       _paintActive(enriched.filter((p) => !p._isCompleted), policies.length);
       if (window.lucide) window.lucide.createIcons();
     };
 
-    const _paintSection = (sectionId, gridId, countId, list) => {
-      const s = document.getElementById(sectionId);
-      const g = document.getElementById(gridId);
-      const c = document.getElementById(countId);
+    const _paintSection = (list) => {
+      const s = document.getElementById('completed-section');
+      const g = document.getElementById('completed-grid');
+      const c = document.getElementById('completed-count');
       if (!s || !g) return;
       if (list.length === 0) { s.style.display = 'none'; return; }
       s.style.display = 'block';
@@ -125,7 +132,7 @@ export default {
       } catch (e) { _payments = {}; }
     };
 
-    _handler = async (e) => {
+    _clickHandler = async (e) => {
       const btn = e.target.closest('button[data-action]');
       if (!btn || !AppState.getCanInput()) return;
       const policies = ctx.data.policies || [];
@@ -140,8 +147,20 @@ export default {
         catch (err) { showToast('刪除失敗：' + err.message, 'error'); }
       }
     };
-    document.getElementById('insurance-card-view')?.addEventListener('click', _handler);
-    document.getElementById('completed-grid')?.addEventListener('click', _handler);
+    document.getElementById('insurance-card-view')?.addEventListener('click', _clickHandler);
+    document.getElementById('completed-grid')?.addEventListener('click', _clickHandler);
+
+    /* 🆕 已供滿區塊展開 / 收合 */
+    const headerEl = document.getElementById('completed-header');
+    const bodyEl = document.getElementById('completed-body');
+    const sectionEl = document.getElementById('completed-section');
+    _toggleHandler = () => {
+      if (!bodyEl || !sectionEl) return;
+      const open = bodyEl.style.display === 'block';
+      bodyEl.style.display = open ? 'none' : 'block';
+      sectionEl.classList.toggle('open', !open);
+    };
+    if (headerEl) headerEl.addEventListener('click', _toggleHandler);
 
     const unsub = ctx.onDataChange(async (key) => {
       if (key.startsWith('data.policies') || key === '__APP__') await _loadPayments();
@@ -154,11 +173,19 @@ export default {
       destroy: () => {
         unsub();
         if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} }
-        if (_handler) {
-          document.getElementById('insurance-card-view')?.removeEventListener('click', _handler);
-          document.getElementById('completed-grid')?.removeEventListener('click', _handler);
+        if (_clickHandler) {
+          document.getElementById('insurance-card-view')?.removeEventListener('click', _clickHandler);
+          document.getElementById('completed-grid')?.removeEventListener('click', _clickHandler);
         }
+        if (_toggleHandler && headerEl) headerEl.removeEventListener('click', _toggleHandler);
       },
     };
   },
 };
+
+/* ═══════════════════════════════════════════
+   END OF FILE
+   File: js/pages/insurance.js
+   Version: v103.0.19
+   Batch: B20
+   ═══════════════════════════════════════════ */

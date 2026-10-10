@@ -21,12 +21,15 @@
             <h1 class="page-title">結算清單</h1>
             <p class="page-subtitle" id="settlement-month"></p>
           </div>
-          <select class="select" id="settlement-sort" style="width:auto; padding:8px 12px;">
-            <option value="pending-first">未處理置頂</option>
-            <option value="date-desc">日期（新→舊）</option>
-            <option value="date-asc">日期（舊→新）</option>
-            <option value="amount-desc">金額（大→小）</option>
-          </select>
+          <div class="flex items-center gap-12 flex-wrap">
+            <div id="settlement-view-toggle"></div>
+            <select class="select" id="settlement-sort" style="width:auto; padding:8px 12px;">
+              <option value="pending-first">未處理置頂</option>
+              <option value="date-desc">日期（新→舊）</option>
+              <option value="date-asc">日期（舊→新）</option>
+              <option value="amount-desc">金額（大→小）</option>
+            </select>
+          </div>
         </div>
 
         <div class="banner mb-16">
@@ -58,3 +61,10 @@
   </script>
 </body>
 </html>
+
+<!-- ═══════════════════════════════════════════
+     END OF FILE
+     File: settlements.html
+     Version: v103.0.19
+     Batch: B20
+     ═══════════════════════════════════════════ -->

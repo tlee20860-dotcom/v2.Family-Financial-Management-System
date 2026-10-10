@@ -1,14 +1,19 @@
 // ============================================
-// member-report.js — 成員收支明細（v103.0.15 Page Schema）
+// member-report.js — 成員收支明細（v103.0.19）
 // 位置：js/pages/member-report.js
 // ============================================
-// v103.0.15 修正：
-//   ✅ [P17-03] 加 onYearMonthChange hook
+// v103.0.19 修正：
+//   ✅ 加 view toggle（卡片/表格切換）
+//   ✅ 副標題改為顯示成員數 + 年度
 // ============================================
 
 import { formatHKD } from '../lib/format.js';
+import { esc } from '../lib/dom.js';
 import { AppState } from '../core/state.js';
 import { RESERVED_IDS } from '../config/constants.js';
+import { renderDataTable } from '../shared/data-table.js';
+import { renderDataCard } from '../shared/data-card.js';
+import { initViewToggle } from '../ui/view-toggle.js';
 
 export default {
   title: '成員與家庭收入與支出明細',
@@ -20,7 +25,6 @@ export default {
   },
   state: {
     currentYear: String(AppState.year || new Date().getFullYear()),
-    selectedMemberId: null,
     view: 'table',
   },
   derived: {
@@ -35,22 +39,99 @@ export default {
   },
   blocks: [
     { type: 'stats', container: 'member-report-stats-root', cards: '$.statsCards' },
-    { type: 'list', container: 'member-list-root', rows: '$.rows', columns: 'memberReport', tableId: 'member-report-table', view: 'table', emptyText: '尚無成員' },
   ],
 
-  onYearMonthChange: () => {
-    if (_ctx) {
-      _ctx.state.currentYear = String(AppState.year || new Date().getFullYear());
-    }
-  },
-
   customMount: (ctx) => {
-    _ctx = ctx;
-    return { destroy: () => { _ctx = null; } };
+    let _tableApi = null, _cardApi = null, _toggle = null;
+
+    const syncSubtitle = () => {
+      const el = document.getElementById('member-report-subtitle');
+      if (!el) return;
+      const { year } = AppState.getYearMonth();
+      const memberCount = (ctx.data.members || []).length;
+      el.textContent = `${year} 年 · ${memberCount} 位成員`;
+    };
+
+    const _columns = [
+      { id: 'name', label: '成員', defaultVisible: true },
+      { id: 'income', label: '家用轉入', defaultVisible: true, type: 'number' },
+      { id: 'personalIncome', label: '個人收入', defaultVisible: true, type: 'number' },
+      { id: 'expense', label: '支出', defaultVisible: true, type: 'number' },
+      { id: 'insurance', label: '保險', defaultVisible: true, type: 'number' },
+      { id: 'net', label: '淨額', defaultVisible: true, type: 'number' },
+    ];
+
+    const _resolvers = {
+      name: (v, r) => esc(v) + (r.isShared ? ' <span class="badge badge-muted" style="font-size:10px;">🏠</span>' : ''),
+      income: (_, r) => r.isShared ? '<span class="text-muted">—</span>' : `<span class="text-emerald">${formatHKD(r.income)}</span>`,
+      personalIncome: (_, r) => (r.isShared || r.personalIncome === 0) ? '<span class="text-muted">—</span>' : `<span class="text-cyan">${formatHKD(r.personalIncome)}</span>`,
+      expense: (_, r) => `<span class="text-red">${formatHKD(r.expense)}</span>`,
+      insurance: (_, r) => r.insurance === 0 ? '<span class="text-muted">—</span>' : `<span class="text-magenta">${formatHKD(r.insurance)}</span>`,
+      net: (_, r) => r.isShared ? '<span class="text-muted">—</span>' : `<span class="${r.net >= 0 ? 'text-emerald' : 'text-red'}">${formatHKD(r.net)}</span>`,
+    };
+
+    const paint = () => {
+      const root = document.getElementById('member-list-root');
+      if (!root) return;
+      if (_tableApi) { try { _tableApi.destroy(); } catch (e) {} _tableApi = null; }
+      if (_cardApi) { try { _cardApi.destroy(); } catch (e) {} _cardApi = null; }
+
+      const rows = ctx.derived.rows || [];
+
+      if (ctx.state.view === 'card') {
+        _cardApi = renderDataCard({
+          container: root,
+          entityKey: '__member_report__',
+          rows,
+          options: { gridClass: 'grid grid-3', columns: _columns, resolvers: _resolvers },
+        });
+      } else {
+        _tableApi = renderDataTable({
+          container: root,
+          entityKey: '__member_report__',
+          rows,
+          tableId: 'member-report-table',
+          options: {
+            mobileCardMode: true,
+            columns: _columns,
+            resolvers: _resolvers,
+            storageKey: 'member-report-table',
+          },
+        });
+      }
+    };
+
+    /* 🆕 view toggle */
+    _toggle = initViewToggle({
+      containerId: 'member-report-view-toggle',
+      storageKey: 'member-report-view',
+      defaultView: 'table',
+      onChange: (view) => { ctx.state.view = view; paint(); },
+    });
+    ctx.state.view = _toggle?.getView() || 'table';
+
+    syncSubtitle();
+    paint();
+
+    const unsub = ctx.onDataChange((key) => {
+      if (key === '__APP__') {
+        const y = String(AppState.year || new Date().getFullYear());
+        if (ctx.state.currentYear !== y) ctx.state.currentYear = y;
+      }
+      syncSubtitle();
+      paint();
+    });
+
+    return {
+      destroy: () => {
+        unsub();
+        if (_tableApi) { try { _tableApi.destroy(); } catch (e) {} }
+        if (_cardApi) { try { _cardApi.destroy(); } catch (e) {} }
+        if (_toggle) { try { _toggle.destroy(); } catch (e) {} }
+      },
+    };
   },
 };
-
-let _ctx = null;
 
 /* ============================================
    Helpers
@@ -66,8 +147,8 @@ function _buildRows(members, allIncome, allExpenses, allPersonalIncome, year) {
     let income = 0, personalIncome = 0, expense = 0, insurance = 0;
     if (!m.isShared) {
       Object.values(yi).forEach((md) => { income += Number(md && md[m.id]) || 0; });
-      const mp = (allPersonalIncome || {})[m.id] || {};
-      Object.values(mp[yk] || {}).forEach((v) => { personalIncome += Number(v) || 0; });
+      const mp = ((allPersonalIncome || {})[m.id] || {})[yk] || {};
+      Object.values(mp).forEach((v) => { personalIncome += Number(v) || 0; });
     }
     Object.values(ye).forEach((md) => {
       const me = (md && md.member_expenses && md.member_expenses[m.id]) || {};
@@ -76,7 +157,14 @@ function _buildRows(members, allIncome, allExpenses, allPersonalIncome, year) {
         if (e && e.isAutoLinked) insurance += amt; else expense += amt;
       });
     });
-    return { ...m, income: Math.round(income), expense: Math.round(expense), insurance: Math.round(insurance), personalIncome: Math.round(personalIncome), net: Math.round(income + personalIncome - expense - insurance) };
+    return {
+      ...m,
+      income: Math.round(income),
+      expense: Math.round(expense),
+      insurance: Math.round(insurance),
+      personalIncome: Math.round(personalIncome),
+      net: Math.round(income + personalIncome - expense - insurance),
+    };
   });
 }
 
@@ -95,3 +183,10 @@ function _buildStats(rows, year) {
     { title: `${year} 年度淨餘額`, value: formatHKD(net), valueClass: net >= 0 ? 'emerald' : 'red', hint: '收入 + 個人 − 支出 − 保險', icon: 'calculator' },
   ];
 }
+
+/* ═══════════════════════════════════════════
+   END OF FILE
+   File: js/pages/member-report.js
+   Version: v103.0.19
+   Batch: B20
+   ═══════════════════════════════════════════ */

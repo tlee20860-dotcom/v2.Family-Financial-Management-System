@@ -1,4 +1,11 @@
-// finance-overview.js — 銀行交易（v103.0.18）
+// ============================================
+// finance-overview.js — 銀行交易（v103.0.19）
+// 位置：js/pages/finance-overview.js
+// ============================================
+// v103.0.19 修正：
+//   ✅ 副標題改為顯示年月
+// ============================================
+
 import { formatHKD } from '../lib/format.js';
 import { esc } from '../lib/dom.js';
 import { calcTotalBankBalance, calcBankBalance } from '../lib/bank.js';
@@ -32,7 +39,7 @@ export default {
   blocks: [],
 
   customMount: (ctx) => {
-    let _statsApi = null, _bankApi = null, _txnApi = null, _tabH = null, _filterH = null;
+    let _statsApi = null, _tabH = null, _filterH = null;
 
     const syncState = () => {
       const y = String(AppState.year || new Date().getFullYear());
@@ -41,21 +48,25 @@ export default {
       if (ctx.state.currentMonth !== m) ctx.state.currentMonth = m;
     };
 
+    const syncSubtitle = () => {
+      const el = document.getElementById('finance-month-label');
+      if (el) el.textContent = AppState.getYearMonthLabel();
+    };
+
     const render = () => {
-      /* Stats */
       const statsRoot = document.getElementById('finance-stats-root');
       if (statsRoot) {
         if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} }
         statsRoot.innerHTML = '';
         _statsApi = renderStatsCards({ container: 'finance-stats-root', cards: ctx.derived.statsCards || [], columns: 4 });
       }
-      /* Tabs */
+
       document.querySelectorAll('#finance-tabs .tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === ctx.state.activeTab));
       const bp = document.getElementById('finance-panel-banks');
       const tp = document.getElementById('finance-panel-transactions');
       if (bp) bp.style.display = ctx.state.activeTab === 'banks' ? 'block' : 'none';
       if (tp) tp.style.display = ctx.state.activeTab === 'transactions' ? 'block' : 'none';
-      /* Content */
+
       if (ctx.state.activeTab === 'banks') _paintBanks(ctx);
       else _paintTxns(ctx);
     };
@@ -82,10 +93,11 @@ export default {
     }
 
     syncState();
+    syncSubtitle();
     render();
 
     const unsub = ctx.onDataChange((key) => {
-      if (key === '__APP__') syncState();
+      if (key === '__APP__') { syncState(); syncSubtitle(); }
       render();
     });
 
@@ -93,8 +105,6 @@ export default {
       destroy: () => {
         unsub();
         if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} }
-        if (_bankApi) { try { _bankApi.destroy(); } catch (e) {} }
-        if (_txnApi) { try { _txnApi.destroy(); } catch (e) {} }
         if (_tabH) tabsRoot?.removeEventListener('click', _tabH);
         if (_filterH) filterRoot?.removeEventListener('change', _filterH);
       },
@@ -229,3 +239,10 @@ function _filterTxns(txns, filters, year, month) {
   if (filters.member) out = out.filter((t) => t.memberId === filters.member);
   return [...out].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 }
+
+/* ═══════════════════════════════════════════
+   END OF FILE
+   File: js/pages/finance-overview.js
+   Version: v103.0.19
+   Batch: B20
+   ═══════════════════════════════════════════ */

@@ -1,4 +1,11 @@
-// settlements.js — 結算清單（v103.0.18）
+// ============================================
+// settlements.js — 結算清單（v103.0.19）
+// 位置：js/pages/settlements.js
+// ============================================
+// v103.0.19 修正：
+//   ✅ 加 view toggle（卡片/表格切換）
+// ============================================
+
 import { formatHKD } from '../lib/format.js';
 import { esc } from '../lib/dom.js';
 import { mergeSettlementData } from '../lib/merge.js';
@@ -12,6 +19,8 @@ import { openExpenseModal } from '../lib/expense-modal.js';
 import { renderPageFilter } from '../shared/page-filter.js';
 import { renderStatsCards } from '../shared/stats-cards.js';
 import { renderDataTable } from '../shared/data-table.js';
+import { renderDataCard } from '../shared/data-card.js';
+import { initViewToggle } from '../ui/view-toggle.js';
 import { RESERVED_IDS } from '../config/constants.js';
 
 export default {
@@ -20,13 +29,15 @@ export default {
   state: {
     filters: { year: '', month: '', source: '' },
     sortMode: 'pending-first',
+    view: 'table',
   },
   derived: {},
   blocks: [],
 
   customMount: (ctx) => {
     let _rows = [], _filtered = [];
-    let _statsApi = null, _tableApi = null, _filterInstance = null, _sortH = null, _monthlyUnsub = null;
+    let _statsApi = null, _tableApi = null, _cardApi = null;
+    let _filterInstance = null, _sortH = null, _monthlyUnsub = null, _toggle = null;
 
     const reload = () => {
       const { year, month } = AppState.getYearMonth();
@@ -40,7 +51,7 @@ export default {
     const render = () => {
       _filtered = applySort(applyFilters(_rows, ctx.state.filters), ctx.state.sortMode);
       _paintStats();
-      _paintTable();
+      _paintList();
     };
 
     const _paintStats = () => {
@@ -60,57 +71,80 @@ export default {
       });
     };
 
-    const _paintTable = () => {
+    const _columns = [
+      { id: 'source', label: '來源', defaultVisible: true },
+      { id: 'yearMonth', label: '年月', defaultVisible: true },
+      { id: 'member', label: '成員', defaultVisible: true },
+      { id: 'name', label: '項目名稱', defaultVisible: true },
+      { id: 'amount', label: '金額', defaultVisible: true, type: 'number' },
+      { id: 'date', label: '日期', defaultVisible: true },
+      { id: 'status', label: '狀態', defaultVisible: true },
+    ];
+
+    const _resolvers = {
+      source: (_, r) => r.source === 'insurance' ? '<span class="badge badge-success">🛡 保險</span>' : '<span class="badge badge-info">🏷 個人</span>',
+      yearMonth: (_, r) => `${esc(r.year)}-${esc(r.month)}`,
+      member: (_, r) => r.memberId === RESERVED_IDS.SHARED_MEMBER ? '🏠 家庭共用' : esc(resolveName('members', r.memberId) || r.memberId || '—'),
+      name: (_, r) => esc(r.name),
+      amount: (v) => formatHKD(v),
+      status: (v, r) => `<span class="badge ${r.isDone ? 'badge-success' : 'badge-pending'}">${esc(v)}</span>`,
+    };
+
+    const _hooks = (canInput) => ({
+      customActions: canInput ? (row) => [
+        { label: '編輯', icon: 'pencil', className: 'btn-ghost', action: 'edit', onClick: () => {
+          if (row.source === 'insurance') { showToast('保險請至「保險清單表」編輯', 'info', 3000); window.location.href = 'insurance.html'; return; }
+          openExpenseModal({
+            row: { id: row._ref?.expenseId, year: row.year, month: row.month, memberId: row.memberId, name: row.name, amount: row.amount, date: row.date, categoryId: row.categoryId, itemId: row.itemId, paymentMethodId: row.paymentMethodId, bankId: row.bankId, status: row.isDone ? 'done' : 'pending' },
+            onSuccess: reload,
+          });
+        }},
+        { label: row.source === 'insurance' ? '取消扣款' : '刪除', icon: 'trash-2', className: 'btn-danger', action: 'del', onClick: async () => {
+          const ok = await openConfirm(`確定要刪除「${row.name}」嗎？`, { okText: '刪除', okClass: 'btn-danger' });
+          if (!ok) return;
+          try {
+            if (row.source === 'personal' && row._ref) await removeExpense(row.year, row.month, row._ref.memberId, row._ref.expenseId);
+            showToast('✅ 已刪除', 'success'); reload();
+          } catch (e) { showToast('刪除失敗：' + e.message, 'error'); }
+        }},
+      ] : () => [],
+    });
+
+    const _paintList = () => {
       const root = document.getElementById('settlement-table-root');
       if (!root) return;
       if (_tableApi) { try { _tableApi.destroy(); } catch (e) {} _tableApi = null; }
+      if (_cardApi) { try { _cardApi.destroy(); } catch (e) {} _cardApi = null; }
+
       const canInput = AppState.getCanInput();
-      _tableApi = renderDataTable({
-        container: root,
-        entityKey: '__settlement__',
-        rows: _filtered,
-        tableId: 'settlement-table',
-        options: {
-          mobileCardMode: true,
-          columns: [
-            { id: 'source', label: '來源', defaultVisible: true },
-            { id: 'yearMonth', label: '年月', defaultVisible: true },
-            { id: 'member', label: '成員', defaultVisible: true },
-            { id: 'name', label: '項目名稱', defaultVisible: true },
-            { id: 'amount', label: '金額', defaultVisible: true, type: 'number' },
-            { id: 'date', label: '日期', defaultVisible: true },
-            { id: 'status', label: '狀態', defaultVisible: true },
-          ],
-          resolvers: {
-            source: (_, r) => r.source === 'insurance' ? '<span class="badge badge-success">🛡 保險</span>' : '<span class="badge badge-info">🏷 個人</span>',
-            yearMonth: (_, r) => `${esc(r.year)}-${esc(r.month)}`,
-            member: (_, r) => r.memberId === RESERVED_IDS.SHARED_MEMBER ? '🏠 家庭共用' : esc(resolveName('members', r.memberId) || r.memberId || '—'),
-            name: (_, r) => esc(r.name),
-            amount: (v) => formatHKD(v),
-            status: (v, r) => `<span class="badge ${r.isDone ? 'badge-success' : 'badge-pending'}">${esc(v)}</span>`,
+
+      if (ctx.state.view === 'card') {
+        _cardApi = renderDataCard({
+          container: root,
+          entityKey: '__settlement__',
+          rows: _filtered,
+          options: {
+            gridClass: 'grid grid-3',
+            columns: _columns,
+            resolvers: _resolvers,
           },
-          storageKey: 'settlement-table',
-        },
-        hooks: {
-          customActions: canInput ? (row) => [
-            { label: '編輯', icon: 'pencil', className: 'btn-ghost', action: 'edit', onClick: () => {
-              if (row.source === 'insurance') { showToast('保險請至「保險清單表」編輯', 'info', 3000); window.location.href = 'insurance.html'; return; }
-              openExpenseModal({
-                row: { id: row._ref?.expenseId, year: row.year, month: row.month, memberId: row.memberId, name: row.name, amount: row.amount, date: row.date, categoryId: row.categoryId, itemId: row.itemId, paymentMethodId: row.paymentMethodId, bankId: row.bankId, status: row.isDone ? 'done' : 'pending' },
-                onSuccess: reload,
-              });
-            }},
-            { label: row.source === 'insurance' ? '取消扣款' : '刪除', icon: 'trash-2', className: 'btn-danger', action: 'del', onClick: async () => {
-              const ok = await openConfirm(`確定要刪除「${row.name}」嗎？`, { okText: '刪除', okClass: 'btn-danger' });
-              if (!ok) return;
-              try {
-                if (row.source === 'personal' && row._ref) await removeExpense(row.year, row.month, row._ref.memberId, row._ref.expenseId);
-                showToast('✅ 已刪除', 'success'); reload();
-              } catch (e) { showToast('刪除失敗：' + e.message, 'error'); }
-            }},
-          ] : () => [],
-        },
-      });
+          hooks: _hooks(canInput),
+        });
+      } else {
+        _tableApi = renderDataTable({
+          container: root,
+          entityKey: '__settlement__',
+          rows: _filtered,
+          tableId: 'settlement-table',
+          options: {
+            mobileCardMode: true,
+            columns: _columns,
+            resolvers: _resolvers,
+            storageKey: 'settlement-table',
+          },
+          hooks: _hooks(canInput),
+        });
+      }
     };
 
     const { year, month } = AppState.getYearMonth();
@@ -127,6 +161,18 @@ export default {
     _sortH = (e) => { ctx.state.sortMode = e.target.value; render(); };
     document.getElementById('settlement-sort')?.addEventListener('change', _sortH);
 
+    /* 🆕 view toggle */
+    _toggle = initViewToggle({
+      containerId: 'settlement-view-toggle',
+      storageKey: 'settlement-view',
+      defaultView: 'table',
+      onChange: (view) => {
+        ctx.state.view = view;
+        _paintList();
+      },
+    });
+    ctx.state.view = _toggle?.getView() || 'table';
+
     const unsub = ctx.onDataChange((key) => { if (key === '__APP__') reload(); });
 
     reload();
@@ -138,8 +184,17 @@ export default {
         if (_filterInstance) { try { _filterInstance.destroy(); } catch (e) {} }
         if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} }
         if (_tableApi) { try { _tableApi.destroy(); } catch (e) {} }
+        if (_cardApi) { try { _cardApi.destroy(); } catch (e) {} }
+        if (_toggle) { try { _toggle.destroy(); } catch (e) {} }
         if (_sortH) document.getElementById('settlement-sort')?.removeEventListener('change', _sortH);
       },
     };
   },
 };
+
+/* ═══════════════════════════════════════════
+   END OF FILE
+   File: js/pages/settlements.js
+   Version: v103.0.19
+   Batch: B20
+   ═══════════════════════════════════════════ */

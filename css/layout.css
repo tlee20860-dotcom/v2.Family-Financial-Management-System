@@ -1,9 +1,8 @@
 /* ============================================
-   layout.css — App Shell 版型（v101.3）
-   ============================================
-   v101.3 修正：
-     ✅ 手機版 backdrop 從 sidebar 右側開始（left: 260px）
-     ✅ backdrop 不再覆蓋 sidebar，避免點擊被攔截
+   layout.css — App Shell 版型（v103.0.19）
+   -------------------------------------------------
+   v103.0.19 修正：
+     ✅ .sidebar-nav 加 min-height: 0（修正側欄無法滾到底）
    ============================================ */
 
 .app-shell {
@@ -48,7 +47,9 @@
 
 .sidebar-nav {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 12px 0 24px;
 }
 
@@ -91,9 +92,6 @@
   white-space: nowrap;
 }
 
-/* ============================================
-   分類群組
-   ============================================ */
 .nav-group {
   margin-bottom: 4px;
 }
@@ -165,7 +163,6 @@
   font-size: 13px;
 }
 
-/* 摺疊狀態（桌面） */
 .sidebar.collapsed {
   width: 64px;
 }
@@ -195,7 +192,6 @@
   min-width: 0;
 }
 
-/* ================= Navbar ================= */
 .navbar {
   height: 64px;
   flex-shrink: 0;
@@ -246,7 +242,6 @@
   box-shadow: var(--glass-shadow-hover);
 }
 
-/* ================= Content ================= */
 .content {
   flex: 1;
   padding: 24px;
@@ -270,24 +265,20 @@
   color: var(--text-muted);
 }
 
-/* ================= Grid ================= */
 .grid { display: grid; gap: 16px; }
 .grid-2 { grid-template-columns: repeat(2, 1fr); }
 .grid-3 { grid-template-columns: repeat(3, 1fr); }
 .grid-4 { grid-template-columns: repeat(4, 1fr); }
 
-/* ================= 平板 ================= */
 @media (max-width: 1024px) {
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
   .grid-3 { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* ================= 手機 ================= */
 @media (max-width: 640px) {
   .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
   .content { padding: 16px; }
 
-  /* Sidebar 抽屜 */
   .sidebar {
     position: fixed !important;
     top: 0 !important;
@@ -295,15 +286,13 @@
     height: 100vh !important;
     width: 260px !important;
     z-index: 10001 !important;
-    overflow-y: auto !important;     /* 🆕 允許內部滾動 */
-    overflow-x: hidden !important;
+    overflow: hidden !important;
     transition: left 0.3s ease !important;
   }
   .sidebar.mobile-open {
     left: 0 !important;
   }
 
-  /* 取消摺疊 */
   .sidebar.collapsed {
     width: 260px !important;
   }
@@ -321,12 +310,11 @@
     padding-left: 52px;
   }
 
-  /* 🆕 Backdrop：從 sidebar 右側開始，不覆蓋 sidebar */
   .sidebar-backdrop {
     display: none;
     position: fixed;
     top: 0;
-    left: 260px;                    /* 🔑 從 sidebar 寬度開始 */
+    left: 260px;
     right: 0;
     bottom: 0;
     background: rgba(0, 0, 0, 0.6);
@@ -337,7 +325,6 @@
     display: block;
   }
 
-  /* Navbar */
   .navbar {
     padding: 0 12px;
     gap: 8px;
@@ -346,3 +333,10 @@
   .navbar-title { display: none !important; }
   .navbar-user { margin-left: auto; }
 }
+
+/* ═══════════════════════════════════════════
+   END OF FILE
+   File: css/layout.css
+   Version: v103.0.19
+   Batch: B20
+   ═══════════════════════════════════════════ */
