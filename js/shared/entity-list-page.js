@@ -1,9 +1,9 @@
 // ============================================
-// entity-list-page.js — 實體列表頁骨架（v103.0.11）
+// entity-list-page.js — 實體列表頁骨架（v103.0.14）
 // 位置：js/shared/entity-list-page.js
 // ============================================
-// v103.0.11 修正：
-//   ✅ [H04] escapeHtml 改從 lib/dom.js 導入
+// v103.0.14 修正：
+//   ✅ [問題5] 加 mobileCardMode 選項傳遞給 renderDataTable
 // ============================================
 
 import { getEntityDef, getEntityUi } from '../entity/entity-definitions.js';
@@ -13,15 +13,11 @@ import { renderDataTable } from './data-table.js';
 import { renderDataCard } from './data-card.js';
 import { openEntityModal } from '../entity/entity-modal.js';
 import { openConfirm } from '../ui/modal.js';
-import { showToast } from '../ui/toast.js';
 import { createListenerGroup } from './listener-group.js';
 import { handleSubmit } from './form-handler.js';
 import { deleteEntity, listenEntity } from '../entity/entity-helpers.js';
 import { initViewToggle } from '../ui/view-toggle.js';
 
-/* ============================================
-   主函式
-   ============================================ */
 export function initEntityListPage(options) {
   const {
     entity,
@@ -61,6 +57,7 @@ export function initEntityListPage(options) {
     showViewToggle = false,
     showHeader = true,
     storageKey = null,
+    mobileCardMode = false,   // 🆕 v103.0.14 [問題5]
   } = extraOptions;
 
   let _rows = [];
@@ -162,7 +159,10 @@ export function initEntityListPage(options) {
         entityKey: entity,
         rows: _rows,
         tableId: `${entity}-table`,
-        options: extraOptions,
+        options: {
+          ...extraOptions,
+          mobileCardMode,   // 🆕 v103.0.14 [問題5] 傳遞
+        },
         hooks: {
           ...hooks,
           onEdit: canEdit ? _handleEdit : undefined,
@@ -294,9 +294,6 @@ export function initEntityListPage(options) {
   }
 }
 
-/* ============================================
-   便利函式
-   ============================================ */
 export function initEntityListPages(configs = []) {
   return configs.map((cfg) => initEntityListPage(cfg));
 }

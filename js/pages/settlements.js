@@ -1,22 +1,30 @@
 // ============================================
-// settlements.js — 結算清單（v103.0.11 Page Schema）
+// settlements.js — 結算清單（v103.0.14 Page Schema）
 // 位置：js/pages/settlements.js
 // ============================================
-// v103.0.11 修正：
-//   ✅ [B06] 移除 .settlement-status-select 死代碼（表格用 badge 顯示，非 select）
-//   ✅ [B07] 統一版本號 v103.0.11
+// v103.0.14 修正：
+//   ✅ [問題5] 加編輯按鈕 + 編輯 Modal
+//   ✅ [問題5] mobileCardMode: true
+//   ✅ [問題1] 成員名稱改用 entity-registry 解析
 // ============================================
 
 import { formatHKD } from '../lib/format.js';
 import { esc } from '../lib/dom.js';
 import { mergeSettlementData } from '../lib/merge.js';
-import { listenAllMemberExpenses, removeExpense } from '../core/db.js';
+import { listenAllMemberExpenses, removeExpense, updateExpense } from '../core/db.js';
+import { resolveName } from '../config/entity-registry.js';
 import { AppState } from '../core/state.js';
 import { showToast } from '../ui/toast.js';
 import { openConfirm } from '../ui/modal.js';
+import { buildForm } from '../ui/form-builder.js';
+import { openModal, closeModal } from '../ui/modal.js';
 import { renderPageFilter } from '../shared/page-filter.js';
 import { renderStatsCards } from '../shared/stats-cards.js';
 import { renderDataTable } from '../shared/data-table.js';
+import { RESERVED_IDS } from '../config/constants.js';
+import { getDynamicOptions } from '../entity/entity-helpers.js';
+
+const EDIT_MODAL_ID = 'settlement-edit-modal';
 
 export default {
   title: '結算清單',
@@ -64,6 +72,7 @@ export default {
         rows: _filtered,
         tableId: 'settlement-table',
         options: {
+          mobileCardMode: true,
           columns: [
             { id: 'source', label: '來源', defaultVisible: true },
             { id: 'yearMonth', label: '年月', defaultVisible: true },
@@ -78,7 +87,10 @@ export default {
               ? '<span class="badge badge-success">🛡 保險</span>'
               : '<span class="badge badge-info">🏷 個人</span>',
             yearMonth: (_, r) => `${esc(r.year)}-${esc(r.month)}`,
-            member: (_, r) => esc(r.memberId),
+            member: (_, r) => {
+              if (r.memberId === RESERVED_IDS.SHARED_MEMBER) return '🏠 家庭共用';
+              return esc(resolveName('members', r.memberId) || r.memberId || '—');
+            },
             name: (_, r) => esc(r.name),
             amount: (v) => formatHKD(v),
             status: (v, r) => `<span class="badge ${r.isDone ? 'badge-success' : 'badge-pending'}">${esc(v)}</span>`,
@@ -86,25 +98,28 @@ export default {
           storageKey: 'settlement-table',
         },
         hooks: {
-          customActions: userCanInput ? (row) => [{
-            label: row.source === 'insurance' ? '取消扣款' : '刪除',
-            icon: 'trash-2',
-            className: 'btn-danger',
-            action: 'del',
-            onClick: async (r) => {
-              const ok = await openConfirm(`確定要刪除「${r.name}」嗎？`, { okText: '刪除', okClass: 'btn-danger' });
-              if (!ok) return;
-              try {
-                if (r.source === 'personal' && r._ref) {
-                  await removeExpense(r.year, r.month, r._ref.memberId, r._ref.expenseId);
-                }
-                showToast('✅ 已刪除', 'success');
-                reload();
-              } catch (e) {
-                showToast('刪除失敗：' + e.message, 'error');
-              }
+          customActions: userCanInput ? (row) => [
+            {
+              label: '編輯', icon: 'pencil', className: 'btn-ghost', action: 'edit',
+              onClick: (r) => _openEditModal(r, reload),
             },
-          }] : () => [],
+            {
+              label: row.source === 'insurance' ? '取消扣款' : '刪除', icon: 'trash-2', className: 'btn-danger', action: 'del',
+              onClick: async (r) => {
+                const ok = await openConfirm(`確定要刪除「${r.name}」嗎？`, { okText: '刪除', okClass: 'btn-danger' });
+                if (!ok) return;
+                try {
+                  if (r.source === 'personal' && r._ref) {
+                    await removeExpense(r.year, r.month, r._ref.memberId, r._ref.expenseId);
+                  }
+                  showToast('✅ 已刪除', 'success');
+                  reload();
+                } catch (e) {
+                  showToast('刪除失敗：' + e.message, 'error');
+                }
+              },
+            },
+          ] : () => [],
         },
       });
     };
@@ -126,7 +141,6 @@ export default {
       });
     };
 
-    /* 初次設定 */
     const { year, month } = AppState.getYearMonth();
     ctx.state.filters.year = String(year);
     ctx.state.filters.month = month === 'all' ? '' : String(month);
@@ -167,10 +181,111 @@ export default {
         if (_sortHandler) {
           document.getElementById('settlement-sort')?.removeEventListener('change', _sortHandler);
         }
+        document.getElementById(EDIT_MODAL_ID)?.remove();
       },
     };
   },
 };
+
+/* ============================================
+   編輯 Modal
+   ============================================ */
+async function _openEditModal(row, onSaved) {
+  if (row.source === 'insurance') {
+    showToast('保險扣款請至「保險清單表」編輯', 'info', 3000);
+    window.location.href = 'insurance.html';
+    return;
+  }
+
+  document.getElementById(EDIT_MODAL_ID)?.remove();
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = EDIT_MODAL_ID;
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:560px; max-height:90vh; overflow-y:auto;">
+      <h2 class="modal-title">編輯支出</h2>
+      <div id="${EDIT_MODAL_ID}-form-root"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeModal(EDIT_MODAL_ID);
+  });
+
+  const categories = await getDynamicOptions('categories');
+  const payments = await getDynamicOptions('payments');
+  const banks = await getDynamicOptions('bankAccounts');
+  const items = row.categoryId
+    ? await getDynamicOptions('items', { categoryId: row.categoryId })
+    : [];
+
+  buildForm({
+    containerId: `${EDIT_MODAL_ID}-form-root`,
+    fields: [
+      { type: 'text', id: 'ed-name', label: '項目名稱', required: true, maxlength: 60 },
+      { type: 'number', id: 'ed-amount', label: '金額（HK$）', required: true, min: 0, step: 1 },
+      { type: 'text', id: 'ed-date', label: '日期（YYYY-MM-DD）', required: false },
+      { type: 'select', id: 'ed-category', label: '類別', includeEmpty: true, options: categories },
+      { type: 'select', id: 'ed-item', label: '項目', includeEmpty: true, options: items },
+      { type: 'select', id: 'ed-payment', label: '支付方式', includeEmpty: true, options: payments },
+      { type: 'select', id: 'ed-bank', label: '銀行（可選）', includeEmpty: true, options: banks },
+      { type: 'select', id: 'ed-status', label: '狀態', includeEmpty: false, options: [
+        { value: 'pending', label: '未處理' },
+        { value: 'done', label: '已處理' },
+      ]},
+    ],
+    submitText: '儲存',
+    showCancel: true,
+    cancelText: '取消',
+    initialData: {
+      'ed-name': row.name || '',
+      'ed-amount': row.amount || 0,
+      'ed-date': row.date || '',
+      'ed-category': row.categoryId || '',
+      'ed-item': row.itemId || '',
+      'ed-payment': row.paymentMethodId || '',
+      'ed-bank': row.bankId || '',
+      'ed-status': row.status === 'done' || row.isDone ? 'done' : 'pending',
+    },
+    onSubmit: async (data) => {
+      try {
+        const ref = row._ref || {};
+        await updateExpense(row.year, row.month, ref.memberId, ref.expenseId, {
+          name: data['ed-name'],
+          amount: Number(data['ed-amount']) || 0,
+          date: data['ed-date'] || '',
+          categoryId: data['ed-category'] || '',
+          itemId: data['ed-item'] || '',
+          paymentMethodId: data['ed-payment'] || '',
+          bankId: data['ed-bank'] || '',
+          status: data['ed-status'],
+        });
+        showToast('✅ 已更新支出', 'success');
+        closeModal(EDIT_MODAL_ID);
+        if (typeof onSaved === 'function') onSaved();
+      } catch (err) {
+        showToast('儲存失敗：' + err.message, 'error');
+      }
+    },
+    onCancel: () => closeModal(EDIT_MODAL_ID),
+  });
+
+  /* 類別變更 → 更新項目 */
+  const catEl = document.getElementById('ed-category');
+  const itemEl = document.getElementById('ed-item');
+  if (catEl && itemEl) {
+    catEl.addEventListener('change', async () => {
+      const catId = catEl.value;
+      const list = await getDynamicOptions('items', { categoryId: catId });
+      let html = '<option value="">— 請選擇項目 —</option>';
+      list.forEach((o) => { html += `<option value="${esc(o.value)}">${esc(o.label)}</option>`; });
+      itemEl.innerHTML = html;
+    });
+  }
+
+  openModal(EDIT_MODAL_ID);
+  if (window.lucide) window.lucide.createIcons();
+}
 
 /* ============================================
    Helpers

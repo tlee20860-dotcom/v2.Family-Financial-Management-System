@@ -1,19 +1,21 @@
 // ============================================
-// column-registry.js — 表格欄位 SSOT（v103.0.11）
+// column-registry.js — 表格欄位 SSOT（v103.0.14）
 // 位置：js/config/column-registry.js
 // ============================================
-// v103.0.11 修正：
-//   ✅ [H08] formatHKD / formatNumber 改從 lib/format.js 導入
-//   ✅ [H08] escapeHtml 改從 lib/dom.js 導入（別名 esc）
+// v103.0.14 修正：
+//   ✅ [問題1] settlements.member 用 resolveName 解析成員名稱
+//   ✅ [問題3] items.categoryId 用 resolveName 解析類別名稱
 // ============================================
 
 import { formatHKD, formatNumber } from '../lib/format.js';
 import { esc as escapeHtml } from '../lib/dom.js';
+import { resolveName } from './entity-registry.js';
 import {
   BANK_TXN_TYPE_LABELS,
   BANK_TXN_CATEGORY_LABELS,
   BANK_TXN_CATEGORY_BADGES,
   BANK_ACCOUNT_TYPE_LABELS,
+  RESERVED_IDS,
 } from './constants.js';
 import { badgeClass as statusBadgeClass, label as statusLabel } from './status-registry.js';
 
@@ -22,20 +24,17 @@ import { badgeClass as statusBadgeClass, label as statusLabel } from './status-r
    ============================================ */
 export const COLUMNS = {
 
-  /* ---------- 成員 ---------- */
   members: [
     { id: 'name',  label: '名稱', defaultVisible: true, defaultWidth: 160 },
     { id: 'role',  label: '角色', defaultVisible: true, defaultWidth: 120 },
     { id: 'order', label: '排序', defaultVisible: true, defaultWidth: 80, type: 'number' },
   ],
 
-  /* ---------- 銀行（舊） ---------- */
   banks: [
     { id: 'name',  label: '名稱', defaultVisible: true, defaultWidth: 160 },
     { id: 'order', label: '排序', defaultVisible: true, defaultWidth: 80, type: 'number' },
   ],
 
-  /* ---------- 銀行帳號（新） ---------- */
   bankAccounts: [
     { id: 'order',          label: '排序',     defaultVisible: true,  defaultWidth: 60 },
     { id: 'name',           label: '名稱',     defaultVisible: true,  defaultWidth: 160 },
@@ -44,25 +43,21 @@ export const COLUMNS = {
     { id: 'initialYM',      label: '初始年月', defaultVisible: true,  defaultWidth: 110 },
   ],
 
-  /* ---------- 支出類別 ---------- */
   categories: [
     { id: 'name',  label: '名稱', defaultVisible: true, defaultWidth: 200 },
     { id: 'order', label: '排序', defaultVisible: true, defaultWidth: 80, type: 'number' },
   ],
 
-  /* ---------- 支出項目 ---------- */
   items: [
     { id: 'name',       label: '名稱',   defaultVisible: true, defaultWidth: 200 },
     { id: 'categoryId', label: '所屬類別', defaultVisible: true, defaultWidth: 140 },
   ],
 
-  /* ---------- 支付方式 ---------- */
   payments: [
     { id: 'name',  label: '名稱', defaultVisible: true, defaultWidth: 160 },
     { id: 'order', label: '排序', defaultVisible: true, defaultWidth: 80, type: 'number' },
   ],
 
-  /* ---------- 狀態 ---------- */
   statuses: [
     { id: 'name',     label: '名稱',   defaultVisible: true, defaultWidth: 140 },
     { id: 'category', label: '所屬類別', defaultVisible: true, defaultWidth: 110 },
@@ -70,12 +65,10 @@ export const COLUMNS = {
     { id: 'order',    label: '排序',   defaultVisible: true, defaultWidth: 70, type: 'number' },
   ],
 
-  /* ---------- 保險公司 ---------- */
   companies: [
     { id: 'name', label: '名稱', defaultVisible: true, defaultWidth: 160 },
   ],
 
-  /* ---------- 基金 ---------- */
   funds: [
     { id: 'name',         label: '基金名稱', defaultVisible: true, defaultWidth: 200 },
     { id: 'cost',         label: '投入成本', defaultVisible: true, defaultWidth: 130, type: 'number' },
@@ -84,7 +77,6 @@ export const COLUMNS = {
     { id: 'note',         label: '備註',     defaultVisible: false, defaultWidth: 180 },
   ],
 
-  /* ---------- 保險保單 ---------- */
   insurance: [
     { id: 'name',         label: '保單名稱', defaultVisible: true, defaultWidth: 200 },
     { id: 'company',      label: '保險公司', defaultVisible: true, defaultWidth: 120 },
@@ -97,7 +89,6 @@ export const COLUMNS = {
     { id: 'progress',     label: '進度',     defaultVisible: true, defaultWidth: 140 },
   ],
 
-  /* ---------- 結算清單 ---------- */
   settlements: [
     { id: 'source',    label: '來源',     defaultVisible: true, defaultWidth: 90 },
     { id: 'yearMonth', label: '年月',     defaultVisible: true, defaultWidth: 90 },
@@ -108,7 +99,6 @@ export const COLUMNS = {
     { id: 'status',    label: '狀態',     defaultVisible: true, defaultWidth: 140 },
   ],
 
-  /* ---------- 銀行交易 ---------- */
   bankTransactions: [
     { id: 'date',       label: '日期', defaultVisible: true, defaultWidth: 110 },
     { id: 'bankName',   label: '銀行', defaultVisible: true, defaultWidth: 100 },
@@ -119,7 +109,6 @@ export const COLUMNS = {
     { id: 'note',       label: '備註', defaultVisible: true, defaultWidth: 180 },
   ],
 
-  /* ---------- 儀表板：年度總覽 ---------- */
   dashboardAnnual: [
     { id: 'year',         label: '年度',     defaultVisible: true, defaultWidth: 100 },
     { id: 'totalIncome',  label: '家庭收入', defaultVisible: true, defaultWidth: 130, type: 'number' },
@@ -129,7 +118,6 @@ export const COLUMNS = {
     { id: 'avg',          label: '每月平均', defaultVisible: true, defaultWidth: 130, type: 'number' },
   ],
 
-  /* ---------- 年度報表：全年總合 ---------- */
   annualSummary: [
     { id: 'name',           label: '成員',     defaultVisible: true, defaultWidth: 100 },
     { id: 'income',         label: '家用轉入', defaultVisible: true, defaultWidth: 120, type: 'number' },
@@ -138,7 +126,16 @@ export const COLUMNS = {
     { id: 'net',            label: '淨結餘',   defaultVisible: true, defaultWidth: 130, type: 'number' },
   ],
 
-  /* ---------- 成員報表 ---------- */
+  annualMonthly: [
+    { id: 'date',       label: '日期',     defaultVisible: true, defaultWidth: 110 },
+    { id: 'memberName', label: '成員',     defaultVisible: true, defaultWidth: 100 },
+    { id: 'categoryName', label: '類別',   defaultVisible: true, defaultWidth: 100 },
+    { id: 'itemName',   label: '項目',     defaultVisible: true, defaultWidth: 120 },
+    { id: 'name',       label: '名稱',     defaultVisible: true, defaultWidth: 180 },
+    { id: 'amount',     label: '金額',     defaultVisible: true, defaultWidth: 110, type: 'number' },
+    { id: 'status',     label: '狀態',     defaultVisible: true, defaultWidth: 120 },
+  ],
+
   memberReport: [
     { id: 'name',           label: '成員',     defaultVisible: true, defaultWidth: 140 },
     { id: 'income',         label: '家用轉入', defaultVisible: true, defaultWidth: 140, type: 'number' },
@@ -179,8 +176,10 @@ export const RESOLVERS = {
   },
 
   items: {
+    /* 🆕 v103.0.14 [問題3]：用 resolveName 解析類別名稱 */
     categoryId: (val) => {
-      const name = val || '—';
+      if (!val) return '<span class="badge badge-muted">—</span>';
+      const name = resolveName('categories', val) || val;
       return `<span class="badge badge-info">${escapeHtml(name)}</span>`;
     },
   },
@@ -239,7 +238,12 @@ export const RESOLVERS = {
       return `<span class="badge ${cfg.cls}">${cfg.label}</span>`;
     },
     yearMonth: (_, row) => `${escapeHtml(row.year)}-${escapeHtml(row.month)}`,
-    member: (val) => escapeHtml(val || '—'),
+    /* 🆕 v103.0.14 [問題1]：用 resolveName 解析成員名稱 */
+    member: (_, row) => {
+      if (row.memberId === RESERVED_IDS.SHARED_MEMBER) return '🏠 家庭共用';
+      const name = resolveName('members', row.memberId) || row.memberId || '—';
+      return escapeHtml(name);
+    },
     name: (val) => escapeHtml(val || '—'),
     amount: (val) => formatHKD(val),
     date: (val) => escapeHtml(val || '—'),
@@ -288,6 +292,16 @@ export const RESOLVERS = {
     personalIncome: (val) => val > 0 ? `<span class="text-cyan">${formatHKD(val)}</span>` : '<span class="text-muted">—</span>',
     expense: (val) => val > 0 ? `<span class="text-red">${formatHKD(val)}</span>` : '<span class="text-muted">—</span>',
     net: (val) => `<span class="${val >= 0 ? 'text-emerald' : 'text-red'}">${formatHKD(val)}</span>`,
+  },
+
+  annualMonthly: {
+    date: (val) => `<span class="mono" style="font-size:12px;">${escapeHtml(val || '—')}</span>`,
+    memberName: (val) => escapeHtml(val || '—'),
+    categoryName: (val) => val ? `<span class="badge badge-info">${escapeHtml(val)}</span>` : '<span class="badge badge-muted">—</span>',
+    itemName: (val) => escapeHtml(val || '—'),
+    name: (val) => escapeHtml(val || '—'),
+    amount: (val) => `<span class="mono text-red">${formatHKD(val)}</span>`,
+    status: (val) => `<span class="badge ${val && val.startsWith('已') ? 'badge-success' : 'badge-pending'}">${escapeHtml(val || '—')}</span>`,
   },
 
   memberReport: {

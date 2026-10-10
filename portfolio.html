@@ -27,6 +27,10 @@
         </div>
 
         <div id="portfolio-stats-root"></div>
+
+        <!-- 🆕 v103.0.14：view toggle 容器 -->
+        <div id="portfolio-view-toggle" class="mb-16"></div>
+
         <div id="fund-card-view"></div>
         <div id="fund-table-view" style="display:none;"></div>
 
@@ -52,11 +56,19 @@
   <script type="module">
     import { initApp } from './js/layout/app-shell.js';
     import { createPage } from './js/engines/page-engine.js';
+    import { openEntityModal } from './js/entity/entity-modal.js';
     import schema from './js/pages/portfolio.js';
 
     const user = await initApp({ activeHref: 'portfolio.html', title: '基金投資表' });
     if (user) {
       await createPage(schema);
+
+      /* 綁定新增基金按鈕 */
+      const addBtn = document.getElementById('add-fund-btn');
+      const addFirst = document.getElementById('add-first-fund-btn');
+      const handler = () => openEntityModal({ entity: 'fund', mode: 'add' });
+      addBtn?.addEventListener('click', handler);
+      addFirst?.addEventListener('click', handler);
     }
   </script>
 </body>

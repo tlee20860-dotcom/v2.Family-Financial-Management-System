@@ -27,8 +27,20 @@
           </button>
         </div>
 
+        <!-- 🆕 v103.0.14：控制列（年份切換 + view toggle） -->
+        <div class="report-controls">
+          <div id="annual-year-switcher"></div>
+          <div id="annual-view-toggle"></div>
+        </div>
+
+        <!-- 月份切換（僅月度明細顯示時可用） -->
+        <div id="annual-month-switcher" class="mb-16"></div>
+
         <div id="annual-stats-root"></div>
-        <div id="summary-table-root"></div>
+
+        <!-- 兩個 view -->
+        <div id="annual-summary-view"></div>
+        <div id="annual-monthly-view" style="display:none;"></div>
       </main>
     </div>
   </div>
