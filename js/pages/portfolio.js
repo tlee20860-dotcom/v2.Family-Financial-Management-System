@@ -1,9 +1,10 @@
 // ============================================
-// portfolio.js — 基金投資表（v103.0.15 Page Schema）
+// portfolio.js — 基金投資表（v103.0.16 Page Schema）
 // 位置：js/pages/portfolio.js
 // ============================================
-// v103.0.15 修正：
-//   ✅ [P17-02] table view 改用 block（page-engine 自動渲染）
+// v103.0.16 修正：
+//   ✅ [P17-02] 完全用 blocks（card + table 兩個 block）
+//   ✅ page-engine 自動通知資料更新
 // ============================================
 
 import { formatHKD } from '../lib/format.js';
@@ -12,59 +13,49 @@ import { deleteEntity } from '../entity/entity-helpers.js';
 import { openConfirm } from '../ui/modal.js';
 import { showToast } from '../ui/toast.js';
 import { initViewToggle } from '../ui/view-toggle.js';
-import { renderDataCard } from '../shared/data-card.js';
 import { ENTITY_KEYS } from '../config/constants.js';
 
 export default {
   title: '基金投資表',
   data: { funds: { type: 'list', path: 'funds' } },
   state: { view: 'card' },
+
   derived: {
     statsCards: { deps: ['data.funds'], compute: _buildStats },
     rows: { deps: ['data.funds'], compute: _buildRows },
   },
+
   blocks: [
     { type: 'stats', container: 'portfolio-stats-root', cards: '$.statsCards' },
+    {
+      type: 'list',
+      container: 'fund-card-view',
+      rows: '$.rows',
+      columns: 'funds',
+      view: 'card',
+      entityKey: 'fund',
+      tableId: 'portfolio-card',
+      emptyText: '尚無基金持倉',
+      actions: (row, ctx) => _actions(row, ctx),
+    },
     {
       type: 'list',
       container: 'fund-table-view',
       rows: '$.rows',
       columns: 'funds',
-      tableId: 'portfolio-table',
       view: 'table',
+      tableId: 'portfolio-table',
       emptyText: '尚無基金持倉',
       actions: (row, ctx) => _actions(row, ctx),
     },
   ],
 
   customMount: (ctx) => {
-    let _cardApi = null, _toggle = null;
+    let _toggle = null;
 
-    const renderCard = () => {
-      const cardEl = document.getElementById('fund-card-view');
-      if (!cardEl) return;
-      if (_cardApi) { try { _cardApi.destroy(); } catch (e) {} _cardApi = null; }
-      const rows = ctx.derived.rows || [];
-      if (rows.length === 0) {
-        cardEl.innerHTML = '<div class="glass-card"><div class="empty-state">尚無基金持倉</div></div>';
-        return;
-      }
-      _cardApi = renderDataCard({
-        container: cardEl,
-        entityKey: ENTITY_KEYS.FUND,
-        rows,
-        options: { gridClass: 'grid grid-3' },
-        hooks: {
-          onEdit: (row) => openEntityModal({ entity: ENTITY_KEYS.FUND, mode: 'edit', id: row.id, allRows: rows }),
-          onDelete: (row) => _delete(row),
-        },
-      });
-    };
-
-    const renderView = (view) => {
+    const switchView = (view) => {
       document.getElementById('fund-card-view').style.display = view === 'card' ? 'block' : 'none';
       document.getElementById('fund-table-view').style.display = view === 'table' ? 'block' : 'none';
-      if (view === 'card') renderCard();
     };
 
     _toggle = initViewToggle({
@@ -73,19 +64,13 @@ export default {
       defaultView: 'card',
       cardText: '卡片',
       tableText: '表格',
-      onChange: (view) => { ctx.state.view = view; renderView(view); },
+      onChange: (view) => { ctx.state.view = view; switchView(view); },
     });
 
-    renderView(_toggle?.getView() || 'card');
-
-    const _orig = ctx.invalidate;
-    ctx.invalidate = (k) => { _orig(k); setTimeout(() => { if (ctx.state.view === 'card') renderCard(); }, 0); };
+    switchView(_toggle?.getView() || 'card');
 
     return {
-      destroy: () => {
-        if (_cardApi) { try { _cardApi.destroy(); } catch (e) {} }
-        if (_toggle) { try { _toggle.destroy(); } catch (e) {} }
-      },
+      destroy: () => { if (_toggle) { try { _toggle.destroy(); } catch (e) {} } },
     };
   },
 };
@@ -108,14 +93,16 @@ function _buildStats(funds) {
 }
 
 function _buildRows(funds) {
-  return (funds || []).map((f) => ({ ...f, _pnl: (Number(f.currentValue) || 0) - (Number(f.cost) || 0) }));
+  return funds || [];
 }
 
 function _actions(row, ctx) {
   const allRows = (ctx && ctx.derived && ctx.derived.rows) || [];
   return [
-    { label: '編輯', icon: 'pencil', className: 'btn-ghost', action: 'edit', onClick: () => openEntityModal({ entity: ENTITY_KEYS.FUND, mode: 'edit', id: row.id, allRows }) },
-    { label: '刪除', icon: 'trash-2', className: 'btn-danger', action: 'delete', onClick: () => _delete(row) },
+    { label: '編輯', icon: 'pencil', className: 'btn-ghost', action: 'edit',
+      onClick: () => openEntityModal({ entity: ENTITY_KEYS.FUND, mode: 'edit', id: row.id, allRows }) },
+    { label: '刪除', icon: 'trash-2', className: 'btn-danger', action: 'delete',
+      onClick: () => _delete(row) },
   ];
 }
 

@@ -1,25 +1,23 @@
 // ============================================
-// dashboard.js — 總覽儀表板（v103.0.15 Page Schema）
+// dashboard.js — 總覽儀表板（v103.0.17 Page Schema）
 // 位置：js/pages/dashboard.js
 // ============================================
-// v103.0.15 修正：
-//   ✅ [P17-03] 加 onYearMonthChange hook
+// v103.0.17 修正：
+//   ✅ 用 ctx.onDataChange 統一訂閱（無補丁）
 // ============================================
 
 import { calcTotalBankBalance } from '../lib/bank.js';
 import { formatHKD } from '../lib/format.js';
 import { AppState } from '../core/state.js';
 
-let _ctx = null;
-
 export default {
   title: '總覽儀表板',
   data: {
-    bankAccounts:     { type: 'list', path: 'bank_accounts' },
+    bankAccounts: { type: 'list', path: 'bank_accounts' },
     bankTransactions: { type: 'object', path: 'bank_accounts', transform: _flatten },
-    members:          { type: 'list', path: 'members' },
-    allIncome:        { type: 'raw', path: 'income' },
-    allExpenses:      { type: 'raw', path: 'expenses' },
+    members: { type: 'list', path: 'members' },
+    allIncome: { type: 'raw', path: 'income' },
+    allExpenses: { type: 'raw', path: 'expenses' },
   },
   state: {
     currentYear: String(AppState.year || new Date().getFullYear()),
@@ -28,10 +26,7 @@ export default {
   derived: {
     totalBankBalance: {
       deps: ['data.bankAccounts', 'data.bankTransactions', 'state.currentYear', 'state.currentMonth'],
-      compute: (accounts, txns, year, month) => {
-        const tM = month === 'all' ? '12' : (month || '12');
-        return calcTotalBankBalance(accounts || [], txns || [], year, tM);
-      },
+      compute: (a, t, y, m) => calcTotalBankBalance(a || [], t || [], y, m === 'all' ? '12' : (m || '12')),
     },
     yearTotals: {
       deps: ['data.allIncome', 'data.allExpenses', 'state.currentYear'],
@@ -39,7 +34,7 @@ export default {
     },
     statsCards: {
       deps: ['totalBankBalance', 'data.bankAccounts', 'state.currentYear', 'yearTotals'],
-      compute: (b, a, y, t) => _buildCards(b, a, y, t),
+      compute: _buildCards,
     },
     subtitle: {
       deps: ['data.members', 'data.bankAccounts', 'data.bankTransactions', 'state.currentYear'],
@@ -50,21 +45,30 @@ export default {
     { type: 'stats', container: 'stats-cards-root', cards: '$.statsCards' },
   ],
 
-  onYearMonthChange: () => { if (_ctx) _updateSubtitle(_ctx); },
-
   customMount: (ctx) => {
-    _ctx = ctx;
-    _updateSubtitle(ctx);
-    const _orig = ctx.invalidate;
-    ctx.invalidate = (k) => { _orig(k); setTimeout(() => _updateSubtitle(ctx), 0); };
-    return { destroy: () => { _ctx = null; } };
+    const syncYear = () => {
+      const y = String(AppState.year || new Date().getFullYear());
+      if (ctx.state.currentYear !== y) ctx.state.currentYear = y;
+      const m = String(AppState.month || '12');
+      if (ctx.state.currentMonth !== m) ctx.state.currentMonth = m;
+    };
+
+    const update = () => {
+      const el = document.getElementById('dashboard-subtitle');
+      if (el) el.textContent = ctx.derived.subtitle || '載入中…';
+    };
+
+    update();
+
+    /* 🆕 統一訂閱 */
+    const unsub = ctx.onDataChange((key) => {
+      if (key === '__APP__') syncYear();
+      update();
+    });
+
+    return { destroy: unsub };
   },
 };
-
-function _updateSubtitle(ctx) {
-  const el = document.getElementById('dashboard-subtitle');
-  if (el) el.textContent = ctx.derived.subtitle || '載入中…';
-}
 
 /* ============================================
    Helpers
@@ -88,13 +92,18 @@ function _computeYearTotals(allIncome, allExpenses, year) {
   const ye = (allExpenses || {})[yk] || {};
   let totalExpense = 0, monthCount = 0;
   Object.values(ye).forEach((md) => {
-    const me = md?.member_expenses || {};
+    const me = (md && md.member_expenses) || {};
     let s = 0;
-    Object.values(me).forEach((items) => Object.values(items || {}).forEach((e) => { s += Number(e?.amount) || 0; }));
+    Object.values(me).forEach((items) => Object.values(items || {}).forEach((e) => { s += Number(e && e.amount) || 0; }));
     if (s > 0) monthCount++;
     totalExpense += s;
   });
-  return { totalIncome: Math.round(totalIncome), totalExpense: Math.round(totalExpense), net: Math.round(totalIncome - totalExpense), monthCount };
+  return {
+    totalIncome: Math.round(totalIncome),
+    totalExpense: Math.round(totalExpense),
+    net: Math.round(totalIncome - totalExpense),
+    monthCount,
+  };
 }
 
 function _buildCards(totalBankBalance, accounts, year, yearTotals) {

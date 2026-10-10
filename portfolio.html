@@ -28,21 +28,10 @@
 
         <div id="portfolio-stats-root"></div>
 
-        <!-- 🆕 v103.0.14：view toggle 容器 -->
         <div id="portfolio-view-toggle" class="mb-16"></div>
 
         <div id="fund-card-view"></div>
         <div id="fund-table-view" style="display:none;"></div>
-
-        <div class="glass-card" id="fund-empty-state" style="display:none;">
-          <div class="empty-state">
-            <i data-lucide="line-chart" style="width:48px;height:48px;opacity:0.4;"></i>
-            <p style="margin-top:12px;">尚無基金持倉</p>
-            <button type="button" class="btn btn-primary" id="add-first-fund-btn" style="margin-top:12px;">
-              <i data-lucide="plus"></i> 新增第一筆基金
-            </button>
-          </div>
-        </div>
       </main>
     </div>
   </div>
@@ -62,13 +51,9 @@
     const user = await initApp({ activeHref: 'portfolio.html', title: '基金投資表' });
     if (user) {
       await createPage(schema);
-
-      /* 綁定新增基金按鈕 */
-      const addBtn = document.getElementById('add-fund-btn');
-      const addFirst = document.getElementById('add-first-fund-btn');
-      const handler = () => openEntityModal({ entity: 'fund', mode: 'add' });
-      addBtn?.addEventListener('click', handler);
-      addFirst?.addEventListener('click', handler);
+      document.getElementById('add-fund-btn')?.addEventListener('click', () => {
+        openEntityModal({ entity: 'fund', mode: 'add' });
+      });
     }
   </script>
 </body>

@@ -1,357 +1,158 @@
-// ============================================
-// data-table.js — 通用表格渲染（v103.0.11）
-// 位置：js/shared/data-table.js
-// ============================================
-// v103.0.11 修正：
-//   ✅ [H04] escapeHtml / formatCellValue 改從 lib/ 導入
-// ============================================
-
+// data-table.js — 通用表格渲染（v103.0.18）
 import { getEntityDef, getEntityUi } from '../entity/entity-definitions.js';
 import { esc as escapeHtml } from '../lib/dom.js';
 import { formatCellValue } from '../lib/format.js';
 import { initColumnSettings } from './column-settings.js';
 
 const LISTENER_KEY = '__dtClickListener';
-const COLLAPSE_STORAGE_PREFIX = 'fin_ui_collapse_';
+const COLLAPSE_PREFIX = 'fin_ui_collapse_';
+
+function _render(root, html) {
+  if (root.__lastHtml === html) return false;
+  root.__lastHtml = html;
+  root.innerHTML = html;
+  if (window.lucide) window.lucide.createIcons();
+  return true;
+}
 
 export function renderDataTable(options) {
-  const {
-    container,
-    entityKey,
-    rows,
-    tableId,
-    options: extraOptions = {},
-    hooks = {},
-  } = options;
-
-  const root = _resolveElement(container);
-  if (!root) {
-    console.warn('⚠️ renderDataTable: 找不到容器', container);
-    return null;
-  }
+  const { container, entityKey, rows, tableId, options: extra = {}, hooks = {} } = options;
+  const root = _resolveEl(container);
+  if (!root) return null;
 
   const def = getEntityDef(entityKey);
-  const customColumns = extraOptions.columns;
-  const hasCustomColumns = Array.isArray(customColumns) && customColumns.length > 0;
-
-  if (!def && !hasCustomColumns) {
-    console.warn(`⚠️ renderDataTable: 找不到實體 ${entityKey}，且未提供自訂欄位`);
-    return null;
-  }
+  const customCols = extra.columns;
+  const hasCustom = Array.isArray(customCols) && customCols.length > 0;
+  if (!def && !hasCustom) return null;
 
   const effectiveDef = def || { fields: [] };
-  const effectiveUi = def
-    ? (getEntityUi(entityKey) || {})
-    : { canEdit: false, canDelete: false };
-
+  const effectiveUi = def ? (getEntityUi(entityKey) || {}) : { canEdit: false, canDelete: false };
   const _tableId = tableId || entityKey;
   const {
-    resolvers = {},
-    mobileCardMode = false,
-    tableClass = '',
-    expandable = false,
-    renderDetail = null,
-    collapsible = false,
-    defaultCollapsed = false,
-    headerActions = [],
-    storageKey = _tableId,
-  } = extraOptions;
+    resolvers = {}, mobileCardMode = false, tableClass = '',
+    expandable = false, renderDetail = null,
+    collapsible = false, defaultCollapsed = false,
+    headerActions = [], storageKey = _tableId,
+  } = extra;
 
-  const finalTableClass = [
-    'data-table',
-    mobileCardMode ? 'mobile-cards' : '',
-    tableClass,
-  ].filter(Boolean).join(' ');
-
+  const finalClass = ['data-table', mobileCardMode ? 'mobile-cards' : '', tableClass].filter(Boolean).join(' ');
   const fieldMap = {};
   (effectiveDef.fields || []).forEach((f) => { fieldMap[f.id] = f; });
 
-  let allColumns;
-  if (hasCustomColumns) {
-    allColumns = customColumns.map((c) => ({ ...c }));
-  } else {
+  let allCols;
+  if (hasCustom) allCols = customCols.map((c) => ({ ...c }));
+  else {
     const listCols = effectiveUi.listColumns || (effectiveDef.fields || []).map((f) => f.id);
-    allColumns = listCols.map((id) => {
-      const field = fieldMap[id];
-      return {
-        id,
-        label: field?.label || id,
-        type: field?.type || 'text',
-        defaultVisible: true,
-      };
+    allCols = listCols.map((id) => {
+      const f = fieldMap[id];
+      return { id, label: f?.label || id, type: f?.type || 'text', defaultVisible: true };
     });
   }
 
-  const hasBuiltinActions = (effectiveUi.canEdit !== false) || (effectiveUi.canDelete !== false);
+  const hasBuiltin = (effectiveUi.canEdit !== false) || (effectiveUi.canDelete !== false);
   const hasCustomActions = typeof hooks.customActions === 'function';
-  const shouldRenderActions = hasBuiltinActions || hasCustomActions;
-
-  if (shouldRenderActions && !allColumns.some((c) => c.id === '__actions__')) {
-    allColumns.push({
-      id: '__actions__',
-      label: '操作',
-      type: 'actions',
-      defaultVisible: true,
-      defaultWidth: 180,
-    });
+  const shouldActions = hasBuiltin || hasCustomActions;
+  if (shouldActions && !allCols.some((c) => c.id === '__actions__')) {
+    allCols.push({ id: '__actions__', label: '操作', type: 'actions', defaultVisible: true, defaultWidth: 180 });
   }
 
-  const collapseKey = `${COLLAPSE_STORAGE_PREFIX}${storageKey}`;
+  const collapseKey = `${COLLAPSE_PREFIX}${storageKey}`;
   let _collapsed = false;
   if (collapsible) {
-    try {
-      const saved = localStorage.getItem(collapseKey);
-      _collapsed = saved === null ? defaultCollapsed : saved === 'true';
-    } catch (e) {
-      _collapsed = defaultCollapsed;
-    }
+    try { const s = localStorage.getItem(collapseKey); _collapsed = s === null ? defaultCollapsed : s === 'true'; } catch (e) {}
   }
 
-  const _expandedRows = new Set();
+  const _expanded = new Set();
+  const colSettings = initColumnSettings({ tableId: _tableId, columns: allCols });
+  const _rows = typeof hooks.beforeRender === 'function' ? (hooks.beforeRender(rows) || rows) : rows;
 
-  const colSettings = initColumnSettings({
-    tableId: _tableId,
-    columns: allColumns,
-  });
+  _paint();
 
-  const _beforeRows = typeof hooks.beforeRender === 'function'
-    ? (hooks.beforeRender(rows) || rows)
-    : rows;
-
-  _render();
-
-  function _render() {
-    const visibleCols = colSettings.getVisibleColumns();
-
-    if (!_beforeRows || _beforeRows.length === 0) {
-      _renderEmpty(root);
+  function _paint() {
+    const visible = colSettings.getVisibleColumns();
+    if (!_rows || _rows.length === 0) {
+      _render(root, `<div class="glass-card"><div class="empty-state">尚無資料</div></div>`);
+      _bind();
       return;
     }
-
-    const totalCols = visibleCols.length + (expandable ? 1 : 0);
-
-    const leftHtml = collapsible
-      ? `<button type="button" class="btn btn-sm btn-ghost" data-action="toggle-collapse">
-          <i data-lucide="${_collapsed ? 'chevron-right' : 'chevron-down'}" style="width:14px;height:14px;"></i>
-          <span>共 ${_beforeRows.length} 筆</span>
-        </button>`
-      : `<span class="text-muted" style="font-size:12px;">共 ${_beforeRows.length} 筆</span>`;
-
-    const headerActionsHtml = headerActions.map((a) => `
-      <button type="button" class="btn btn-sm ${escapeHtml(a.className || 'btn-ghost')}"
-              data-action="${escapeHtml(a.action)}">
-        ${a.icon ? `<i data-lucide="${escapeHtml(a.icon)}" style="width:14px;height:14px;"></i>` : ''}
-        <span>${escapeHtml(a.label)}</span>
-      </button>
-    `).join('');
-
-    root.innerHTML = `
-      <div class="data-table-header">
-        <div class="data-table-header-left">
-          ${leftHtml}
-        </div>
-        <div class="data-table-header-right">
-          <button type="button" class="btn btn-sm btn-ghost" data-action="column-settings" title="欄位設定">
-            <i data-lucide="columns" style="width:14px;height:14px;"></i>
-            <span class="hide-mobile">欄位</span>
-          </button>
-          ${headerActionsHtml}
-        </div>
-      </div>
-      <div class="data-table-body" style="display:${_collapsed ? 'none' : 'block'};">
-        <div class="glass-card collapsible-card collapsible-card-flat" style="padding:0;">
-          <div class="data-table-scroll-wrapper">
-            <table class="${finalTableClass}">
-              <thead>
-                <tr>
-                  ${expandable ? '<th class="expand-col" style="width:36px;"></th>' : ''}
-                  ${visibleCols.map((col) => _renderTh(col, colSettings)).join('')}
-                </tr>
-              </thead>
-              <tbody>
-                ${_beforeRows.map((row, i) => _renderRowWithDetail(row, i, visibleCols, totalCols)).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    `;
-
-    _bindEvents();
-    if (window.lucide) window.lucide.createIcons();
+    const total = visible.length + (expandable ? 1 : 0);
+    const left = collapsible
+      ? `<button type="button" class="btn btn-sm btn-ghost" data-action="toggle-collapse"><i data-lucide="${_collapsed ? 'chevron-right' : 'chevron-down'}" style="width:14px;height:14px;"></i><span>共 ${_rows.length} 筆</span></button>`
+      : `<span class="text-muted" style="font-size:12px;">共 ${_rows.length} 筆</span>`;
+    const headerActionsHtml = headerActions.map((a) => `<button type="button" class="btn btn-sm ${escapeHtml(a.className || 'btn-ghost')}" data-action="${escapeHtml(a.action)}">${a.icon ? `<i data-lucide="${escapeHtml(a.icon)}" style="width:14px;height:14px;"></i>` : ''}<span>${escapeHtml(a.label)}</span></button>`).join('');
+    const head = `<thead><tr>${expandable ? '<th class="expand-col" style="width:36px;"></th>' : ''}${visible.map((c) => {
+      const w = colSettings.getWidth(c.id);
+      return `<th class="${c.type === 'number' ? 'num' : ''}" ${w ? `style="width:${w}px;"` : ''}>${escapeHtml(c.label)}</th>`;
+    }).join('')}</tr></thead>`;
+    const body = _rows.map((row, i) => _rowHtml(row, i, visible, total)).join('');
+    const html = `<div class="data-table-header"><div class="data-table-header-left">${left}</div><div class="data-table-header-right"><button type="button" class="btn btn-sm btn-ghost" data-action="column-settings" title="欄位設定"><i data-lucide="columns" style="width:14px;height:14px;"></i><span class="hide-mobile">欄位</span></button>${headerActionsHtml}</div></div><div class="data-table-body" style="display:${_collapsed ? 'none' : 'block'};"><div class="glass-card collapsible-card collapsible-card-flat" style="padding:0;"><div class="data-table-scroll-wrapper"><table class="${finalClass}">${head}<tbody>${body}</tbody></table></div></div></div>`;
+    _render(root, html);
+    _bind();
     if (typeof hooks.afterRender === 'function') hooks.afterRender(root);
   }
 
-  function _renderTh(col, settings) {
-    const width = settings.getWidth(col.id);
-    const style = width ? `style="width:${width}px;"` : '';
-    const cls = col.type === 'number' ? 'num' : '';
-    return `<th class="${cls}" ${style}>${escapeHtml(col.label)}</th>`;
+  function _rowHtml(row, i, visible, total) {
+    const main = `<tr data-row-index="${i}">${expandable ? `<td class="expand-col"><button type="button" class="btn btn-sm btn-ghost" data-action="toggle-expand" data-index="${i}" style="padding:2px 6px;"><i data-lucide="${_expanded.has(i) ? 'chevron-down' : 'chevron-right'}" style="width:14px;height:14px;"></i></button></td>` : ''}${visible.map((c, ci) => _cell(c, row, ci === 0)).join('')}</tr>`;
+    if (!expandable || typeof renderDetail !== 'function') return main;
+    return main + `<tr class="detail-row" data-detail-index="${i}" style="display:${_expanded.has(i) ? 'table-row' : 'none'};"><td colspan="${total}" class="detail-cell">${renderDetail(row)}</td></tr>`;
   }
 
-  function _renderRowWithDetail(row, index, visibleCols, totalCols) {
-    const mainRow = `
-      <tr data-row-index="${index}">
-        ${expandable ? `
-          <td class="expand-col">
-            <button type="button" class="btn btn-sm btn-ghost" data-action="toggle-expand" data-index="${index}" style="padding:2px 6px;">
-              <i data-lucide="${_expandedRows.has(index) ? 'chevron-down' : 'chevron-right'}" style="width:14px;height:14px;"></i>
-            </button>
-          </td>
-        ` : ''}
-        ${visibleCols.map((col, colIdx) => _renderTd(col, row, colIdx === 0)).join('')}
-      </tr>
-    `;
-
-    if (!expandable || typeof renderDetail !== 'function') {
-      return mainRow;
-    }
-
-    const isExpanded = _expandedRows.has(index);
-    const detailRow = `
-      <tr class="detail-row" data-detail-index="${index}" style="display:${isExpanded ? 'table-row' : 'none'};">
-        <td colspan="${totalCols}" class="detail-cell">
-          ${renderDetail(row)}
-        </td>
-      </tr>
-    `;
-
-    return mainRow + detailRow;
-  }
-
-  function _renderTd(col, row, isFirst) {
-    if (col.id === '__actions__') {
-      return `<td data-label="操作">${_renderActions(col, row)}</td>`;
-    }
-
+  function _cell(col, row, isFirst) {
+    if (col.id === '__actions__') return `<td data-label="操作">${_actions(col, row)}</td>`;
     if (typeof hooks.customCellRender === 'function') {
-      const custom = hooks.customCellRender(col, row);
-      if (custom !== null && custom !== undefined) {
-        return `<td data-label="${escapeHtml(col.label)}" ${isFirst ? 'data-primary="1"' : ''}>${custom}</td>`;
-      }
+      const c = hooks.customCellRender(col, row);
+      if (c !== null && c !== undefined) return `<td data-label="${escapeHtml(col.label)}" ${isFirst ? 'data-primary="1"' : ''}>${c}</td>`;
     }
-
     const val = row[col.id];
-    const resolver = resolvers[col.id];
-    const content = resolver ? resolver(val, row) : formatCellValue(val, col.type);
-
-    const cls = col.type === 'number' ? 'num' : '';
-    const dataLabel = isFirst ? 'data-primary="1"' : `data-label="${escapeHtml(col.label)}"`;
-
-    return `<td class="${cls}" ${dataLabel}>${content}</td>`;
+    const r = resolvers[col.id];
+    const content = r ? r(val, row) : formatCellValue(val, col.type);
+    return `<td class="${col.type === 'number' ? 'num' : ''}" ${isFirst ? 'data-primary="1"' : `data-label="${escapeHtml(col.label)}"`}>${content}</td>`;
   }
 
-  function _renderActions(col, row) {
-    let actionsHtml = '';
-
+  function _actions(col, row) {
+    let h = '';
     if (typeof hooks.customActions === 'function') {
-      const customActions = hooks.customActions(row) || [];
-      actionsHtml += customActions.map((a) => `
-        <button type="button" class="btn btn-sm ${escapeHtml(a.className || 'btn-ghost')}"
-                data-action="${escapeHtml(a.action || 'custom')}">
-          ${a.icon ? `<i data-lucide="${escapeHtml(a.icon)}" style="width:14px;height:14px;"></i>` : ''}
-          ${escapeHtml(a.label)}
-        </button>
-      `).join('');
+      h += (hooks.customActions(row) || []).map((a) => `<button type="button" class="btn btn-sm ${escapeHtml(a.className || 'btn-ghost')}" data-action="${escapeHtml(a.action || 'custom')}">${a.icon ? `<i data-lucide="${escapeHtml(a.icon)}" style="width:14px;height:14px;"></i>` : ''}${escapeHtml(a.label)}</button>`).join('');
     }
-
-    const ui = effectiveUi;
-    if (ui.canEdit !== false) {
-      actionsHtml += `<button type="button" class="btn btn-sm btn-ghost" data-action="edit">
-        <i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯
-      </button>`;
-    }
-    if (ui.canDelete !== false) {
-      actionsHtml += `<button type="button" class="btn btn-sm btn-danger" data-action="delete">
-        <i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除
-      </button>`;
-    }
-
-    return actionsHtml;
+    if (effectiveUi.canEdit !== false) h += `<button type="button" class="btn btn-sm btn-ghost" data-action="edit"><i data-lucide="pencil" style="width:14px;height:14px;"></i> 編輯</button>`;
+    if (effectiveUi.canDelete !== false) h += `<button type="button" class="btn btn-sm btn-danger" data-action="delete"><i data-lucide="trash-2" style="width:14px;height:14px;"></i> 刪除</button>`;
+    return h;
   }
 
-  function _bindEvents() {
-    const oldListener = root[LISTENER_KEY];
-    if (oldListener) {
-      root.removeEventListener('click', oldListener);
-      root[LISTENER_KEY] = null;
-    }
-
+  function _bind() {
+    const old = root[LISTENER_KEY];
+    if (old) root.removeEventListener('click', old);
     const listener = (e) => {
-      const collapseBtn = e.target.closest('button[data-action="toggle-collapse"]');
-      if (collapseBtn) {
-        _collapsed = !_collapsed;
-        try { localStorage.setItem(collapseKey, String(_collapsed)); } catch (err) {}
-        _render();
+      const colBtn = e.target.closest('button[data-action="toggle-collapse"]');
+      if (colBtn) { _collapsed = !_collapsed; try { localStorage.setItem(collapseKey, String(_collapsed)); } catch (err) {} _paint(); return; }
+      const expBtn = e.target.closest('button[data-action="toggle-expand"]');
+      if (expBtn) { const i = Number(expBtn.dataset.index); _expanded.has(i) ? _expanded.delete(i) : _expanded.add(i); _paint(); return; }
+      const hBtn = e.target.closest('.data-table-header-right button[data-action]');
+      if (hBtn) {
+        const a = hBtn.dataset.action;
+        if (a === 'column-settings') { colSettings.openPanel({ onChange: _paint }); return; }
+        const m = headerActions.find((x) => x.action === a);
+        if (m?.onClick) { e.stopPropagation(); m.onClick(); return; }
         return;
       }
-
-      const expandBtn = e.target.closest('button[data-action="toggle-expand"]');
-      if (expandBtn) {
-        const idx = Number(expandBtn.dataset.index);
-        if (_expandedRows.has(idx)) _expandedRows.delete(idx);
-        else _expandedRows.add(idx);
-        _render();
-        return;
-      }
-
-      const headerActionBtn = e.target.closest('.data-table-header-right button[data-action]');
-      if (headerActionBtn) {
-        const action = headerActionBtn.dataset.action;
-        if (action === 'column-settings') {
-          colSettings.openPanel({ onChange: () => _render() });
-          return;
-        }
-        const matched = headerActions.find((a) => a.action === action);
-        if (matched && typeof matched.onClick === 'function') {
-          e.stopPropagation();
-          matched.onClick();
-          return;
-        }
-        return;
-      }
-
-      const actionBtn = e.target.closest('tbody button[data-action]');
-      if (actionBtn) {
-        const action = actionBtn.dataset.action;
-        const tr = actionBtn.closest('tr[data-row-index]');
+      const actBtn = e.target.closest('tbody button[data-action]');
+      if (actBtn) {
+        const a = actBtn.dataset.action;
+        const tr = actBtn.closest('tr[data-row-index]');
         if (!tr) return;
-
-        const index = Number(tr.dataset.rowIndex);
-        const row = _beforeRows[index];
+        const row = _rows[Number(tr.dataset.rowIndex)];
         if (!row) return;
-
         if (typeof hooks.customActions === 'function') {
-          const customActions = hooks.customActions(row) || [];
-          const matched = customActions.find((a) => (a.action || 'custom') === action);
-          if (matched && typeof matched.onClick === 'function') {
-            e.stopPropagation();
-            matched.onClick(row);
-            return;
-          }
+          const m = (hooks.customActions(row) || []).find((x) => (x.action || 'custom') === a);
+          if (m?.onClick) { e.stopPropagation(); m.onClick(row); return; }
         }
-
-        if (action === 'edit' && typeof hooks.onEdit === 'function') {
-          e.stopPropagation();
-          hooks.onEdit(row);
-          return;
-        }
-        if (action === 'delete' && typeof hooks.onDelete === 'function') {
-          e.stopPropagation();
-          hooks.onDelete(row);
-          return;
-        }
+        if (a === 'edit' && hooks.onEdit) { e.stopPropagation(); hooks.onEdit(row); return; }
+        if (a === 'delete' && hooks.onDelete) { e.stopPropagation(); hooks.onDelete(row); return; }
         return;
       }
-
       const tr = e.target.closest('tr[data-row-index]');
-      if (tr && typeof hooks.onRowClick === 'function') {
-        const index = Number(tr.dataset.rowIndex);
-        const row = _beforeRows[index];
-        if (row) hooks.onRowClick(row);
-      }
+      if (tr && hooks.onRowClick) hooks.onRowClick(_rows[Number(tr.dataset.rowIndex)]);
     };
-
     root.addEventListener('click', listener);
     root[LISTENER_KEY] = listener;
   }
@@ -359,28 +160,18 @@ export function renderDataTable(options) {
   return {
     container: root,
     table: root.querySelector('table'),
-    refresh: () => _render(),
+    refresh: _paint,
     destroy: () => {
-      const oldListener = root[LISTENER_KEY];
-      if (oldListener) {
-        root.removeEventListener('click', oldListener);
-        root[LISTENER_KEY] = null;
-      }
+      const old = root[LISTENER_KEY];
+      if (old) root.removeEventListener('click', old);
       root.innerHTML = '';
+      root.__lastHtml = '';
     },
   };
 }
 
-function _resolveElement(target) {
-  if (typeof target === 'string') return document.getElementById(target);
-  if (target instanceof HTMLElement) return target;
+function _resolveEl(t) {
+  if (typeof t === 'string') return document.getElementById(t);
+  if (t instanceof HTMLElement) return t;
   return null;
-}
-
-function _renderEmpty(root) {
-  root.innerHTML = `
-    <div class="glass-card">
-      <div class="empty-state">尚無資料</div>
-    </div>
-  `;
 }
