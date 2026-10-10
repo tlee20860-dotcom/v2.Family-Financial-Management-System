@@ -1,8 +1,8 @@
-# 重構計畫 — v102.1.0 → v103.0.11
+# 重構計畫 — v102.1.0 → v103.0.18
 
-最後更新：2026-10-10
+最後更新：B19
 狀態：重構完成 ✅
-實際執行時間：1 天（含部署修復）
+實際執行：含 B12~B19 修復
 
 方案代號：F（終極宣告式）
 
@@ -19,15 +19,9 @@
 | E 響應式 | 90 | 20,000 | 3,000 | 中高 |
 | **F 終極宣告式** | **95** | **19,300** | **1,200** | **中高** |
 
-選擇 F 理由：
-- 一次性解決所有問題
-- 頁面層精簡 87%
-- 未來新增頁面成本最低
-- 相容層 < 300 行
-
-實際結果：
-- 檔案數：約 111 檔（含 docs / 新增的 debug / catch-all）
-- 頁面層：約 1,400 行（含 5 個 customMount 較複雜頁面）
+實際結果（v103.0.18）：
+- 檔案數：約 111 檔（含 docs / debug / entity-resolvers / lib modals）
+- 頁面層：約 1,600 行（含 customMount 頁面）
 
 ═══════════════════════════════════════════════════════
 【二、目標架構】
@@ -52,37 +46,10 @@ L3 核心層：Registry × 5 / Block × 5 / State / API
 
 ■ 3.1 status-registry.js
 
-  export const STATUS = {
-    PENDING: 'pending',
-    DONE: 'done',
-    SKIPPED: 'skipped',
-  };
-
-  export const IS_DONE = {
-    pending: false,
-    done: true,
-    skipped: true,
-  };
-
-  export const LABELS = {
-    default: {
-      pending: '未處理', done: '已處理', skipped: '不適用',
-    },
-    bySource: {
-      personal:  { pending: '未付款', done: '已付款' },
-      fixed:     { pending: '未付款', done: '已付款' },
-      insurance: { pending: '未扣款', done: '已扣款' },
-      income:    { pending: '未轉入', done: '已轉入' },
-    },
-  };
-
-  export const LEGACY_MAP = {
-    '未處理': 'pending', '未還款': 'pending',
-    '未付款': 'pending', '未扣款': 'pending',
-    '已處理': 'done', '已還款': 'done',
-    '已付款': 'done', '已扣款': 'done',
-    '不適用': 'skipped',
-  };
+  export const STATUS = { PENDING: 'pending', DONE: 'done', SKIPPED: 'skipped' };
+  export const IS_DONE = {...};
+  export const LABELS = {...};
+  export const LEGACY_MAP = {...};
 
   export function normalize(raw);
   export function isDone(raw);
@@ -106,13 +73,7 @@ L3 核心層：Registry × 5 / Block × 5 / State / API
 ■ 3.3 label-registry.js
 
   export const LABELS = {
-    common: {...},
-    pages: {...},
-    fields: {...},
-    actions: {...},
-    confirm: {...},
-    toast: {...},
-    emptyState: {...},
+    common, pages, fields, actions, confirm, toast, emptyState,
   };
 
   export function L(path, params);
@@ -123,7 +84,7 @@ L3 核心層：Registry × 5 / Block × 5 / State / API
     members, banks, bankAccounts, insurance, funds,
     categories, items, payments, statuses, companies,
     settlements, bankTransactions, dashboardAnnual,
-    annualSummary, memberReport,
+    annualSummary, annualMonthly, memberReport,
   };
 
   export const RESOLVERS = {...};
@@ -143,6 +104,7 @@ L3 核心層：Registry × 5 / Block × 5 / State / API
     SHOW_YEAR_MONTH_PAGES
     DEFAULT_STATUSES / DEFAULT_OPTIONS
     DEFAULT_YEAR_RANGE / DEFAULT_UI_CONSTANTS
+    PLATFORM_RESOURCES
     buildLinkedKey / getPolicyEffectiveMemberId
     buildColumnSettingsKey
 
@@ -156,12 +118,13 @@ L3 核心層：Registry × 5 / Block × 5 / State / API
 
   schema 格式：
     {
-      title,           // 頁面標題
-      data,            // Firebase 訂閱配置
-      state,           // 響應式狀態初始值
-      derived,         // 衍生資料計算
-      blocks,          // UI 區塊
-      customMount,     // 複雜邏輯逃生艙
+      title,            // 頁面標題
+      data,             // Firebase 訂閱配置
+      state,            // 響應式狀態初始值
+      derived,          // 衍生資料計算
+      blocks,           // UI 區塊
+      onYearMonthChange,// 年月變更 hook（可選）
+      customMount,      // 複雜邏輯逃生艙（可選）
     }
 
   回傳：
@@ -172,6 +135,7 @@ L3 核心層：Registry × 5 / Block × 5 / State / API
       meta, state, data, derived,
       invalidate(key),
       setState(keyPath, value),
+      onDataChange(fn),   // 統一資料變更通知
     }
 
   版本歷程：
@@ -180,6 +144,8 @@ L3 核心層：Registry × 5 / Block × 5 / State / API
     v103.0.4 → 補 data. 前綴
     v103.0.7 → 容忍 undefined 依賴
     v103.0.8 → 修正 _computeOne schema 傳遞
+    v103.0.15 → 加 onYearMonthChange hook
+    v103.0.17 → 加 ctx.onDataChange（B18.1）
 
 ■ 4.2 data-engine.js
 
@@ -189,6 +155,9 @@ L3 核心層：Registry × 5 / Block × 5 / State / API
   export function resolvePath(rawPath, params);
   export function getNestedValue(obj, path);
   export function setNestedValue(obj, path, value);
+
+  支援 type: 'list' | 'object' | 'value' | 'raw'
+  支援 {key} 與 {__all__} 佔位符
 
 ■ 4.3 render-engine.js
 
@@ -214,37 +183,39 @@ L3 核心層：Registry × 5 / Block × 5 / State / API
 | detail-block | 明細展開區 | 各頁 renderDetail |
 | form-block | 表單 Modal 區 | entity-modal + form-builder |
 
+B19 起 block 加 renderInPlace（同 HTML 不重繪）。
+
 ═══════════════════════════════════════════════════════
 【六、檔案結構變動】
 ═══════════════════════════════════════════════════════
 
-■ 刪除（預期）
+■ 刪除
 
   - js/shared/* 部分（重組至 ui / layout / entity / lib）
   - js/pages/input-center/*（合併）
   - js/pages/database/*（合併）
   - js/pages/settlements/*（合併）
   - js/pages/insurance/*（合併）
-  - js/admin/platform-defaults.js（合併至 admin.js）
   - js/core/app.js（改為 layout/app-shell.js）
+  - functions/api/{admin,bank,family,insurance,personal,platform,summary}.js
+    （改 _*.js + [[path]].js）
 
-■ 新增（預期 + 實際）
+■ 新增
 
-  預期：
-    - 5 個 Registry
-    - 4 個 lib（dom / async / lifecycle / registry）
-    - 3 個 engines
-    - 5 個 blocks
-    - 1 個 layout（app-shell）
+  - 5 個 Registry
+  - 4 個 lib（dom / async / lifecycle / registry）
+  - 3 個 engines
+  - 5 個 blocks
+  - 1 個 layout（app-shell）
+  - 1 個 core（debug）
+  - 1 個 entity（entity-resolvers，B18）
+  - 3 個 lib（expense-modal / income-modal / filter-sort，B19）
+  - functions/api/{_admin,_bank,_family,_insurance,_personal,_platform,_summary}.js
+  - functions/api/[[path]].js
 
-  實際額外新增（實戰修復）：
-    - js/core/debug.js（vConsole 注入）
-    - functions/api/[[path]].js（Catch-all 路由）
-    - functions/api/_xxx.js × 7（從 xxx.js 改名）
+■ 修改（~50 檔）
 
-■ 修改（~30 檔）
-
-  修正 import 路徑、修復邏輯錯誤。
+  修正 import 路徑、修復邏輯錯誤、無補丁重構。
 
 ═══════════════════════════════════════════════════════
 【七、舊資料相容策略】
@@ -270,34 +241,28 @@ L3 核心層：Registry × 5 / Block × 5 / State / API
 - modulepreload 並行載入
 - Firebase 監聽器集中
 - Functions Catch-all 路由（統一入口）
+- B19 起 block 就地更新（不 destroy/create）
 
 ═══════════════════════════════════════════════════════
-【九、重構期間相容】
+【九、重構成果】
 ═══════════════════════════════════════════════════════
 
-重構完成後：
-  - 舊 core/app.js 廢除（改用 layout/app-shell.js）
-  - 舊 shared/* 保留仍在使用的 12 檔
-  - 舊 pages/子目錄合併為單檔
-  - 舊 Functions 合併為 10 檔
-
-═══════════════════════════════════════════════════════
-【十、重構成果】
-═══════════════════════════════════════════════════════
-
-| 項目 | v102 | v103 |
+| 項目 | v102 | v103.0.18 |
 |---|---|---|
 | 檔案數 | 104 | 約 111（含新增） |
-| 頁面層行數 | 9,000 | ~1,400 |
+| 頁面層行數 | 9,000 | ~1,600 |
 | Registry 集中 | 0 | 5 |
 | Engine | 0 | 3 |
 | Block | 0 | 5 |
 | Page Schema | 0 | 13 |
 | 手機除錯 | 無 | vConsole |
 | SW 策略 | stale | network-first |
+| 無補丁 | ❌ | ✅（B19） |
+| 統一自動更新 | ❌ | ✅（onDataChange） |
+| 共用 Modal | ❌ | ✅（lib/*-modal） |
 
 關鍵成果：
-  ✅ 頁面層精簡 84%
+  ✅ 頁面層精簡 82%
   ✅ 5 Registry SSOT 集中
   ✅ 3 引擎宣告式
   ✅ 5 Block 可重用
@@ -306,29 +271,26 @@ L3 核心層：Registry × 5 / Block × 5 / State / API
   ✅ 操作邏輯不變
   ✅ 手機 vConsole 除錯
   ✅ 部署一次到位
+  ✅ 無補丁重構
 
 ═══════════════════════════════════════════════════════
-【十一、重構過程遇到的挑戰】
+【十、重構期間挑戰（B12~B19）】
 ═══════════════════════════════════════════════════════
 
-見 incident-log.md 的 13 個問題：
+見 incident-log.md：
 
-P01 CF Functions 路由 500 → Catch-all + 底線前綴
-P02 HTML 缺 .html 匹配 .js → href 加 .html
-P03 _redirects 重定向循環 → 刪除
-P04 page-engine 缺 customMount → 補上
-P05 _onKeyChange 缺 data. 前綴 → 補上
-P06 esc 錯誤導入 → 拆兩行
-P07 derived 對 undefined 崩潰 → 跳過計算
-P08 手機無 Console → vConsole
-P09 app-shell 靜態 import → 動態 import
-P10 SW stale-while-revalidate → network-first
-P11 GitHub 檔案未更新 → 網頁編輯
-P12 database.js 內容錯誤 → 覆蓋
-P13 js/shared/* 舊 import → 全域修正
+B12：阻斷級修復（B01~B07）
+B13：SSOT 統一（H01~H11）
+B14：中優先（M01~M18）
+B15：低優先（L01~L07）
+B16：問題清單修正（P16-01~P16-05）
+B17：問題清單修正（P17-01~P17-06）
+B18：entity-resolvers + portfolio
+B18.1：page-engine onDataChange
+B19：無補丁重構
 
 ═══════════════════════════════════════════════════════
-【十二、教訓總結】
+【十一、教訓總結】
 ═══════════════════════════════════════════════════════
 
 1. Cloudflare Pages Functions
@@ -342,6 +304,7 @@ P13 js/shared/* 舊 import → 全域修正
 
 3. Page Engine
    - 必須支援 customMount
+   - 必須支援 onDataChange
    - 事件 key 與依賴圖一致
    - derived 計算容忍 undefined
 
@@ -364,6 +327,14 @@ P13 js/shared/* 舊 import → 全域修正
    - 不要只看頁面表現
    - GitHub 網頁編輯最安全
 
-═══════════════════════════════════════════════════════
-【結束】
-═══════════════════════════════════════════════════════
+8. 無補丁原則（B19）
+   - 能宣告就不手寫
+   - 能就地更新就不 destroy/create
+   - 更好就換，不為向後相容妥協
+
+/* ═══════════════════════════════════════════
+   END OF FILE
+   File: docs/refactor-plan.md
+   Version: v103.0.18
+   Batch: B19
+   ═══════════════════════════════════════════ */
