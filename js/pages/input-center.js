@@ -1,11 +1,4 @@
-// ============================================
-// input-center.js — 綜合輸入中心（v103.0.19）
-// 位置：js/pages/input-center.js
-// ============================================
-// v103.0.19 修正：
-//   ✅ 支出 Tab 加 view toggle
-// ============================================
-
+// input-center.js — 綜合輸入中心（v103.0.20）
 import { initTabPanel } from '../ui/tab-panel.js';
 import { initEntityListPage } from '../shared/entity-list-page.js';
 import { renderDataTable } from '../shared/data-table.js';
@@ -49,11 +42,11 @@ export default {
       if (!panelEl) return;
 
       if (key === 'insurance') {
-        inst[key] = initEntityListPage({ entity: ENTITY_KEYS.POLICY, containerId: tabDef.panelId, options: { defaultView: 'table', showViewToggle: true, storageKey: 'ic-insurance-view', mobileCardMode: true } });
+        inst[key] = initEntityListPage({ entity: ENTITY_KEYS.POLICY, containerId: tabDef.panelId, options: { defaultView: 'table', showViewToggle: true, storageKey: 'ic-insurance-view' } });
       } else if (key === 'fund') {
-        inst[key] = initEntityListPage({ entity: ENTITY_KEYS.FUND, containerId: tabDef.panelId, options: { defaultView: 'table', showViewToggle: true, storageKey: 'ic-fund-view', mobileCardMode: true } });
+        inst[key] = initEntityListPage({ entity: ENTITY_KEYS.FUND, containerId: tabDef.panelId, options: { defaultView: 'table', showViewToggle: true, storageKey: 'ic-fund-view' } });
       } else if (key === 'bank') {
-        inst[key] = initEntityListPage({ entity: ENTITY_KEYS.BANK, containerId: tabDef.panelId, options: { defaultView: 'table', showViewToggle: true, storageKey: 'ic-bank-view', mobileCardMode: true } });
+        inst[key] = initEntityListPage({ entity: ENTITY_KEYS.BANK, containerId: tabDef.panelId, options: { defaultView: 'table', showViewToggle: true, storageKey: 'ic-bank-view' } });
       } else if (key === 'expense') {
         panelEl.innerHTML = `
           <div class="flex flex-between items-center mb-16 flex-wrap gap-12">
@@ -153,12 +146,7 @@ export default {
           entityKey: '__recent_expense__',
           rows: _expRows,
           tableId: 'ic-recent-expense-table',
-          options: {
-            mobileCardMode: true,
-            columns: _columns,
-            resolvers: _resolvers,
-            storageKey: 'ic-recent-expense-table',
-          },
+          options: { columns: _columns, resolvers: _resolvers, storageKey: 'ic-recent-expense-table' },
           hooks: _hooks(canInput),
         });
       }
@@ -202,6 +190,6 @@ export default {
 /* ═══════════════════════════════════════════
    END OF FILE
    File: js/pages/input-center.js
-   Version: v103.0.19
-   Batch: B20
+   Version: v103.0.20
+   Batch: B22
    ═══════════════════════════════════════════ */

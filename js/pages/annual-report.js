@@ -1,12 +1,4 @@
-// ============================================
-// annual-report.js — 年度報表（v103.0.19）
-// 位置：js/pages/annual-report.js
-// ============================================
-// v103.0.19 修正：
-//   ✅ 修 view toggle：使用 cardValue/tableValue
-//      （'summary' / 'monthly' 為值，而非顯示文字）
-// ============================================
-
+// annual-report.js — 年度報表（v103.0.20）
 import { formatHKD } from '../lib/format.js';
 import { esc } from '../lib/dom.js';
 import { AppState } from '../core/state.js';
@@ -28,9 +20,18 @@ export default {
     view: 'summary',
   },
   derived: {
-    membersRows: { deps: ['data.members', 'data.allIncome', 'data.allExpenses', 'data.allPersonalIncome', 'state.year'], compute: _annualRows },
-    statsCards: { deps: ['membersRows', 'state.year'], compute: _stats },
-    monthlyGroups: { deps: ['data.allIncome', 'data.allExpenses', 'state.year', 'state.displayMonth'], compute: _monthlyGroups },
+    membersRows: {
+      deps: ['data.members', 'data.allIncome', 'data.allExpenses', 'data.allPersonalIncome', 'state.year'],
+      compute: _annualRows,
+    },
+    monthlyGroups: {
+      deps: ['data.allIncome', 'data.allExpenses', 'state.year', 'state.displayMonth'],
+      compute: _monthlyGroups,
+    },
+    statsCards: {
+      deps: ['data.allIncome', 'data.allExpenses', 'data.allPersonalIncome', 'state.year', 'state.view', 'state.displayMonth'],
+      compute: _buildStats,
+    },
   },
   blocks: [
     { type: 'stats', container: 'annual-stats-root', cards: '$.statsCards' },
@@ -67,7 +68,6 @@ export default {
     _renderYearSwitcher(ctx, paint);
     _renderMonthSwitcher(ctx, paint);
 
-    /* 🆕 用 cardValue / tableValue 傳自訂值 */
     _toggle = initViewToggle({
       containerId: 'annual-view-toggle',
       storageKey: 'annual-report-view',
@@ -148,6 +148,76 @@ function _renderMonthSwitcher(ctx, onChange) {
   });
 }
 
+/* ============================================
+   Stats 依 view 切換
+   ============================================ */
+function _buildStats(allIncome, allExpenses, allPersonalIncome, year, view, month) {
+  if (view === 'monthly') return _monthlyStats(allIncome, allExpenses, allPersonalIncome, year, month);
+  return _yearlyStats(allIncome, allExpenses, allPersonalIncome, year);
+}
+
+function _yearlyStats(allIncome, allExpenses, allPersonalIncome, year) {
+  const yk = String(year || '');
+  const yi = (allIncome || {})[yk] || {};
+  let tI = 0;
+  Object.values(yi).forEach((md) => { Object.values(md || {}).forEach((v) => { tI += Number(v) || 0; }); });
+
+  let tPI = 0;
+  Object.values(allPersonalIncome || {}).forEach((memberData) => {
+    Object.values(((memberData || {})[yk] || {})).forEach((v) => { tPI += Number(v) || 0; });
+  });
+
+  const ye = (allExpenses || {})[yk] || {};
+  let tE = 0;
+  Object.values(ye).forEach((md) => {
+    const me = (md && md.member_expenses) || {};
+    Object.values(me).forEach((items) => {
+      Object.values(items || {}).forEach((e) => { tE += Number(e?.amount) || 0; });
+    });
+  });
+
+  const net = tI + tPI - tE;
+  return [
+    { title: `${year} 家用轉入`, value: formatHKD(tI), valueClass: 'emerald', hint: '家庭成員轉入加總', icon: 'trending-up' },
+    { title: `${year} 個人收入`, value: formatHKD(tPI), valueClass: 'cyan', hint: '成員個人收入加總', icon: 'wallet' },
+    { title: `${year} 年度總支出`, value: formatHKD(tE), valueClass: 'red', hint: '含家庭共用支出', icon: 'trending-down' },
+    { title: `${year} 年度淨結餘`, value: formatHKD(net), valueClass: net >= 0 ? 'emerald' : 'red', hint: '轉入 + 個人收入 − 支出', icon: 'calculator' },
+  ];
+}
+
+function _monthlyStats(allIncome, allExpenses, allPersonalIncome, year, month) {
+  const yk = String(year || '');
+  const mk = String(month || '').padStart(2, '0');
+  const label = `${yk}-${mk}`;
+
+  const yi = ((allIncome || {})[yk] || {})[mk] || {};
+  let tI = 0;
+  Object.values(yi).forEach((v) => { tI += Number(v) || 0; });
+
+  let tPI = 0;
+  Object.values(allPersonalIncome || {}).forEach((memberData) => {
+    const yData = (memberData || {})[yk] || {};
+    tPI += Number(yData[mk]) || 0;
+  });
+
+  const me = (((allExpenses || {})[yk] || {})[mk] || {}).member_expenses || {};
+  let tE = 0;
+  Object.values(me).forEach((items) => {
+    Object.values(items || {}).forEach((e) => { tE += Number(e?.amount) || 0; });
+  });
+
+  const net = tI + tPI - tE;
+  return [
+    { title: `${label} 家用轉入`, value: formatHKD(tI), valueClass: 'emerald', hint: '該月轉入加總', icon: 'trending-up' },
+    { title: `${label} 個人收入`, value: formatHKD(tPI), valueClass: 'cyan', hint: '該月個人收入加總', icon: 'wallet' },
+    { title: `${label} 總支出`, value: formatHKD(tE), valueClass: 'red', hint: '該月支出加總', icon: 'trending-down' },
+    { title: `${label} 淨結餘`, value: formatHKD(net), valueClass: net >= 0 ? 'emerald' : 'red', hint: '轉入 + 個人 − 支出', icon: 'calculator' },
+  ];
+}
+
+/* ============================================
+   Derived（表格資料）
+   ============================================ */
 function _annualRows(members, allIncome, allExpenses, allPersonalIncome, year) {
   const yk = String(year || '');
   const yi = (allIncome || {})[yk] || {};
@@ -172,20 +242,6 @@ function _annualRows(members, allIncome, allExpenses, allPersonalIncome, year) {
   const total = rows.reduce((s, r) => ({ income: s.income + r.income, personalIncome: s.personalIncome + r.personalIncome, expense: s.expense + r.expense, net: s.net + r.net }), { income: 0, personalIncome: 0, expense: 0, net: 0 });
   rows.push({ id: '__total__', name: '總計', income: total.income, personalIncome: total.personalIncome, expense: total.expense, net: total.net, __isTotal: true });
   return rows;
-}
-
-function _stats(rows, year) {
-  const d = (rows || []).filter((r) => !r.__isTotal);
-  const tI = d.reduce((s, r) => s + r.income, 0);
-  const tPI = d.reduce((s, r) => s + r.personalIncome, 0);
-  const tE = d.reduce((s, r) => s + r.expense, 0);
-  const net = tI + tPI - tE;
-  return [
-    { title: `${year} 家用轉入`, value: formatHKD(tI), valueClass: 'emerald', hint: '家庭成員轉入加總', icon: 'trending-up' },
-    { title: `${year} 個人收入`, value: formatHKD(tPI), valueClass: 'cyan', hint: '成員個人收入加總', icon: 'wallet' },
-    { title: `${year} 年度總支出`, value: formatHKD(tE), valueClass: 'red', hint: '含家庭共用支出', icon: 'trending-down' },
-    { title: `${year} 年度淨結餘`, value: formatHKD(net), valueClass: net >= 0 ? 'emerald' : 'red', hint: '轉入 + 個人收入 − 支出', icon: 'calculator' },
-  ];
 }
 
 function _monthlyGroups(allIncome, allExpenses, year, month) {
@@ -252,6 +308,6 @@ function _exportCsv(ctx) {
 /* ═══════════════════════════════════════════
    END OF FILE
    File: js/pages/annual-report.js
-   Version: v103.0.19
-   Batch: B20
+   Version: v103.0.20
+   Batch: B22
    ═══════════════════════════════════════════ */

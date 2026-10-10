@@ -1,11 +1,4 @@
-// ============================================
-// insurance.js — 保險清單表（v103.0.19）
-// 位置：js/pages/insurance.js
-// ============================================
-// v103.0.19 修正：
-//   ✅ 已供滿保單區塊加展開 / 收合
-// ============================================
-
+// insurance.js — 保險清單表（v103.0.20）
 import { formatHKD } from '../lib/format.js';
 import { esc } from '../lib/dom.js';
 import { computeEnrichedPolicies, calcProgress, getPolicyHolderId } from '../lib/insurance.js';
@@ -17,22 +10,26 @@ import { deleteEntity } from '../entity/entity-helpers.js';
 import { openConfirm } from '../ui/modal.js';
 import { showToast } from '../ui/toast.js';
 import { renderStatsCards } from '../shared/stats-cards.js';
+import { renderDataTable } from '../shared/data-table.js';
+import { renderDataCard } from '../shared/data-card.js';
+import { initViewToggle } from '../ui/view-toggle.js';
 import { ENTITY_KEYS } from '../config/constants.js';
 
 export default {
   title: '保險清單表',
-  data: {
-    policies: { type: 'list', path: 'insurance_policies' },
-  },
-  state: {},
+  data: { policies: { type: 'list', path: 'insurance_policies' } },
+  state: { view: 'card' },
   derived: {},
   blocks: [],
 
   customMount: (ctx) => {
     let _payments = {};
     let _statsApi = null;
+    let _tableApi = null;
+    let _cardApi = null;
     let _clickHandler = null;
     let _toggleHandler = null;
+    let _toggle = null;
     let _lastIds = '';
 
     const render = () => {
@@ -61,6 +58,39 @@ export default {
       if (window.lucide) window.lucide.createIcons();
     };
 
+    const _columns = [
+      { id: 'name', label: '保單名稱', defaultVisible: true },
+      { id: 'company', label: '保險公司', defaultVisible: true },
+      { id: 'holderName', label: '持有人', defaultVisible: true },
+      { id: 'insuredName', label: '受保人', defaultVisible: true },
+      { id: 'annualPremium', label: '本期年繳', defaultVisible: true, type: 'number' },
+      { id: 'totalPremium', label: '保單總供款', defaultVisible: true, type: 'number' },
+      { id: 'progressText', label: '進度', defaultVisible: true },
+    ];
+
+    const _resolvers = {
+      name: (v) => esc(v || '（未命名）'),
+      company: (v) => esc(v || '—'),
+      holderName: (_, r) => esc(resolveName('members', getPolicyHolderId(r)) || '—'),
+      insuredName: (_, r) => esc(resolveName('members', r.memberId) || '—'),
+      annualPremium: (v) => `<span class="mono text-cyan">${formatHKD(v)}</span>`,
+      totalPremium: (v) => `<span class="mono text-magenta">${formatHKD(v)}</span>`,
+      progressText: (_, r) => {
+        if (r.type === 'fund_insurance') return '<span class="text-muted">基金保險</span>';
+        const done = r.completedPeriods || 0;
+        const total = r.totalPolicyPeriods || 0;
+        const pct = calcProgress(r);
+        return `<div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">${done} / ${total} 期 (${pct}%)</div><div class="progress" style="height:5px;"><div class="progress-bar" style="width:${pct}%;"></div></div>`;
+      },
+    };
+
+    const _hooks = (canInput) => ({
+      customActions: canInput ? (row) => [
+        { label: '編輯', icon: 'pencil', className: 'btn-ghost', action: 'edit', onClick: () => _onEdit(row) },
+        { label: '刪除', icon: 'trash-2', className: 'btn-danger', action: 'del', onClick: () => _onDelete(row) },
+      ] : () => [],
+    });
+
     const _paintSection = (list) => {
       const s = document.getElementById('completed-section');
       const g = document.getElementById('completed-grid');
@@ -87,14 +117,37 @@ export default {
         return;
       }
       if (emptyEl) emptyEl.style.display = 'none';
-      cardEl.style.display = 'block';
-      tableEl.style.display = 'none';
-      const html = active.length === 0
-        ? '<div class="glass-card" style="text-align:center;padding:40px 20px;"><p style="color:var(--neon-emerald);">🎉 所有保單均已供滿</p></div>'
-        : `<div class="grid grid-3">${active.map((p) => `<div class="glass-card policy-card">${_cardHtml(p)}</div>`).join('')}</div>`;
-      if (cardEl.__lastHtml === html) return;
-      cardEl.__lastHtml = html;
-      cardEl.innerHTML = html;
+
+      if (_tableApi) { try { _tableApi.destroy(); } catch (e) {} _tableApi = null; }
+      if (_cardApi) { try { _cardApi.destroy(); } catch (e) {} _cardApi = null; }
+
+      if (ctx.state.view === 'table') {
+        cardEl.style.display = 'none';
+        tableEl.style.display = 'block';
+        if (active.length === 0) {
+          tableEl.innerHTML = '<div class="glass-card"><div class="empty-state">所有保單均已供滿</div></div>';
+          return;
+        }
+        const canInput = AppState.getCanInput();
+        _tableApi = renderDataTable({
+          container: tableEl,
+          entityKey: ENTITY_KEYS.POLICY,
+          rows: active,
+          tableId: 'insurance-table',
+          options: { columns: _columns, resolvers: _resolvers, storageKey: 'insurance-table' },
+          hooks: _hooks(canInput),
+        });
+      } else {
+        cardEl.style.display = 'block';
+        tableEl.style.display = 'none';
+        const html = active.length === 0
+          ? '<div class="glass-card" style="text-align:center;padding:40px 20px;"><p style="color:var(--neon-emerald);">🎉 所有保單均已供滿</p></div>'
+          : `<div class="grid grid-3">${active.map((p) => `<div class="glass-card policy-card">${_cardHtml(p)}</div>`).join('')}</div>`;
+        if (cardEl.__lastHtml !== html) {
+          cardEl.__lastHtml = html;
+          cardEl.innerHTML = html;
+        }
+      }
     };
 
     const _cardHtml = (p) => {
@@ -119,6 +172,48 @@ export default {
         </div>${progressHtml}${actions}`;
     };
 
+    const _onEdit = (row) => {
+      openEntityModal({ entity: ENTITY_KEYS.POLICY, mode: 'edit', id: row.id, allRows: ctx.data.policies || [] });
+    };
+
+    const _onDelete = async (row) => {
+      const ok = await openConfirm(`⚠️ 確定要刪除保單「${row.name}」嗎？`, { title: '刪除保單', okText: '刪除', okClass: 'btn-danger' });
+      if (!ok) return;
+      try { await deleteEntity(ENTITY_KEYS.POLICY, row.id, getPolicyHolderId(row)); showToast('✅ 已刪除保單', 'success'); }
+      catch (err) { showToast('刪除失敗：' + err.message, 'error'); }
+    };
+
+    _clickHandler = async (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn || !AppState.getCanInput()) return;
+      const policies = ctx.data.policies || [];
+      const policy = policies.find((p) => p.id === btn.dataset.id);
+      if (!policy) return;
+      if (btn.dataset.action === 'edit-policy') _onEdit(policy);
+      else if (btn.dataset.action === 'delete-policy') _onDelete(policy);
+    };
+    document.getElementById('insurance-card-view')?.addEventListener('click', _clickHandler);
+    document.getElementById('completed-grid')?.addEventListener('click', _clickHandler);
+
+    const headerEl = document.getElementById('completed-header');
+    const bodyEl = document.getElementById('completed-body');
+    const sectionEl = document.getElementById('completed-section');
+    _toggleHandler = () => {
+      if (!bodyEl || !sectionEl) return;
+      const open = bodyEl.style.display === 'block';
+      bodyEl.style.display = open ? 'none' : 'block';
+      sectionEl.classList.toggle('open', !open);
+    };
+    if (headerEl) headerEl.addEventListener('click', _toggleHandler);
+
+    _toggle = initViewToggle({
+      containerId: 'insurance-view-toggle',
+      storageKey: 'insurance-view',
+      defaultView: 'card',
+      onChange: (view) => { ctx.state.view = view; render(); },
+    });
+    ctx.state.view = _toggle?.getView() || 'card';
+
     const _loadPayments = async () => {
       const policies = ctx.data.policies || [];
       const ids = policies.map((p) => p.id).sort().join(',');
@@ -132,36 +227,6 @@ export default {
       } catch (e) { _payments = {}; }
     };
 
-    _clickHandler = async (e) => {
-      const btn = e.target.closest('button[data-action]');
-      if (!btn || !AppState.getCanInput()) return;
-      const policies = ctx.data.policies || [];
-      const policy = policies.find((p) => p.id === btn.dataset.id);
-      if (!policy) return;
-      if (btn.dataset.action === 'edit-policy') {
-        openEntityModal({ entity: ENTITY_KEYS.POLICY, mode: 'edit', id: policy.id, allRows: policies });
-      } else if (btn.dataset.action === 'delete-policy') {
-        const ok = await openConfirm(`⚠️ 確定要刪除保單「${policy.name}」嗎？`, { title: '刪除保單', okText: '刪除', okClass: 'btn-danger' });
-        if (!ok) return;
-        try { await deleteEntity(ENTITY_KEYS.POLICY, policy.id, getPolicyHolderId(policy)); showToast('✅ 已刪除保單', 'success'); }
-        catch (err) { showToast('刪除失敗：' + err.message, 'error'); }
-      }
-    };
-    document.getElementById('insurance-card-view')?.addEventListener('click', _clickHandler);
-    document.getElementById('completed-grid')?.addEventListener('click', _clickHandler);
-
-    /* 🆕 已供滿區塊展開 / 收合 */
-    const headerEl = document.getElementById('completed-header');
-    const bodyEl = document.getElementById('completed-body');
-    const sectionEl = document.getElementById('completed-section');
-    _toggleHandler = () => {
-      if (!bodyEl || !sectionEl) return;
-      const open = bodyEl.style.display === 'block';
-      bodyEl.style.display = open ? 'none' : 'block';
-      sectionEl.classList.toggle('open', !open);
-    };
-    if (headerEl) headerEl.addEventListener('click', _toggleHandler);
-
     const unsub = ctx.onDataChange(async (key) => {
       if (key.startsWith('data.policies') || key === '__APP__') await _loadPayments();
       render();
@@ -173,6 +238,9 @@ export default {
       destroy: () => {
         unsub();
         if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} }
+        if (_tableApi) { try { _tableApi.destroy(); } catch (e) {} }
+        if (_cardApi) { try { _cardApi.destroy(); } catch (e) {} }
+        if (_toggle) { try { _toggle.destroy(); } catch (e) {} }
         if (_clickHandler) {
           document.getElementById('insurance-card-view')?.removeEventListener('click', _clickHandler);
           document.getElementById('completed-grid')?.removeEventListener('click', _clickHandler);
@@ -186,6 +254,6 @@ export default {
 /* ═══════════════════════════════════════════
    END OF FILE
    File: js/pages/insurance.js
-   Version: v103.0.19
-   Batch: B20
+   Version: v103.0.20
+   Batch: B22
    ═══════════════════════════════════════════ */

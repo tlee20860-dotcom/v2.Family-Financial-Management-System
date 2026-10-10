@@ -1,16 +1,11 @@
-// ============================================
-// finance-overview.js — 銀行交易（v103.0.19）
-// 位置：js/pages/finance-overview.js
-// ============================================
-// v103.0.19 修正：
-//   ✅ 副標題改為顯示年月
-// ============================================
-
+// finance-overview.js — 銀行交易（v103.0.20）
 import { formatHKD } from '../lib/format.js';
 import { esc } from '../lib/dom.js';
 import { calcTotalBankBalance, calcBankBalance } from '../lib/bank.js';
 import { renderDataTable } from '../shared/data-table.js';
+import { renderDataCard } from '../shared/data-card.js';
 import { renderStatsCards } from '../shared/stats-cards.js';
+import { initViewToggle } from '../ui/view-toggle.js';
 import { resolveName } from '../config/entity-registry.js';
 import { AppState } from '../core/state.js';
 
@@ -25,6 +20,7 @@ export default {
     currentYear: String(AppState.year || new Date().getFullYear()),
     currentMonth: String(AppState.month || '12'),
     txFilters: { type: '', category: '', member: '' },
+    view: 'table',
   },
   derived: {
     statsCards: {
@@ -39,7 +35,7 @@ export default {
   blocks: [],
 
   customMount: (ctx) => {
-    let _statsApi = null, _tabH = null, _filterH = null;
+    let _statsApi = null, _tabH = null, _filterH = null, _toggle = null;
 
     const syncState = () => {
       const y = String(AppState.year || new Date().getFullYear());
@@ -71,6 +67,107 @@ export default {
       else _paintTxns(ctx);
     };
 
+    const _bankColumns = [
+      { id: 'name', label: '名稱', defaultVisible: true },
+      { id: 'type', label: '類型', defaultVisible: true },
+      { id: 'initialBalance', label: '初始餘額', defaultVisible: true, type: 'number' },
+      { id: 'balance', label: '當前餘額', defaultVisible: true, type: 'number' },
+      { id: 'txnCount', label: '交易筆數', defaultVisible: true, type: 'number' },
+    ];
+
+    const _bankResolvers = {
+      name: (v) => esc(v || '—'),
+      type: (v) => v === 'personal' ? '👤 個人' : '🏠 家庭',
+      initialBalance: (v) => formatHKD(v),
+      balance: (v) => `<span class="mono ${v >= 0 ? 'text-emerald' : 'text-red'}">${formatHKD(v)}</span>`,
+      txnCount: (v) => `<span class="mono">${v || 0}</span>`,
+    };
+
+    const _txnColumns = [
+      { id: 'date', label: '日期', defaultVisible: true },
+      { id: 'bankName', label: '銀行', defaultVisible: true },
+      { id: 'typeLabel', label: '類型', defaultVisible: true },
+      { id: 'categoryLabel', label: '分類', defaultVisible: true },
+      { id: 'memberName', label: '成員', defaultVisible: true },
+      { id: 'amount', label: '金額', defaultVisible: true, type: 'number' },
+      { id: 'note', label: '備註', defaultVisible: true },
+    ];
+
+    const _txnResolvers = {
+      date: (v) => esc(v || '—'),
+      bankName: (v) => esc(v || '—'),
+      typeLabel: (v) => `<span class="badge ${v === 'in' ? 'badge-success' : (v === 'transfer' ? 'badge-info' : 'badge-pending')}">${{in:'入帳',out:'出帳',transfer:'內部轉帳'}[v] || v || '—'}</span>`,
+      categoryLabel: (v) => `<span class="badge badge-info">${esc(v || '未分類')}</span>`,
+      memberName: (v) => v === 'shared' ? '🏠 家庭共用' : esc(resolveName('members', v) || v || '—'),
+      amount: (v, r) => `<span class="mono ${r.type === 'in' ? 'text-emerald' : 'text-red'}">${formatHKD(v)}</span>`,
+      note: (v) => esc(v || '—'),
+    };
+
+    const _paintBanks = (ctx) => {
+      const root = document.getElementById('finance-banks-root');
+      if (!root) return;
+      const accounts = ctx.data.bankAccounts || [];
+      const txns = ctx.data.bankTransactions || [];
+      const { year, month } = AppState.getYearMonth();
+      const rows = accounts.map((acc) => {
+        const accTxns = txns.filter((t) => t.bankId === acc.id);
+        return { ...acc, _balance: calcBankBalance(acc, accTxns, year, month === 'all' ? '12' : month), _txnCount: accTxns.length };
+      });
+      if (rows.length === 0) {
+        if (root.__lastHtml === '<empty>') return;
+        root.__lastHtml = '<empty>';
+        root.innerHTML = '<div class="glass-card"><div class="empty-state">尚無銀行帳號</div></div>';
+        return;
+      }
+      root.__lastHtml = '';
+      const canInput = AppState.getCanInput();
+      if (ctx.state.view === 'card') {
+        renderDataCard({
+          container: root,
+          entityKey: '__bank_account__',
+          rows,
+          options: { gridClass: 'grid grid-3', columns: _bankColumns, resolvers: _bankResolvers },
+        });
+      } else {
+        renderDataTable({
+          container: root,
+          entityKey: '__bank_account__',
+          rows,
+          tableId: 'finance-banks-table',
+          options: { columns: _bankColumns, resolvers: _bankResolvers, storageKey: 'finance-banks-table' },
+        });
+      }
+    };
+
+    const _paintTxns = (ctx) => {
+      const root = document.getElementById('finance-txn-root');
+      if (!root) return;
+      const rows = ctx.derived.filteredTxns || [];
+      if (rows.length === 0) {
+        if (root.__lastHtml === '<empty>') return;
+        root.__lastHtml = '<empty>';
+        root.innerHTML = '<div class="glass-card"><div class="empty-state">此條件下尚無交易記錄</div></div>';
+        return;
+      }
+      root.__lastHtml = '';
+      if (ctx.state.view === 'card') {
+        renderDataCard({
+          container: root,
+          entityKey: '__bank_txn__',
+          rows,
+          options: { gridClass: 'grid grid-3', columns: _txnColumns, resolvers: _txnResolvers },
+        });
+      } else {
+        renderDataTable({
+          container: root,
+          entityKey: '__bank_txn__',
+          rows,
+          tableId: 'finance-txn-table',
+          options: { columns: _txnColumns, resolvers: _txnResolvers, storageKey: 'finance-txn-table' },
+        });
+      }
+    };
+
     const tabsRoot = document.getElementById('finance-tabs');
     _tabH = (e) => {
       const btn = e.target.closest('button[data-tab]');
@@ -92,6 +189,14 @@ export default {
       filterRoot.addEventListener('change', _filterH);
     }
 
+    _toggle = initViewToggle({
+      containerId: 'finance-view-toggle',
+      storageKey: 'finance-overview-view',
+      defaultView: 'table',
+      onChange: (view) => { ctx.state.view = view; render(); },
+    });
+    ctx.state.view = _toggle?.getView() || 'table';
+
     syncState();
     syncSubtitle();
     render();
@@ -105,96 +210,13 @@ export default {
       destroy: () => {
         unsub();
         if (_statsApi) { try { _statsApi.destroy(); } catch (e) {} }
+        if (_toggle) { try { _toggle.destroy(); } catch (e) {} }
         if (_tabH) tabsRoot?.removeEventListener('click', _tabH);
         if (_filterH) filterRoot?.removeEventListener('change', _filterH);
       },
     };
   },
 };
-
-function _paintBanks(ctx) {
-  const root = document.getElementById('finance-banks-root');
-  if (!root) return;
-  const accounts = ctx.data.bankAccounts || [];
-  const txns = ctx.data.bankTransactions || [];
-  const { year, month } = AppState.getYearMonth();
-  const rows = accounts.map((acc) => {
-    const accTxns = txns.filter((t) => t.bankId === acc.id);
-    return { ...acc, _balance: calcBankBalance(acc, accTxns, year, month === 'all' ? '12' : month), _txnCount: accTxns.length };
-  });
-  if (rows.length === 0) {
-    if (root.__lastHtml === '<empty>') return;
-    root.__lastHtml = '<empty>';
-    root.innerHTML = '<div class="glass-card"><div class="empty-state">尚無銀行帳號</div></div>';
-    return;
-  }
-  root.__lastHtml = '';
-  renderDataTable({
-    container: root,
-    entityKey: '__bank_account__',
-    rows,
-    tableId: 'finance-banks-table',
-    options: {
-      mobileCardMode: true,
-      columns: [
-        { id: 'name', label: '名稱', defaultVisible: true },
-        { id: 'type', label: '類型', defaultVisible: true },
-        { id: 'initialBalance', label: '初始餘額', defaultVisible: true, type: 'number' },
-        { id: 'balance', label: '當前餘額', defaultVisible: true, type: 'number' },
-        { id: 'txnCount', label: '交易筆數', defaultVisible: true, type: 'number' },
-      ],
-      resolvers: {
-        name: (v) => esc(v || '—'),
-        type: (v) => v === 'personal' ? '👤 個人' : '🏠 家庭',
-        initialBalance: (v) => formatHKD(v),
-        balance: (v) => `<span class="mono ${v >= 0 ? 'text-emerald' : 'text-red'}">${formatHKD(v)}</span>`,
-        txnCount: (v) => `<span class="mono">${v || 0}</span>`,
-      },
-      storageKey: 'finance-banks-table',
-    },
-  });
-}
-
-function _paintTxns(ctx) {
-  const root = document.getElementById('finance-txn-root');
-  if (!root) return;
-  const rows = ctx.derived.filteredTxns || [];
-  if (rows.length === 0) {
-    if (root.__lastHtml === '<empty>') return;
-    root.__lastHtml = '<empty>';
-    root.innerHTML = '<div class="glass-card"><div class="empty-state">此條件下尚無交易記錄</div></div>';
-    return;
-  }
-  root.__lastHtml = '';
-  renderDataTable({
-    container: root,
-    entityKey: '__bank_txn__',
-    rows,
-    tableId: 'finance-txn-table',
-    options: {
-      mobileCardMode: true,
-      columns: [
-        { id: 'date', label: '日期', defaultVisible: true },
-        { id: 'bankName', label: '銀行', defaultVisible: true },
-        { id: 'typeLabel', label: '類型', defaultVisible: true },
-        { id: 'categoryLabel', label: '分類', defaultVisible: true },
-        { id: 'memberName', label: '成員', defaultVisible: true },
-        { id: 'amount', label: '金額', defaultVisible: true, type: 'number' },
-        { id: 'note', label: '備註', defaultVisible: true },
-      ],
-      resolvers: {
-        date: (v) => esc(v || '—'),
-        bankName: (v) => esc(v || '—'),
-        typeLabel: (v) => `<span class="badge ${v === 'in' ? 'badge-success' : (v === 'transfer' ? 'badge-info' : 'badge-pending')}">${{in:'入帳',out:'出帳',transfer:'內部轉帳'}[v] || v || '—'}</span>`,
-        categoryLabel: (v) => `<span class="badge badge-info">${esc(v || '未分類')}</span>`,
-        memberName: (v) => v === 'shared' ? '🏠 家庭共用' : esc(resolveName('members', v) || v || '—'),
-        amount: (v, r) => `<span class="mono ${r.type === 'in' ? 'text-emerald' : 'text-red'}">${formatHKD(v)}</span>`,
-        note: (v) => esc(v || '—'),
-      },
-      storageKey: 'finance-txn-table',
-    },
-  });
-}
 
 function _flatten(raw) {
   const flat = [];
@@ -243,6 +265,6 @@ function _filterTxns(txns, filters, year, month) {
 /* ═══════════════════════════════════════════
    END OF FILE
    File: js/pages/finance-overview.js
-   Version: v103.0.19
-   Batch: B20
+   Version: v103.0.20
+   Batch: B22
    ═══════════════════════════════════════════ */

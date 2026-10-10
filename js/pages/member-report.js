@@ -1,12 +1,4 @@
-// ============================================
-// member-report.js — 成員收支明細（v103.0.19）
-// 位置：js/pages/member-report.js
-// ============================================
-// v103.0.19 修正：
-//   ✅ 加 view toggle（卡片/表格切換）
-//   ✅ 副標題改為顯示成員數 + 年度
-// ============================================
-
+// member-report.js — 成員收支明細（v103.0.20）
 import { formatHKD } from '../lib/format.js';
 import { esc } from '../lib/dom.js';
 import { AppState } from '../core/state.js';
@@ -23,23 +15,12 @@ export default {
     allExpenses:       { type: 'raw', path: 'expenses' },
     allPersonalIncome: { type: 'raw', path: 'personal_income' },
   },
-  state: {
-    currentYear: String(AppState.year || new Date().getFullYear()),
-    view: 'table',
-  },
+  state: { currentYear: String(AppState.year || new Date().getFullYear()), view: 'table' },
   derived: {
-    rows: {
-      deps: ['data.members', 'data.allIncome', 'data.allExpenses', 'data.allPersonalIncome', 'state.currentYear'],
-      compute: _buildRows,
-    },
-    statsCards: {
-      deps: ['rows', 'state.currentYear'],
-      compute: _buildStats,
-    },
+    rows: { deps: ['data.members', 'data.allIncome', 'data.allExpenses', 'data.allPersonalIncome', 'state.currentYear'], compute: _buildRows },
+    statsCards: { deps: ['rows', 'state.currentYear'], compute: _buildStats },
   },
-  blocks: [
-    { type: 'stats', container: 'member-report-stats-root', cards: '$.statsCards' },
-  ],
+  blocks: [{ type: 'stats', container: 'member-report-stats-root', cards: '$.statsCards' }],
 
   customMount: (ctx) => {
     let _tableApi = null, _cardApi = null, _toggle = null;
@@ -91,17 +72,11 @@ export default {
           entityKey: '__member_report__',
           rows,
           tableId: 'member-report-table',
-          options: {
-            mobileCardMode: true,
-            columns: _columns,
-            resolvers: _resolvers,
-            storageKey: 'member-report-table',
-          },
+          options: { columns: _columns, resolvers: _resolvers, storageKey: 'member-report-table' },
         });
       }
     };
 
-    /* 🆕 view toggle */
     _toggle = initViewToggle({
       containerId: 'member-report-view-toggle',
       storageKey: 'member-report-view',
@@ -133,9 +108,6 @@ export default {
   },
 };
 
-/* ============================================
-   Helpers
-   ============================================ */
 function _buildRows(members, allIncome, allExpenses, allPersonalIncome, year) {
   const yk = String(year || '');
   const yi = (allIncome || {})[yk] || {};
@@ -157,14 +129,7 @@ function _buildRows(members, allIncome, allExpenses, allPersonalIncome, year) {
         if (e && e.isAutoLinked) insurance += amt; else expense += amt;
       });
     });
-    return {
-      ...m,
-      income: Math.round(income),
-      expense: Math.round(expense),
-      insurance: Math.round(insurance),
-      personalIncome: Math.round(personalIncome),
-      net: Math.round(income + personalIncome - expense - insurance),
-    };
+    return { ...m, income: Math.round(income), expense: Math.round(expense), insurance: Math.round(insurance), personalIncome: Math.round(personalIncome), net: Math.round(income + personalIncome - expense - insurance) };
   });
 }
 
@@ -187,6 +152,6 @@ function _buildStats(rows, year) {
 /* ═══════════════════════════════════════════
    END OF FILE
    File: js/pages/member-report.js
-   Version: v103.0.19
-   Batch: B20
+   Version: v103.0.20
+   Batch: B22
    ═══════════════════════════════════════════ */
