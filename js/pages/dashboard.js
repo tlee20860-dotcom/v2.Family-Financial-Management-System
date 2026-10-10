@@ -1,31 +1,30 @@
 // ============================================
-// dashboard.js — 總覽儀表板（v103.0.14 Page Schema）
+// dashboard.js — 總覽儀表板（v103.0.15 Page Schema）
 // 位置：js/pages/dashboard.js
 // ============================================
-// v103.0.14 修正：
-//   ✅ [問題11] 副標題改為實際資訊（成員 / 銀行 / 交易數）
+// v103.0.15 修正：
+//   ✅ [P17-03] 加 onYearMonthChange hook
 // ============================================
 
 import { calcTotalBankBalance } from '../lib/bank.js';
 import { formatHKD } from '../lib/format.js';
 import { AppState } from '../core/state.js';
 
+let _ctx = null;
+
 export default {
   title: '總覽儀表板',
-
   data: {
     bankAccounts:     { type: 'list', path: 'bank_accounts' },
-    bankTransactions: { type: 'object', path: 'bank_accounts', transform: _flattenTxns },
+    bankTransactions: { type: 'object', path: 'bank_accounts', transform: _flatten },
     members:          { type: 'list', path: 'members' },
-    allIncome:        { type: 'raw',  path: 'income' },
-    allExpenses:      { type: 'raw',  path: 'expenses' },
+    allIncome:        { type: 'raw', path: 'income' },
+    allExpenses:      { type: 'raw', path: 'expenses' },
   },
-
   state: {
     currentYear: String(AppState.year || new Date().getFullYear()),
     currentMonth: String(AppState.month || '12'),
   },
-
   derived: {
     totalBankBalance: {
       deps: ['data.bankAccounts', 'data.bankTransactions', 'state.currentYear', 'state.currentMonth'],
@@ -40,42 +39,39 @@ export default {
     },
     statsCards: {
       deps: ['totalBankBalance', 'data.bankAccounts', 'state.currentYear', 'yearTotals'],
-      compute: (totalBankBalance, accounts, year, yearTotals) =>
-        _buildStatsCards(totalBankBalance, accounts, year, yearTotals),
+      compute: (b, a, y, t) => _buildCards(b, a, y, t),
     },
     subtitle: {
       deps: ['data.members', 'data.bankAccounts', 'data.bankTransactions', 'state.currentYear'],
       compute: _buildSubtitle,
     },
   },
-
   blocks: [
     { type: 'stats', container: 'stats-cards-root', cards: '$.statsCards' },
   ],
 
+  onYearMonthChange: () => { if (_ctx) _updateSubtitle(_ctx); },
+
   customMount: (ctx) => {
-    const _update = () => {
-      const el = document.getElementById('dashboard-subtitle');
-      if (el) el.textContent = ctx.derived.subtitle || '載入中…';
-    };
-    _update();
-
+    _ctx = ctx;
+    _updateSubtitle(ctx);
     const _orig = ctx.invalidate;
-    ctx.invalidate = (key) => {
-      _orig(key);
-      setTimeout(_update, 0);
-    };
-
-    return { destroy: () => {} };
+    ctx.invalidate = (k) => { _orig(k); setTimeout(() => _updateSubtitle(ctx), 0); };
+    return { destroy: () => { _ctx = null; } };
   },
 };
+
+function _updateSubtitle(ctx) {
+  const el = document.getElementById('dashboard-subtitle');
+  if (el) el.textContent = ctx.derived.subtitle || '載入中…';
+}
 
 /* ============================================
    Helpers
    ============================================ */
-function _flattenTxns(rawAccounts) {
+function _flatten(raw) {
   const flat = [];
-  Object.entries(rawAccounts || {}).forEach(([bankId, bank]) => {
+  Object.entries(raw || {}).forEach(([bankId, bank]) => {
     Object.entries(bank?.transactions || {}).forEach(([txnId, txn]) => {
       flat.push({ id: txnId, bankId, bankName: bank?.name || '', ...txn });
     });
@@ -84,51 +80,35 @@ function _flattenTxns(rawAccounts) {
 }
 
 function _computeYearTotals(allIncome, allExpenses, year) {
-  const yearKey = String(year || '');
-  if (!yearKey) return { totalIncome: 0, totalExpense: 0, net: 0, monthCount: 0 };
-  const yearIncome = (allIncome || {})[yearKey] || {};
+  const yk = String(year || '');
+  if (!yk) return { totalIncome: 0, totalExpense: 0, net: 0, monthCount: 0 };
+  const yi = (allIncome || {})[yk] || {};
   let totalIncome = 0;
-  Object.values(yearIncome).forEach((monthData) => {
-    Object.values(monthData || {}).forEach((amt) => { totalIncome += Number(amt) || 0; });
-  });
-  const yearExpenses = (allExpenses || {})[yearKey] || {};
+  Object.values(yi).forEach((md) => Object.values(md || {}).forEach((v) => { totalIncome += Number(v) || 0; }));
+  const ye = (allExpenses || {})[yk] || {};
   let totalExpense = 0, monthCount = 0;
-  Object.values(yearExpenses).forEach((monthData) => {
-    const memberExps = monthData?.member_expenses || {};
-    let monthSum = 0;
-    Object.values(memberExps).forEach((items) => {
-      Object.values(items || {}).forEach((e) => { monthSum += Number(e?.amount) || 0; });
-    });
-    if (monthSum > 0) monthCount++;
-    totalExpense += monthSum;
+  Object.values(ye).forEach((md) => {
+    const me = md?.member_expenses || {};
+    let s = 0;
+    Object.values(me).forEach((items) => Object.values(items || {}).forEach((e) => { s += Number(e?.amount) || 0; }));
+    if (s > 0) monthCount++;
+    totalExpense += s;
   });
-  return {
-    totalIncome: Math.round(totalIncome),
-    totalExpense: Math.round(totalExpense),
-    net: Math.round(totalIncome - totalExpense),
-    monthCount,
-  };
+  return { totalIncome: Math.round(totalIncome), totalExpense: Math.round(totalExpense), net: Math.round(totalIncome - totalExpense), monthCount };
 }
 
-function _buildStatsCards(totalBankBalance, accounts, year, yearTotals) {
+function _buildCards(totalBankBalance, accounts, year, yearTotals) {
   const list = Array.isArray(accounts) ? accounts : [];
   const bal = Number(totalBankBalance) || 0;
-  const totals = yearTotals || { totalIncome: 0, totalExpense: 0, net: 0, monthCount: 0 };
-  const income = Number(totals.totalIncome) || 0;
-  const expense = Number(totals.totalExpense) || 0;
-  const net = Number(totals.net) || 0;
-
+  const t = yearTotals || { totalIncome: 0, totalExpense: 0, net: 0, monthCount: 0 };
   return [
     { title: '家庭總餘額', value: formatHKD(bal), valueClass: bal >= 0 ? 'emerald' : 'red', hint: `共 ${list.length} 個銀行帳號`, icon: 'landmark' },
-    { title: `${year} 家庭收入`, value: formatHKD(income), valueClass: 'emerald', hint: income > 0 ? '家用轉入 + 額外收入' : '尚無收入紀錄', icon: 'trending-up' },
-    { title: `${year} 年度總支出`, value: formatHKD(expense), valueClass: 'red', hint: expense > 0 ? `${totals.monthCount} 個月有紀錄` : '尚無支出紀錄', icon: 'trending-down' },
-    { title: `${year} 年度淨餘額`, value: formatHKD(net), valueClass: net >= 0 ? 'emerald' : 'red', hint: net >= 0 ? '收支平衡' : '支出大於收入', icon: 'wallet' },
+    { title: `${year} 家庭收入`, value: formatHKD(t.totalIncome), valueClass: 'emerald', hint: '家用轉入 + 額外收入', icon: 'trending-up' },
+    { title: `${year} 年度總支出`, value: formatHKD(t.totalExpense), valueClass: 'red', hint: `${t.monthCount} 個月有紀錄`, icon: 'trending-down' },
+    { title: `${year} 年度淨餘額`, value: formatHKD(t.net), valueClass: t.net >= 0 ? 'emerald' : 'red', hint: t.net >= 0 ? '收支平衡' : '支出大於收入', icon: 'wallet' },
   ];
 }
 
 function _buildSubtitle(members, accounts, txns, year) {
-  const memberCount = (members || []).length;
-  const bankCount = (accounts || []).length;
-  const txnCount = (txns || []).length;
-  return `${year} 年 · ${memberCount} 位成員 · ${bankCount} 個銀行帳號 · ${txnCount} 筆交易`;
+  return `${year} 年 · ${(members || []).length} 位成員 · ${(accounts || []).length} 個銀行帳號 · ${(txns || []).length} 筆交易`;
 }
