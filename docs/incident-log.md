@@ -1,10 +1,9 @@
 # 事故日誌
 
-最後更新：B21
-適用批次：B11 ~ B20
+最後更新：B24
+適用批次：B11 ~ B23
 
 **用途**：記錄歷史問題，避免重複犯錯
-
 **格式**：每項含「症狀 / 原因 / 解決 / 教訓」
 
 ---
@@ -24,6 +23,8 @@
 | B18.1 | — | onDataChange | 🟡 中 |
 | B19 | — | 無補丁重構 | 🟡 中 |
 | B20 | P18-01~05 | 第四輪測試 | 🟠 高 |
+| B22 | P19-01~03 | 第五輪測試 | 🟠 高 |
+| B23 | — | 基金保險分支 | 🟡 中 |
 
 ---
 
@@ -60,7 +61,7 @@
 
 | 項目 | 內容 |
 |---|---|
-| 症狀 | 5 個頁面空白（input-center / settings / database / settlements / insurance） |
+| 症狀 | 5 個頁面空白 |
 | 原因 | createPage 只處理 schema.blocks，沒呼叫 customMount |
 | 解決 | 加 `if (typeof schema.customMount === 'function')` |
 | 教訓 | customMount 是重要逃生艙 |
@@ -253,6 +254,66 @@
 
 ---
 
+## B22：第五輪測試（P19-01~03）
+
+### P19-01 view toggle 反向 + 卡片無資料
+
+| 項目 | 內容 |
+|---|---|
+| 症狀 | 表格模式顯示卡片；卡片模式無資料 |
+| 原因 A | data-card 找 `fields`，但頁面傳 `columns` |
+| 原因 B | mobileCardMode: true 導致手機自動轉卡片 |
+| 解決 | data-card 支援 columns；移除 mobileCardMode |
+| 教訓 | 有 view toggle 就不需自動轉換 |
+
+### P19-02 保險 / 銀行沒 toggle
+
+| 項目 | 內容 |
+|---|---|
+| 症狀 | 保險 / 銀行頁無卡片/表格切換 |
+| 原因 | B20 只加 toggle 到 4 頁，漏保險 / 銀行 |
+| 解決 | 兩頁加 initViewToggle + HTML 容器 |
+| 教訓 | 加功能時全域檢查 |
+
+### P19-03 年度報表統計卡不隨切換
+
+| 項目 | 內容 |
+|---|---|
+| 症狀 | 切到月度明細，統計卡仍顯示全年 |
+| 原因 | statsCards deps 只有 state.year，沒依賴 state.view |
+| 解決 | statsCards 依 view 動態回傳 |
+| 教訓 | derived 依賴需完整 |
+
+---
+
+## B23：基金保險分支（新增）
+
+### 需求
+
+| 項目 | 內容 |
+|---|---|
+| 保險基金 | 掛於基金保險保單，每月自動累積供款 |
+| 獨立基金 | 手動建立，含成本 / 現值 |
+| 快照 | 每月輸入股數 + 股價 → 自動算現值 |
+| 對比 | 累積供款 vs 現值，算盈虧 |
+
+### 資料結構
+
+| 節點 | 新增 |
+|---|---|
+| insurance_policies | fundsAllocation（陣列） |
+| funds | type / policyId / initialYear / initialMonth |
+| funds/{id}/snapshots/{y}/{m} | shares / nav / value / cumulativeCost |
+
+### 觸發點
+
+| 觸發 | 動作 |
+|---|---|
+| 結算清單改保險為 done | 呼叫 _accumulateFunds（累加各基金） |
+| 結算清單改回 pending | 呼叫 _reverseFundAccumulation（回退） |
+
+---
+
 ## 歷史重演警告
 
 以下問題**重複發生**，需特別注意：
@@ -262,6 +323,8 @@
 | 複製貼上誤覆蓋 | P12 database.js | B01 settings.js | 交付前確認目標檔案 |
 | page-engine 修正遺漏 | P07 缺 undefined | B04 又缺 | 改 page-engine 需回歸測試 |
 | 舊 import 路徑殘留 | P13 js/shared/* | B02 舊 Functions | 檔案搬移後全域搜尋 |
+| 未更新副標題 | P18-04 兩頁 | — | 新頁同步檢查 |
+| view toggle 遺漏 | P18-01 4 頁 | P19-02 保險/銀行 | 新頁必加 |
 
 ---
 
@@ -284,6 +347,7 @@
 | onDataChange | 必須支援統一通知 |
 | 依賴圖 | key 與事件觸發一致 |
 | undefined | derived 需容忍 |
+| onYearMonthChange | 年月變更 hook |
 
 ### 程式碼相關
 
@@ -311,12 +375,13 @@
 | 完整檔案 | 不 diff |
 | END OF FILE | 檢查完整性 |
 | 檔案 ≤ 500 行 | 拆檔 |
+| backtick 嵌套 | 外層 = 內層 + 1 |
 
 ---
 
 /* ═══════════════════════════════════════════
    END OF FILE
    File: docs/incident-log.md
-   Version: v103.0.19
-   Batch: B21
+   Version: v103.0.21
+   Batch: B24
    ═══════════════════════════════════════════ */

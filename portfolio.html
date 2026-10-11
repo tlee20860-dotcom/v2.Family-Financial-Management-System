@@ -28,10 +28,33 @@
 
         <div id="portfolio-stats-root"></div>
 
-        <div id="portfolio-view-toggle" class="mb-16"></div>
+        <div style="margin-bottom:20px;">
+          <div class="flex items-center gap-8 mb-12">
+            <i data-lucide="shield" style="width:16px;height:16px;color:var(--neon-magenta);"></i>
+            <span style="font-weight:700;color:var(--neon-magenta);font-size:14px;">保險基金</span>
+            <span class="text-muted" style="font-size:12px;">（掛於基金保險保單，每月自動累積供款）</span>
+          </div>
+          <div id="insurance-funds-list"></div>
+        </div>
 
-        <div id="fund-card-view"></div>
-        <div id="fund-table-view" style="display:none;"></div>
+        <div style="margin-bottom:20px;">
+          <div class="flex items-center gap-8 mb-12">
+            <i data-lucide="line-chart" style="width:16px;height:16px;color:var(--neon-cyan);"></i>
+            <span style="font-weight:700;color:var(--neon-cyan);font-size:14px;">獨立基金</span>
+            <span class="text-muted" style="font-size:12px;">（獨立購買，手動記錄）</span>
+          </div>
+          <div id="standalone-funds-list"></div>
+
+          <div class="glass-card" id="fund-empty-state" style="display:none;">
+            <div class="empty-state">
+              <i data-lucide="line-chart" style="width:48px;height:48px;opacity:0.4;"></i>
+              <p style="margin-top:12px;">尚無基金持倉</p>
+              <button type="button" class="btn btn-primary" id="add-first-fund-btn" style="margin-top:12px;">
+                <i data-lucide="plus"></i> 新增第一筆基金
+              </button>
+            </div>
+          </div>
+        </div>
       </main>
     </div>
   </div>
@@ -45,16 +68,19 @@
   <script type="module">
     import { initApp } from './js/layout/app-shell.js';
     import { createPage } from './js/engines/page-engine.js';
-    import { openEntityModal } from './js/entity/entity-modal.js';
     import schema from './js/pages/portfolio.js';
 
     const user = await initApp({ activeHref: 'portfolio.html', title: '基金投資表' });
     if (user) {
       await createPage(schema);
-      document.getElementById('add-fund-btn')?.addEventListener('click', () => {
-        openEntityModal({ entity: 'fund', mode: 'add' });
-      });
     }
   </script>
 </body>
 </html>
+
+<!-- ═══════════════════════════════════════════
+     END OF FILE
+     File: portfolio.html
+     Version: v103.0.21
+     Batch: B23
+     ═══════════════════════════════════════════ -->

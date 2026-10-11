@@ -1,6 +1,6 @@
 # Firebase RTDB 資料結構
 
-最後更新：B21
+最後更新：B24
 用途：資料節點參考
 
 ---
@@ -19,9 +19,7 @@
 
 | 欄位 | 內容 |
 |---|---|
-| email | 完整 Email |
-| account | 帳號（不含網域） |
-| displayName | 顯示名稱 |
+| email / account / displayName | 帳號資訊 |
 | role | owner / member |
 | canInput | true / false |
 | memberId | 對應成員 ID |
@@ -38,16 +36,9 @@
 
 | 節點 | 內容 |
 |---|---|
-| members | 預設成員 |
-| banks | 預設銀行 |
-| insurance_companies | 預設保險公司 |
-| payment_methods | 預設支付方式 |
-| expense_categories | 預設類別 |
-| expense_items | 預設項目 |
-| statuses | 預設狀態 |
-| options | 下拉選項 |
-| year_range | 年份範圍 |
-| ui_constants | UI 常數 |
+| members / banks / insurance_companies | 預設基礎 |
+| payment_methods / expense_categories / expense_items | 預設選項 |
+| statuses / options / year_range / ui_constants | 預設設定 |
 
 ---
 
@@ -69,7 +60,7 @@
 
 | 路徑 | 欄位 |
 |---|---|
-| bank_accounts/{bankId} | name / type / order / initialBalance / initialYear / initialMonth / createdAt |
+| bank_accounts/{bankId} | name / type / ownerType / ownerId / isSystemCreated / initialBalance / initialYear / initialMonth / order / createdAt |
 | bank_accounts/{bankId}/transactions/{txnId} | type / category / amount / date / memberId / refId / note / createdAt |
 
 **交易 type**：in / out / transfer
@@ -100,23 +91,29 @@
 | expenses/{year}/{month}/member_expenses/{memberId}/{expenseId} | name / amount / status / date / categoryId / itemId / paymentMethodId / bankId / txnId / isAutoLinked / policyId / repaidDate / createdAt |
 
 **特殊 memberId**：`shared`（家庭共用）
-
 **特殊 expenseId**：`linked_{policyId}`（保險連動）
 
 ### 保險
 
 | 路徑 | 欄位 |
 |---|---|
-| insurance_policies/{policyId} | type / memberId / policyHolderId / name / company / paymentType / paymentMode / advanceHolderId / advanceId / firstStartYear / firstStartMonth / totalPolicyYears / totalPolicyPeriods / totalPremium / currentPeriodIndex / monthlyPremium / annualPremium / account / periods / isCompleted / createdAt |
+| insurance_policies/{policyId} | type / memberId / policyHolderId / name / company / paymentType / paymentMode / advanceHolderId / advanceId / firstStartYear / firstStartMonth / totalPolicyYears / totalPolicyPeriods / totalPremium / currentPeriodIndex / monthlyPremium / annualPremium / account / fundsAllocation / periods / isCompleted / createdAt |
 | insurance_payments/{policyId}/{year}/{month} | status / amount / date / bankId / txnId / paymentMode |
 
 **periods 結構**：`{ '{N}': { periodIndex, startYear, startMonth, annualPremium, monthlyAverage } }`
 
-### 基金
+**fundsAllocation 結構**（B23 新增）：`[{ fundId, pct, fromYear, fromMonth }, ...]`
+
+### 基金（B23 擴充）
 
 | 路徑 | 欄位 |
 |---|---|
-| funds/{fundId} | name / cost / currentValue / units / note / createdAt |
+| funds/{fundId} | name / type / policyId / cost / currentValue / units / initialYear / initialMonth / note / createdAt |
+| funds/{fundId}/snapshots/{year}/{month} | shares / nav / value / contribution / cumulativeCost / createdAt / updatedAt |
+
+**type**：`standalone`（獨立）| `insurance`（掛於保單）
+
+**snapshot.value**：`shares × nav`（自動計算）
 
 ### 家庭設定
 
@@ -185,6 +182,8 @@
 | expenses.*.policyId | insurance_policies/{policyId} |
 | insurance_payments.*.bankId | bank_accounts/{bankId} |
 | insurance_policies.advanceId | member_advances/{advanceHolderId}/{advanceId} |
+| insurance_policies.fundsAllocation[].fundId | funds/{fundId}（B23） |
+| funds.policyId | insurance_policies/{policyId}（B23） |
 | member_advances.policyId | insurance_policies/{policyId} |
 | platform.uid_index.{uid} | familyId |
 | platform.email_index.{account} | { uid, familyId } |
@@ -199,10 +198,33 @@
 | bank_accounts/{bankId}/transactions/ | ≤ 1000 筆 |
 | income/{y}/{m}/ | ≤ 20 成員 |
 | member_advances/{memberId}/ | ≤ 20 筆 |
+| funds/{id}/snapshots/ | 無上限（依年月，最多 = 年數 × 12） |
 
 ---
 
-## 七、參考
+## 七、B23 新增：基金累積流程
+
+### 觸發
+
+結算清單改保險狀態為 done → 呼叫 `_insurance.js` 的 `_accumulateFunds`
+
+### 累積邏輯
+
+| 步驟 | 動作 |
+|---|---|
+| 1 | 讀 `policy.fundsAllocation` |
+| 2 | 對每個 fundId：`addCost = monthlyPremium × pct / 100` |
+| 3 | 讀取 `funds/{id}/snapshots/{y}/{m}` |
+| 4 | 累加 `cumulativeCost` |
+| 5 | 寫回 |
+
+### 撤銷
+
+結算清單改回 pending → `_reverseFundAccumulation`
+
+---
+
+## 八、參考
 
 | 主題 | 檔案 |
 |---|---|
@@ -215,6 +237,6 @@
 /* ═══════════════════════════════════════════
    END OF FILE
    File: docs/data-structure.md
-   Version: v103.0.19
-   Batch: B21
+   Version: v103.0.21
+   Batch: B24
    ═══════════════════════════════════════════ */

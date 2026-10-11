@@ -1,6 +1,6 @@
 # 舊資料相容策略
 
-最後更新：B21
+最後更新：B24
 用途：舊資料相容處理參考
 
 ---
@@ -31,6 +31,9 @@
 | 保單無 advanceHolderId | fallback = '' | entity-definitions.js |
 | 保單無 advanceId | fallback = '' | entity-definitions.js |
 | 舊版帳號（無 memberAccount） | verifyFamilyAccess 收緊 | functions/api/_helpers.js |
+| 基金無 type | fallback = 'standalone' | entity-definitions.js（B23） |
+| 基金無 initialYear / initialMonth | fallback = '' | db.js（B23） |
+| 保單無 fundsAllocation | fallback = [] | db.js（B23） |
 
 ---
 
@@ -61,16 +64,8 @@
 
 | 舊名稱 | 新代碼 |
 |---|---|
-| 未處理 | pending |
-| 未還款 | pending |
-| 未付款 | pending |
-| 未扣款 | pending |
-| 未轉入 | pending |
-| 已處理 | done |
-| 已還款 | done |
-| 已付款 | done |
-| 已扣款 | done |
-| 已轉入 | done |
+| 未處理 / 未還款 / 未付款 / 未扣款 / 未轉入 | pending |
+| 已處理 / 已還款 / 已付款 / 已扣款 / 已轉入 | done |
 | 不適用 | skipped |
 
 ---
@@ -125,6 +120,7 @@
 | monthlyPremium | row.monthlyPremium 或 0 |
 | paymentMode | row.paymentMode 或 'direct' |
 | advanceHolderId | row.advanceHolderId 或 '' |
+| fundsAllocation | row.fundsAllocation 或 []（B23） |
 
 ### 6.5 functions/api/_personal.js 3 層 fallback
 
@@ -143,6 +139,14 @@
 | 舊版帳號（user.localId === familyId） | 允許，但 memberAccount 為 null |
 | 新版帳號（memberAccounts 有記錄） | 允許 |
 | 找不到 | 拒絕 |
+
+### 6.7 基金 type fallback（B23）
+
+| 情況 | 處理 |
+|---|---|
+| 舊基金無 type | 當作 standalone |
+| 舊基金無 initialYear / Month | 顯示 '—' |
+| 舊保單無 fundsAllocation | 當作 [] |
 
 ---
 
@@ -163,8 +167,6 @@
 | 系統設定 → 銀行帳號 → 危險區域 | 清除 bank_balances/ |
 
 ### 未來可選遷移
-
-若需完全遷移，可加一次性端點：
 
 | 項目 | 內容 |
 |---|---|
@@ -199,6 +201,8 @@
 | 7 | fixed_expenses/ 存在 | summary 仍讀取 |
 | 8 | 保險無 paymentMode | 當作 direct 處理 |
 | 9 | 帳號無 memberId | fallback 生效 |
+| 10 | 基金無 type | 當作 standalone（B23） |
+| 11 | 保單無 fundsAllocation | 當作 []（B23） |
 
 ---
 
@@ -208,7 +212,8 @@
 |---|---|
 | v103.0.0 | 建立相容層，status-registry 集中 |
 | v103.0.11 | db.js 移除 updateFixedExpenseCompat |
-| v103.0.18 | B19 無補丁重構（不影響相容層） |
+| v103.0.18 | B19 無補丁重構 |
+| v103.0.21 | B23 基金 type / fundsAllocation fallback |
 
 ---
 
@@ -225,6 +230,6 @@
 /* ═══════════════════════════════════════════
    END OF FILE
    File: docs/compatibility.md
-   Version: v103.0.19
-   Batch: B21
+   Version: v103.0.21
+   Batch: B24
    ═══════════════════════════════════════════ */

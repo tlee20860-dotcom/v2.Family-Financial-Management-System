@@ -1,6 +1,6 @@
 # API 契約
 
-最後更新：B21
+最後更新：B24
 用途：前後端介面參考
 
 ---
@@ -20,14 +20,7 @@
 | isPending(raw) | 是否 pending |
 | isSkipped(raw) | 是否 skipped |
 
-**常數**：
-
-| 常數 | 說明 |
-|---|---|
-| STATUS | PENDING / DONE / SKIPPED |
-| IS_DONE | 判定表 |
-| LABELS | default + bySource |
-| LEGACY_MAP | 舊名稱 → 新代碼 |
+**常數**：STATUS / IS_DONE / LABELS / LEGACY_MAP
 
 ---
 
@@ -66,17 +59,27 @@
 | getResolvers(key) | 值轉換函式（複本） |
 | getColumnsWith(key, extra) | 追加欄位 |
 
-**COLUMNS key**：members / banks / bankAccounts / categories / items / payments / statuses / companies / funds / insurance / settlements / bankTransactions / dashboardAnnual / annualSummary / annualMonthly / memberReport
+**COLUMNS key**：members / banks / bankAccounts / categories / items / payments / statuses / companies / funds / fundSnapshots / insurance / settlements / bankTransactions / dashboardAnnual / annualSummary / annualMonthly / memberReport
 
 ---
 
-### entity-resolvers.js（B18 新增）
+### entity-resolvers.js
 
 | API | 說明 |
 |---|---|
 | getEntityResolvers(entityKey) | 取得該 entity 的 resolvers |
 
 **RESOLVERS key**：member / bank / policy / fund / category / item / payment / status
+
+---
+
+### entity-funds-allocation.js（B23 新增）
+
+| API | 說明 |
+|---|---|
+| renderFundsAllocationField(root, initialAlloc, policyType) | 渲染關聯基金欄位 |
+
+**回傳**：`getValue()` 函式（取得 fundsAllocation 陣列）
 
 ---
 
@@ -96,8 +99,8 @@
 | 實體 | ENTITY_KEYS |
 | 狀態 | STATUS_BADGE_CLASS / STATUS_CATEGORIES |
 | 導覽 | SIDEBAR_GROUPS / ROUTES / SHOW_YEAR_MONTH_PAGES |
-| 預設 | DEFAULT_STATUSES / DEFAULT_OPTIONS / DEFAULT_YEAR_RANGE / DEFAULT_UI_CONSTANTS |
-| 平台 | PLATFORM_RESOURCES / SUPERADMIN_DOMAIN / SUPERADMIN_EMAIL |
+| 預設 | DEFAULT_* |
+| 平台 | PLATFORM_RESOURCES / SUPERADMIN_* |
 
 | 函式 | 說明 |
 |---|---|
@@ -127,11 +130,7 @@
 
 | 欄位 | 說明 |
 |---|---|
-| title | 標題 |
-| data | Firebase 訂閱 |
-| state | 響應式狀態 |
-| derived | 衍生資料 |
-| blocks | UI 區塊 |
+| title / data / state / derived / blocks | 標準欄位 |
 | onYearMonthChange(ctx) | 年月變更 hook |
 | customMount(ctx) | 逃生艙 |
 
@@ -178,7 +177,7 @@
 
 ---
 
-### lib/expense-modal.js（B19）
+### lib/expense-modal.js
 
 | API | 說明 |
 |---|---|
@@ -186,7 +185,7 @@
 
 ---
 
-### lib/income-modal.js（B19）
+### lib/income-modal.js
 
 | API | 說明 |
 |---|---|
@@ -195,7 +194,7 @@
 
 ---
 
-### lib/filter-sort.js（B19）
+### lib/filter-sort.js
 
 | API | 說明 |
 |---|---|
@@ -208,11 +207,9 @@
 
 | API | 說明 |
 |---|---|
-| qs(sel, root) | querySelector |
-| qsa(sel, root) | querySelectorAll |
+| qs / qsa | 選取 |
 | esc(v, fallback) | HTML 逸出（SSOT） |
-| when(cond, fn) | 條件執行 |
-| unless(cond, fn) | 反向條件 |
+| when / unless | 條件執行 |
 | el(tag, attrs, children) | 建立元素 |
 
 ---
@@ -221,10 +218,7 @@
 
 | API | 說明 |
 |---|---|
-| withToast(msg, fn, opts) | Toast 包裝 |
-| withConfirm(msg, fn, opts) | Confirm 包裝 |
-| withAsyncState(container, fn, opts) | 載入狀態 |
-| safe(fn, fallback) | 例外安全 |
+| withToast / withConfirm / withAsyncState / safe | 非同步輔助 |
 
 ---
 
@@ -240,15 +234,10 @@
 
 | API | 說明 |
 |---|---|
-| formatHKD(amount) | HK$ 格式 |
-| formatNumber(amount) | 千分位 |
-| roundHKD(value) | 四捨五入 |
-| clampAmount(value) | 限制範圍 |
-| formatPercent(value, digits) | 百分比 |
-| formatCellValue(val, type) | 通用格式化 |
-| formatTransactionType(type) | 交易類型 |
-| formatTransactionCategory(cat) | 交易分類 |
-| getCategoryBadgeClass(cat) | badge class |
+| formatHKD / formatNumber / roundHKD / clampAmount | 金額 |
+| formatPercent | 百分比 |
+| formatCellValue | 通用格式化 |
+| formatTransactionType / formatTransactionCategory / getCategoryBadgeClass | 交易 |
 
 ---
 
@@ -299,10 +288,7 @@
 | calcBankBalance(acc, txns, y, m) | 單一銀行餘額 |
 | calcTotalBankBalance(accs, txns, y, m) | 總餘額 |
 | getBankTransactions(txns, bankId) | 交易篩選 |
-| createTransactionForExpense(...) | 支出交易 |
-| createTransactionForInsurance(...) | 保險交易 |
-| createTransactionForReimbursement(...) | 代墊交易 |
-| createTransactionForContribution(...) | 家用轉入 |
+| createTransactionForExpense / Insurance / Reimbursement / Contribution | 建立交易 |
 | syncExpenseToBank(...) | 支出同步 |
 | cleanupExpenseBankTransaction(bankId, txnId) | 清理 |
 | createTransactionForInsurancePayment(...) | 保險付款 |
@@ -312,18 +298,28 @@
 
 ---
 
-### core/utils.js（過渡期轉接層）
+### core/db.js（B23 新增 snapshot API）
 
-| 類別 | 說明 |
+| 類別 | API |
 |---|---|
-| re-export | format* 從 lib/format.js |
-| re-export | escapeHtml 從 lib/dom.js |
-| 日期 | todayISO / currentYearMonth / dateToStr / parseDate |
-| 字串 | truncate / safeParseInt / safeParseFloat |
-| DOM | qs / qsa / setText / renderEmptyState |
-| 成員 | sortMembers / isExtraIncome / isSharedMember / getMemberDisplayName |
-| 效能 | debounce / throttle |
-| 雜項 | deepClone / uid / arrayToMap / makeSortFn |
+| 成員 | listenMembers / getMembersOnce / addMember / updateMember / removeMember / deleteMemberAndData |
+| 銀行 | listenBanks / addBank / updateBank / removeBank |
+| 銀行帳號 | listenBankAccounts / getBankAccountsOnce / addBankAccount / updateBankAccount / removeBankAccount |
+| 銀行交易 | listenAllBankTransactions / addBankTransaction / updateBankTransaction / removeBankTransaction |
+| 個人收入 | listenPersonalIncome / savePersonalIncome |
+| 成員代墊 | listenMemberAdvances / addMemberAdvance / updateMemberAdvance |
+| 保險公司 | listenInsuranceCompanies |
+| 支付方式 | listenPaymentMethods |
+| 類別 | listenCategories / getCategoriesOnce |
+| 項目 | listenItems / getItemsOnce |
+| 狀態 | listenStatuses / getStatusesOnce |
+| 家庭設定 | listenFamilyOptions / saveFamilyOptions / listenYearRange / saveYearRange / listenUIConstants / saveUIConstants |
+| 平台 | listenPlatformResource / getPlatformResourceOnce / putPlatformResource / removePlatformResource / setPlatformResource |
+| 支出 | listenExpenses / listenAllExpenses / listenAllMemberExpenses / addExpense / updateExpense / removeExpense / batchUpdateExpenses |
+| 保險 | listenInsurancePolicies / addInsurancePolicy / updateInsurancePolicy / removeInsurancePolicy / getInsurancePaymentsOnce / saveInsurancePaymentBatch |
+| 收入 | listenIncome / getIncomeOnce / saveIncome / listenAllIncome |
+| 基金 | listenFunds / getFundsOnce / addFund / updateFund / removeFund |
+| **基金快照（B23）** | listenFundSnapshots / getFundSnapshotsOnce / saveFundSnapshot / removeFundSnapshot |
 
 ---
 
@@ -390,7 +386,7 @@
 | /api/clear-bank-balances | — | 清除舊結餘 |
 | /api/personal-income | save / remove | 個人收入 |
 | /api/member-advances | create / update / remove | 成員代墊 |
-| /api/insurance-sync | upsert / delete | 保險同步 |
+| /api/insurance-sync | upsert / delete | 保險同步 + 基金累積（B23） |
 
 ### Functions 檔案結構
 
@@ -402,7 +398,7 @@
 | _admin.js | 2 |
 | _bank.js | 3 |
 | _family.js | 3 |
-| _insurance.js | 1 |
+| _insurance.js | 1（含基金累積） |
 | _personal.js | 2 |
 | _platform.js | 2 |
 | _summary.js | 3 |
@@ -452,6 +448,6 @@
 /* ═══════════════════════════════════════════
    END OF FILE
    File: docs/api-contracts.md
-   Version: v103.0.19
-   Batch: B21
+   Version: v103.0.21
+   Batch: B24
    ═══════════════════════════════════════════ */

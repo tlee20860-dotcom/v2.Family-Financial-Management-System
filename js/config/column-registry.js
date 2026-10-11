@@ -1,32 +1,10 @@
-// ============================================
-// column-registry.js — 表格欄位 SSOT（v103.0.15）
-// 位置：js/config/column-registry.js
-// ============================================
-// v103.0.15 修正：
-//   ✅ [P17-04] items.categoryId 用 resolveName
-//   ✅ [P17-06] insurance.policyHolder / member 用 resolveName
-//   ✅ [DEBUG] 臨時 log（驗證後移除）
-// ============================================
-
+// column-registry.js — 表格欄位 SSOT（v103.0.21）
 import { formatHKD, formatNumber } from '../lib/format.js';
 import { esc as escapeHtml } from '../lib/dom.js';
 import { resolveName } from './entity-registry.js';
-import {
-  BANK_TXN_TYPE_LABELS, BANK_TXN_CATEGORY_LABELS, BANK_TXN_CATEGORY_BADGES,
-  BANK_ACCOUNT_TYPE_LABELS, RESERVED_IDS,
-} from './constants.js';
+import { BANK_TXN_TYPE_LABELS, BANK_TXN_CATEGORY_LABELS, BANK_TXN_CATEGORY_BADGES, BANK_ACCOUNT_TYPE_LABELS, RESERVED_IDS } from './constants.js';
 import { badgeClass as statusBadgeClass, label as statusLabel } from './status-registry.js';
 
-/* ============================================
-   臨時 debug（驗證後移除）
-   ============================================ */
-function _dbg(label, id, name) {
-  if (id && !name) console.warn(`[DEBUG] ${label} resolveName('${id}') → 空`);
-}
-
-/* ============================================
-   1. COLUMNS
-   ============================================ */
 export const COLUMNS = {
   members: [
     { id: 'name', label: '名稱', defaultVisible: true, defaultWidth: 160 },
@@ -65,10 +43,20 @@ export const COLUMNS = {
   companies: [{ id: 'name', label: '名稱', defaultVisible: true, defaultWidth: 160 }],
   funds: [
     { id: 'name', label: '基金名稱', defaultVisible: true, defaultWidth: 200 },
+    { id: 'typeLabel', label: '類型', defaultVisible: true, defaultWidth: 100 },
     { id: 'cost', label: '投入成本', defaultVisible: true, defaultWidth: 130, type: 'number' },
     { id: 'currentValue', label: '現時價值', defaultVisible: true, defaultWidth: 130, type: 'number' },
+    { id: 'pnl', label: '盈虧', defaultVisible: true, defaultWidth: 130, type: 'number' },
     { id: 'units', label: '單位數', defaultVisible: true, defaultWidth: 100, type: 'number' },
     { id: 'note', label: '備註', defaultVisible: false, defaultWidth: 180 },
+  ],
+  fundSnapshots: [
+    { id: 'yearMonth', label: '年月', defaultVisible: true, defaultWidth: 90 },
+    { id: 'shares', label: '股數', defaultVisible: true, defaultWidth: 100, type: 'number' },
+    { id: 'nav', label: '股價', defaultVisible: true, defaultWidth: 100, type: 'number' },
+    { id: 'value', label: '現值', defaultVisible: true, defaultWidth: 110, type: 'number' },
+    { id: 'cumulativeCost', label: '累積供款', defaultVisible: true, defaultWidth: 110, type: 'number' },
+    { id: 'pnl', label: '盈虧', defaultVisible: true, defaultWidth: 110, type: 'number' },
   ],
   insurance: [
     { id: 'name', label: '保單名稱', defaultVisible: true, defaultWidth: 200 },
@@ -99,6 +87,14 @@ export const COLUMNS = {
     { id: 'amount', label: '金額', defaultVisible: true, defaultWidth: 120, type: 'number' },
     { id: 'note', label: '備註', defaultVisible: true, defaultWidth: 180 },
   ],
+  dashboardAnnual: [
+    { id: 'year', label: '年度', defaultVisible: true, defaultWidth: 100 },
+    { id: 'totalIncome', label: '家庭收入', defaultVisible: true, defaultWidth: 130, type: 'number' },
+    { id: 'totalExpense', label: '總支出', defaultVisible: true, defaultWidth: 130, type: 'number' },
+    { id: 'insurance', label: '保險平攤', defaultVisible: true, defaultWidth: 130, type: 'number' },
+    { id: 'net', label: '淨餘額', defaultVisible: true, defaultWidth: 130, type: 'number' },
+    { id: 'avg', label: '每月平均', defaultVisible: true, defaultWidth: 130, type: 'number' },
+  ],
   annualSummary: [
     { id: 'name', label: '成員', defaultVisible: true, defaultWidth: 100 },
     { id: 'income', label: '家用轉入', defaultVisible: true, defaultWidth: 120, type: 'number' },
@@ -125,172 +121,143 @@ export const COLUMNS = {
   ],
 };
 
-/* ============================================
-   2. RESOLVERS
-   ============================================ */
 export const RESOLVERS = {
   members: {
-    role: (val) => escapeHtml(String(val || '—')),
-    order: (val) => formatNumber(val),
+    role: (v) => escapeHtml(String(v || '—')),
+    order: (v) => formatNumber(v),
   },
-  banks: { order: (val) => formatNumber(val) },
+  banks: { order: (v) => formatNumber(v) },
   bankAccounts: {
-    name: (val) => escapeHtml(val || '—'),
-    type: (val) => {
-      const label = BANK_ACCOUNT_TYPE_LABELS[val] || val || '—';
-      const cls = val === 'personal' ? 'badge-muted' : 'badge-info';
-      return `<span class="badge ${cls}">${escapeHtml(label)}</span>`;
+    name: (v) => escapeHtml(v || '—'),
+    type: (v) => {
+      const l = BANK_ACCOUNT_TYPE_LABELS[v] || v || '—';
+      const c = v === 'personal' ? 'badge-muted' : 'badge-info';
+      return `<span class="badge ${c}">${escapeHtml(l)}</span>`;
     },
-    initialBalance: (val) => `<span class="mono">${formatHKD(val)}</span>`,
-    initialYM: (_, row) => `<span class="mono" style="font-size:12px;color:var(--text-muted);">${escapeHtml(row.initialYear || '—')}-${escapeHtml(row.initialMonth || '—')}</span>`,
+    initialBalance: (v) => `<span class="mono">${formatHKD(v)}</span>`,
+    initialYM: (_, r) => `<span class="mono" style="font-size:12px;color:var(--text-muted);">${escapeHtml(r.initialYear || '—')}-${escapeHtml(r.initialMonth || '—')}</span>`,
   },
-  categories: { order: (val) => formatNumber(val) },
+  categories: { order: (v) => formatNumber(v) },
   items: {
-    /* 🆕 [P17-04] */
-    categoryId: (val) => {
-      if (!val) return '<span class="badge badge-muted">—</span>';
-      const name = resolveName('categories', val);
-      _dbg('items.categoryId', val, name);
-      return `<span class="badge badge-info">${escapeHtml(name || val)}</span>`;
+    categoryId: (v) => {
+      if (!v) return '<span class="badge badge-muted">—</span>';
+      const n = resolveName('categories', v) || v;
+      return `<span class="badge badge-info">${escapeHtml(n)}</span>`;
     },
   },
-  payments: { order: (val) => formatNumber(val) },
+  payments: { order: (v) => formatNumber(v) },
   statuses: {
-    category: (val) => {
-      const map = { personal: '個人支出', fixed: '固定支出', insurance: '保險' };
-      return escapeHtml(map[val] || val || '—');
-    },
-    isDone: (val) => val ? '<span class="badge badge-success">是</span>' : '<span class="badge badge-muted">否</span>',
-    order: (val) => formatNumber(val),
+    category: (v) => { const m = { personal: '個人支出', fixed: '固定支出', insurance: '保險' }; return escapeHtml(m[v] || v || '—'); },
+    isDone: (v) => v ? '<span class="badge badge-success">是</span>' : '<span class="badge badge-muted">否</span>',
+    order: (v) => formatNumber(v),
   },
-  companies: { name: (val) => escapeHtml(val || '—') },
+  companies: { name: (v) => escapeHtml(v || '—') },
   funds: {
-    name: (val) => escapeHtml(val || '（未命名）'),
-    cost: (val) => `<span class="mono">${formatHKD(val)}</span>`,
-    currentValue: (val) => `<span class="mono text-emerald">${formatHKD(val)}</span>`,
-    units: (val) => `<span class="mono">${val || '—'}</span>`,
-    note: (val) => escapeHtml(val || '—'),
+    name: (v) => escapeHtml(v || '（未命名）'),
+    typeLabel: (v) => v === 'insurance' ? '<span class="badge badge-magenta">保險</span>' : '<span class="badge badge-info">獨立</span>',
+    cost: (v) => `<span class="mono">${formatHKD(v)}</span>`,
+    currentValue: (v) => `<span class="mono text-emerald">${formatHKD(v)}</span>`,
+    pnl: (v, r) => {
+      const p = (Number(r.currentValue) || 0) - (Number(r.cost) || 0);
+      return `<span class="mono ${p >= 0 ? 'text-emerald' : 'text-red'}">${p >= 0 ? '+' : ''}${formatHKD(p)}</span>`;
+    },
+    units: (v) => `<span class="mono">${v || '—'}</span>`,
+    note: (v) => escapeHtml(v || '—'),
+  },
+  fundSnapshots: {
+    yearMonth: (_, r) => `${escapeHtml(r.year)}-${escapeHtml(r.month)}`,
+    shares: (v) => `<span class="mono">${v || 0}</span>`,
+    nav: (v) => `<span class="mono">${v || 0}</span>`,
+    value: (v) => `<span class="mono text-cyan">${formatHKD(v)}</span>`,
+    cumulativeCost: (v) => `<span class="mono text-magenta">${formatHKD(v)}</span>`,
+    pnl: (v, r) => {
+      const p = (Number(r.value) || 0) - (Number(r.cumulativeCost) || 0);
+      return `<span class="mono ${p >= 0 ? 'text-emerald' : 'text-red'}">${p >= 0 ? '+' : ''}${formatHKD(p)}</span>`;
+    },
   },
   insurance: {
-    name: (val) => escapeHtml(val || '（未命名）'),
-    company: (val) => escapeHtml(val || '—'),
-    /* 🆕 [P17-06] */
-    policyHolder: (val) => {
-      if (!val) return '—';
-      const name = resolveName('members', val);
-      _dbg('insurance.policyHolder', val, name);
-      return escapeHtml(name || val);
-    },
-    member: (val) => {
-      if (!val) return '—';
-      const name = resolveName('members', val);
-      _dbg('insurance.member', val, name);
-      return escapeHtml(name || val);
-    },
-    startDate: (_, row) => `<span class="mono" style="font-size:12px;">${escapeHtml(row.firstStartYear || '')}-${escapeHtml(row.firstStartMonth || '')}</span>`,
-    annualPremium: (val) => `<span class="mono text-cyan">${formatHKD(val)}</span>`,
-    totalPremium: (val) => `<span class="mono text-magenta">${formatHKD(val)}</span>`,
-    paidTotal: (val) => `<span class="mono text-emerald">${formatHKD(val)}</span>`,
-    progress: (_, row) => {
-      const done = row.completedPeriods || 0;
-      const total = row.totalPolicyPeriods || 0;
-      const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
-      return `<div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-bottom:3px;">${done} / ${total} 期 (${pct}%)</div><div class="progress" style="height:5px;"><div class="progress-bar" style="width:${pct}%;"></div></div>`;
+    name: (v) => escapeHtml(v || '（未命名）'),
+    company: (v) => escapeHtml(v || '—'),
+    policyHolder: (v) => v ? escapeHtml(resolveName('members', v) || v) : '—',
+    member: (v) => v ? escapeHtml(resolveName('members', v) || v) : '—',
+    startDate: (_, r) => `<span class="mono" style="font-size:12px;">${escapeHtml(r.firstStartYear || '')}-${escapeHtml(r.firstStartMonth || '')}</span>`,
+    annualPremium: (v) => `<span class="mono text-cyan">${formatHKD(v)}</span>`,
+    totalPremium: (v) => `<span class="mono text-magenta">${formatHKD(v)}</span>`,
+    paidTotal: (v) => `<span class="mono text-emerald">${formatHKD(v)}</span>`,
+    progress: (_, r) => {
+      const d = r.completedPeriods || 0;
+      const t = r.totalPolicyPeriods || 0;
+      const p = t > 0 ? Math.min(100, Math.round((d / t) * 100)) : 0;
+      return `<div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-bottom:3px;">${d} / ${t} 期 (${p}%)</div><div class="progress" style="height:5px;"><div class="progress-bar" style="width:${p}%;"></div></div>`;
     },
   },
   settlements: {
-    source: (_, row) => {
-      const map = {
-        personal: { cls: 'badge-info', label: row.memberId === 'shared' ? '🏠 家庭' : '🏷 個人' },
-        insurance: { cls: 'badge-success', label: '🛡 保險' },
-      };
-      const cfg = map[row.source] || map.personal;
-      return `<span class="badge ${cfg.cls}">${cfg.label}</span>`;
+    source: (_, r) => {
+      const m = { personal: { cls: 'badge-info', label: r.memberId === 'shared' ? '🏠 家庭' : '🏷 個人' }, insurance: { cls: 'badge-success', label: '🛡 保險' } };
+      const c = m[r.source] || m.personal;
+      return `<span class="badge ${c.cls}">${c.label}</span>`;
     },
-    yearMonth: (_, row) => `${escapeHtml(row.year)}-${escapeHtml(row.month)}`,
-    /* 🆕 [P17-01] */
-    member: (_, row) => {
-      if (row.memberId === RESERVED_IDS.SHARED_MEMBER) return '🏠 家庭共用';
-      if (!row.memberId) return '—';
-      const name = resolveName('members', row.memberId);
-      _dbg('settlements.member', row.memberId, name);
-      return escapeHtml(name || row.memberId);
-    },
-    name: (val) => escapeHtml(val || '—'),
-    amount: (val) => formatHKD(val),
-    date: (val) => escapeHtml(val || '—'),
-    status: (val, row) => {
-      const cls = statusBadgeClass(val);
-      return `<span class="badge ${cls}">${escapeHtml(statusLabel(val, { source: row.source }))}</span>`;
-    },
+    yearMonth: (_, r) => `${escapeHtml(r.year)}-${escapeHtml(r.month)}`,
+    member: (_, r) => r.memberId === RESERVED_IDS.SHARED_MEMBER ? '🏠 家庭共用' : (r.memberId ? escapeHtml(resolveName('members', r.memberId) || r.memberId) : '—'),
+    name: (v) => escapeHtml(v || '—'),
+    amount: (v) => formatHKD(v),
+    date: (v) => escapeHtml(v || '—'),
+    status: (v, r) => `<span class="badge ${statusBadgeClass(v)}">${escapeHtml(statusLabel(v, { source: r.source }))}</span>`,
   },
   bankTransactions: {
-    date: (val) => `<span class="mono" style="font-size:12px;">${escapeHtml(val || '—')}</span>`,
-    bankName: (val) => escapeHtml(val || '—'),
-    typeLabel: (_, row) => {
-      const cls = row.type === 'in' ? 'badge-success' : (row.type === 'transfer' ? 'badge-info' : 'badge-pending');
-      return `<span class="badge ${cls}">${escapeHtml(BANK_TXN_TYPE_LABELS[row.type] || row.type)}</span>`;
-    },
-    catLabel: (_, row) => {
-      const cls = BANK_TXN_CATEGORY_BADGES[row.category] || 'badge-muted';
-      return `<span class="badge ${cls}">${escapeHtml(BANK_TXN_CATEGORY_LABELS[row.category] || row.category)}</span>`;
-    },
-    memberName: (val) => {
-      if (!val) return '—';
-      const name = resolveName('members', val);
-      return escapeHtml(name || val);
-    },
-    amount: (val, row) => {
-      const cls = row.type === 'in' ? 'text-emerald' : 'text-red';
-      const sign = row.type === 'in' ? '+' : '-';
-      return `<span class="mono ${cls}">${sign}${formatHKD(val)}</span>`;
-    },
-    note: (val) => escapeHtml(val || '—'),
+    date: (v) => `<span class="mono" style="font-size:12px;">${escapeHtml(v || '—')}</span>`,
+    bankName: (v) => escapeHtml(v || '—'),
+    typeLabel: (_, r) => `<span class="badge ${r.type === 'in' ? 'badge-success' : (r.type === 'transfer' ? 'badge-info' : 'badge-pending')}">${escapeHtml(BANK_TXN_TYPE_LABELS[r.type] || r.type)}</span>`,
+    catLabel: (_, r) => `<span class="badge ${BANK_TXN_CATEGORY_BADGES[r.category] || 'badge-muted'}">${escapeHtml(BANK_TXN_CATEGORY_LABELS[r.category] || r.category)}</span>`,
+    memberName: (v) => v ? escapeHtml(resolveName('members', v) || v) : '—',
+    amount: (v, r) => `<span class="mono ${r.type === 'in' ? 'text-emerald' : 'text-red'}">${r.type === 'in' ? '+' : '-'}${formatHKD(v)}</span>`,
+    note: (v) => escapeHtml(v || '—'),
+  },
+  dashboardAnnual: {
+    year: (v, r) => `${v} 年${r.isCurrent ? ' <span class="badge badge-info" style="font-size:10px;">今年</span>' : ''}`,
+    totalIncome: (v) => `<span class="text-emerald">${formatHKD(v)}</span>`,
+    totalExpense: (v) => `<span class="text-red">${formatHKD(v)}</span>`,
+    insurance: (v) => `<span class="text-magenta">${formatHKD(v)}</span>`,
+    net: (v) => `<span class="${v >= 0 ? 'text-emerald' : 'text-red'}">${formatHKD(v)}</span>`,
+    avg: (v) => formatHKD(v),
   },
   annualSummary: {
-    name: (val, row) => {
-      if (row.__isTotal) return `<b style="color:var(--neon-cyan);">${escapeHtml(val)}</b>`;
-      if (row.__isShared) return `<span class="text-magenta">${escapeHtml(val)}</span>`;
-      return escapeHtml(val);
-    },
-    income: (val) => val > 0 ? `<span class="text-emerald">${formatHKD(val)}</span>` : '<span class="text-muted">—</span>',
-    personalIncome: (val) => val > 0 ? `<span class="text-cyan">${formatHKD(val)}</span>` : '<span class="text-muted">—</span>',
-    expense: (val) => val > 0 ? `<span class="text-red">${formatHKD(val)}</span>` : '<span class="text-muted">—</span>',
-    net: (val) => `<span class="${val >= 0 ? 'text-emerald' : 'text-red'}">${formatHKD(val)}</span>`,
+    name: (v, r) => r.__isTotal ? `<b style="color:var(--neon-cyan);">${escapeHtml(v)}</b>` : (r.__isShared ? `<span class="text-magenta">${escapeHtml(v)}</span>` : escapeHtml(v)),
+    income: (v) => v > 0 ? `<span class="text-emerald">${formatHKD(v)}</span>` : '<span class="text-muted">—</span>',
+    personalIncome: (v) => v > 0 ? `<span class="text-cyan">${formatHKD(v)}</span>` : '<span class="text-muted">—</span>',
+    expense: (v) => v > 0 ? `<span class="text-red">${formatHKD(v)}</span>` : '<span class="text-muted">—</span>',
+    net: (v) => `<span class="${v >= 0 ? 'text-emerald' : 'text-red'}">${formatHKD(v)}</span>`,
   },
   annualMonthly: {
-    date: (val) => `<span class="mono" style="font-size:12px;">${escapeHtml(val || '—')}</span>`,
-    memberName: (val) => escapeHtml(val || '—'),
-    categoryName: (val) => val ? `<span class="badge badge-info">${escapeHtml(val)}</span>` : '<span class="badge badge-muted">—</span>',
-    itemName: (val) => escapeHtml(val || '—'),
-    name: (val) => escapeHtml(val || '—'),
-    amount: (val) => `<span class="mono text-red">${formatHKD(val)}</span>`,
-    status: (val) => `<span class="badge ${val && val.startsWith('已') ? 'badge-success' : 'badge-pending'}">${escapeHtml(val || '—')}</span>`,
+    date: (v) => `<span class="mono" style="font-size:12px;">${escapeHtml(v || '—')}</span>`,
+    memberName: (v) => escapeHtml(v || '—'),
+    categoryName: (v) => v ? `<span class="badge badge-info">${escapeHtml(v)}</span>` : '<span class="badge badge-muted">—</span>',
+    itemName: (v) => escapeHtml(v || '—'),
+    name: (v) => escapeHtml(v || '—'),
+    amount: (v) => `<span class="mono text-red">${formatHKD(v)}</span>`,
+    status: (v) => `<span class="badge ${v && v.startsWith('已') ? 'badge-success' : 'badge-pending'}">${escapeHtml(v || '—')}</span>`,
   },
   memberReport: {
-    name: (val, row) => escapeHtml(val) + (row.isShared ? ' <span class="badge badge-muted" style="font-size:10px;">🏠</span>' : ''),
-    income: (_, row) => row.isShared ? '<span class="text-muted">—</span>' : `<span class="text-emerald">${formatHKD(row.income)}</span>`,
-    personalIncome: (_, row) => (row.isShared || row.personalIncome === 0) ? '<span class="text-muted">—</span>' : `<span class="text-cyan">${formatHKD(row.personalIncome)}</span>`,
-    expense: (_, row) => `<span class="text-red">${formatHKD(row.expense)}</span>`,
-    insurance: (_, row) => row.insurance === 0 ? '<span class="text-muted">—</span>' : `<span class="text-magenta">${formatHKD(row.insurance)}</span>`,
-    net: (_, row) => row.isShared ? '<span class="text-muted">—</span>' : `<span class="${row.net >= 0 ? 'text-emerald' : 'text-red'}">${formatHKD(row.net)}</span>`,
+    name: (v, r) => escapeHtml(v) + (r.isShared ? ' <span class="badge badge-muted" style="font-size:10px;">🏠</span>' : ''),
+    income: (_, r) => r.isShared ? '<span class="text-muted">—</span>' : `<span class="text-emerald">${formatHKD(r.income)}</span>`,
+    personalIncome: (_, r) => (r.isShared || r.personalIncome === 0) ? '<span class="text-muted">—</span>' : `<span class="text-cyan">${formatHKD(r.personalIncome)}</span>`,
+    expense: (_, r) => `<span class="text-red">${formatHKD(r.expense)}</span>`,
+    insurance: (_, r) => r.insurance === 0 ? '<span class="text-muted">—</span>' : `<span class="text-magenta">${formatHKD(r.insurance)}</span>`,
+    net: (_, r) => r.isShared ? '<span class="text-muted">—</span>' : `<span class="${r.net >= 0 ? 'text-emerald' : 'text-red'}">${formatHKD(r.net)}</span>`,
   },
 };
 
-/* ============================================
-   3. 對外 API
-   ============================================ */
 export function getColumns(key) {
-  const cols = COLUMNS[key];
-  if (!cols) { console.warn(`[column-registry] 未知 key：${key}`); return []; }
-  return cols.map((c) => ({ ...c }));
+  const c = COLUMNS[key];
+  if (!c) { console.warn(`[column-registry] 未知 key：${key}`); return []; }
+  return c.map((x) => ({ ...x }));
 }
+export function getResolvers(key) { const r = RESOLVERS[key]; return r ? { ...r } : {}; }
+export function getColumnsWith(key, ex = []) { return [...getColumns(key), ...ex]; }
 
-export function getResolvers(key) {
-  const res = RESOLVERS[key];
-  return res ? { ...res } : {};
-}
-
-export function getColumnsWith(key, extra = []) {
-  return [...getColumns(key), ...extra];
-}
+/* ═══════════════════════════════════════════
+   END OF FILE
+   File: js/config/column-registry.js
+   Version: v103.0.21
+   Batch: B23
+   ═══════════════════════════════════════════ */

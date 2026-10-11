@@ -1,62 +1,11 @@
-// ============================================
-// db.js — Firebase RTDB 讀寫封裝（v103.0.12）
-// 位置：js/core/db.js
-// ============================================
-// v103.0.12 修正：
-//   ✅ [M06] saveIncome 改用 update()（避免兩次寫入互蓋）
-//   ✅ [M06] 0 或負數值以 null 傳入 update → 實際刪除該鍵
-//   ✅ 保留 v103.0.11 全部修正（H09 / H11 / M01）
-// ============================================
-
+// db.js — Firebase RTDB 讀寫封裝（v103.0.21）
 import { db } from '../config/firebase-config.js';
 import { AppState } from './state.js';
-import {
-  RESERVED_IDS,
-  buildLinkedKey,
-  PLATFORM_RESOURCES,
-} from '../config/constants.js';
+import { RESERVED_IDS, buildLinkedKey, PLATFORM_RESOURCES } from '../config/constants.js';
 import { normalize as normalizeStatus } from '../config/status-registry.js';
-import {
-  ref, onValue, push, set, update, remove, get,
-} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+import { ref, onValue, push, set, update, remove, get } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-/* ============================================
-   路徑工具
-   ============================================ */
-
-export function familyPath(subpath) {
-  const familyId = AppState.getFamilyId();
-  if (!familyId) throw new Error('尚未選擇家庭');
-  return `families/${familyId}/${subpath}`;
-}
-
-export function familyRef(subpath) {
-  return ref(db, familyPath(subpath));
-}
-
-function listen(subpath, callback, onError) {
-  const familyId = AppState.getFamilyId();
-  if (!familyId) {
-    console.warn('⚠️ 尚未選擇家庭，略過 Firebase 讀取：', subpath);
-    if (onError) onError(new Error('尚未選擇家庭'));
-    return () => {};
-  }
-  const r = ref(db, `families/${familyId}/${subpath}`);
-  return onValue(r, callback, (err) => {
-    console.error(`❌ Firebase 讀取失敗 [${subpath}]：`, err);
-    if (onError) onError(err);
-  });
-}
-
-function listenList(subpath, sortFn, callback, onError) {
-  return listen(subpath, (snap) => {
-    const val = snap.val() || {};
-    const list = Object.entries(val).map(([id, x]) => ({ id, ...x }));
-    list.sort(sortFn);
-    callback(list);
-  }, onError);
-}
-
+const roundInt = (v) => Math.round(Number(v) || 0);
 const byCreatedAt = (a, b) => (a.createdAt || 0) - (b.createdAt || 0);
 const byOrder = (a, b) => (a.order || 0) - (b.order || 0);
 const byOrderThenCreated = (a, b) => {
@@ -66,1162 +15,771 @@ const byOrderThenCreated = (a, b) => {
   return (a.createdAt || 0) - (b.createdAt || 0);
 };
 
-const roundInt = (v) => Math.round(Number(v) || 0);
+export function familyPath(subpath) {
+  const familyId = AppState.getFamilyId();
+  if (!familyId) throw new Error('尚未選擇家庭');
+  return `families/${familyId}/${subpath}`;
+}
+export function familyRef(subpath) { return ref(db, familyPath(subpath)); }
 
-/* ============================================
-   成員
-   ============================================ */
-
-export function listenMembers(cb, err) {
-  return listenList('members', byOrderThenCreated, cb, err);
+function listen(subpath, callback, onError) {
+  const familyId = AppState.getFamilyId();
+  if (!familyId) { if (onError) onError(new Error('尚未選擇家庭')); return () => {}; }
+  return onValue(ref(db, `families/${familyId}/${subpath}`), callback, (err) => {
+    console.error(`❌ Firebase 讀取失敗 [${subpath}]：`, err);
+    if (onError) onError(err);
+  });
+}
+function listenList(subpath, sortFn, callback, onError) {
+  return listen(subpath, (snap) => {
+    const val = snap.val() || {};
+    const list = Object.entries(val).map(([id, x]) => ({ id, ...x }));
+    list.sort(sortFn);
+    callback(list);
+  }, onError);
 }
 
+/* ============ 成員 ============ */
+export function listenMembers(cb, err) { return listenList('members', byOrderThenCreated, cb, err); }
 export async function getMembersOnce() {
   const snap = await get(familyRef('members'));
-  const val = snap.val() || {};
-  return Object.entries(val).map(([id, m]) => ({ id, ...m }));
+  return Object.entries(snap.val() || {}).map(([id, m]) => ({ id, ...m }));
 }
-
-export async function addMember(member) {
-  const newRef = push(familyRef('members'));
-  await set(newRef, {
-    name: member.name || '',
-    role: member.role || 'other',
-    order: member.order != null ? Number(member.order) : 0,
-    createdAt: Date.now(),
-  });
-  return newRef.key;
+export async function addMember(m) {
+  const r = push(familyRef('members'));
+  await set(r, { name: m.name || '', role: m.role || 'other', order: m.order != null ? Number(m.order) : 0, createdAt: Date.now() });
+  return r.key;
 }
-
-export async function updateMember(id, patch) {
-  const clean = {};
-  if (patch.name !== undefined) clean.name = String(patch.name).trim();
-  if (patch.role !== undefined) clean.role = patch.role;
-  if (patch.order !== undefined) clean.order = Number(patch.order) || 0;
-  if (Object.keys(clean).length === 0) return;
-  await update(familyRef(`members/${id}`), clean);
+export async function updateMember(id, p) {
+  const c = {};
+  if (p.name !== undefined) c.name = String(p.name).trim();
+  if (p.role !== undefined) c.role = p.role;
+  if (p.order !== undefined) c.order = Number(p.order) || 0;
+  if (!Object.keys(c).length) return;
+  await update(familyRef(`members/${id}`), c);
 }
-
-export async function removeMember(id) {
-  await remove(familyRef(`members/${id}`));
-}
-
+export async function removeMember(id) { await remove(familyRef(`members/${id}`)); }
 export async function deleteMemberAndData(memberId) {
-  const familyId = AppState.getFamilyId();
-  if (!familyId) throw new Error('尚未選擇家庭');
-  const expensesSnap = await get(ref(db, `families/${familyId}/expenses`));
-  const allExpenses = expensesSnap.val() || {};
-  const updates = {};
-
-  Object.entries(allExpenses).forEach(([year, months]) => {
-    Object.entries(months || {}).forEach(([month, monthData]) => {
-      if (monthData.member_expenses && monthData.member_expenses[memberId]) {
-        updates[`families/${familyId}/expenses/${year}/${month}/member_expenses/${memberId}`] = null;
-      }
+  const fid = AppState.getFamilyId(); if (!fid) throw new Error('尚未選擇家庭');
+  const snap = await get(ref(db, `families/${fid}/expenses`));
+  const up = {};
+  Object.entries(snap.val() || {}).forEach(([y, ms]) => {
+    Object.entries(ms || {}).forEach(([m, md]) => {
+      if (md.member_expenses && md.member_expenses[memberId]) up[`families/${fid}/expenses/${y}/${m}/member_expenses/${memberId}`] = null;
     });
   });
-
-  updates[`families/${familyId}/members/${memberId}`] = null;
-  updates[`families/${familyId}/personal_income/${memberId}`] = null;
-  await update(ref(db), updates);
+  up[`families/${fid}/members/${memberId}`] = null;
+  up[`families/${fid}/personal_income/${memberId}`] = null;
+  await update(ref(db), up);
 }
 
-/* ============================================
-   銀行（舊：category-like）
-   ============================================ */
-
-export function listenBanks(cb, err) {
-  return listenList('banks', byOrderThenCreated, cb, err);
+/* ============ 銀行（舊） ============ */
+export function listenBanks(cb, err) { return listenList('banks', byOrderThenCreated, cb, err); }
+export async function addBank(x) {
+  const name = typeof x === 'string' ? x : (x?.name || '');
+  const r = push(familyRef('banks'));
+  await set(r, { name: String(name).trim(), order: 0, createdAt: Date.now() });
+  return r.key;
 }
-
-export async function addBank(nameOrObj) {
-  const name = typeof nameOrObj === 'string' ? nameOrObj : (nameOrObj?.name || '');
-  const newRef = push(familyRef('banks'));
-  await set(newRef, {
-    name: String(name).trim(),
-    order: 0,
-    createdAt: Date.now(),
-  });
-  return newRef.key;
-}
-
-export async function updateBank(id, patch) {
-  const clean = {};
-  if (typeof patch === 'string') {
-    clean.name = String(patch).trim();
-  } else if (patch && typeof patch === 'object') {
-    if (patch.name !== undefined) clean.name = String(patch.name).trim();
-    if (patch.order !== undefined) clean.order = Number(patch.order) || 0;
+export async function updateBank(id, p) {
+  const c = {};
+  if (typeof p === 'string') c.name = String(p).trim();
+  else if (p && typeof p === 'object') {
+    if (p.name !== undefined) c.name = String(p.name).trim();
+    if (p.order !== undefined) c.order = Number(p.order) || 0;
   }
-  if (Object.keys(clean).length === 0) return;
-  await update(familyRef(`banks/${id}`), clean);
+  if (!Object.keys(c).length) return;
+  await update(familyRef(`banks/${id}`), c);
 }
-
-export async function removeBank(id) {
-  await remove(familyRef(`banks/${id}`));
-}
-
-export async function deleteBankAndBalances(bankId) {
-  const familyId = AppState.getFamilyId();
-  if (!familyId) throw new Error('尚未選擇家庭');
-  const snap = await get(ref(db, `families/${familyId}/bank_balances`));
-  const allBalances = snap.val() || {};
-  const updates = {};
-
-  Object.entries(allBalances).forEach(([year, months]) => {
-    Object.entries(months || {}).forEach(([month, banks]) => {
-      if (banks && banks[bankId]) {
-        updates[`families/${familyId}/bank_balances/${year}/${month}/${bankId}`] = null;
-      }
+export async function removeBank(id) { await remove(familyRef(`banks/${id}`)); }
+export async function deleteBankAndBalances(bid) {
+  const fid = AppState.getFamilyId(); if (!fid) throw new Error('尚未選擇家庭');
+  const snap = await get(ref(db, `families/${fid}/bank_balances`));
+  const up = {};
+  Object.entries(snap.val() || {}).forEach(([y, ms]) => {
+    Object.entries(ms || {}).forEach(([m, bs]) => {
+      if (bs && bs[bid]) up[`families/${fid}/bank_balances/${y}/${m}/${bid}`] = null;
     });
   });
-
-  updates[`families/${familyId}/banks/${bankId}`] = null;
-  await update(ref(db), updates);
+  up[`families/${fid}/banks/${bid}`] = null;
+  await update(ref(db), up);
 }
 
-/* ============================================
-   銀行帳號（v102.0.0+）
-   ============================================ */
-
-export function listenBankAccounts(cb, err) {
-  return listenList('bank_accounts', byOrderThenCreated, cb, err);
-}
-
+/* ============ 銀行帳號 ============ */
+export function listenBankAccounts(cb, err) { return listenList('bank_accounts', byOrderThenCreated, cb, err); }
 export async function getBankAccountsOnce() {
   const snap = await get(familyRef('bank_accounts'));
-  const val = snap.val() || {};
-  return Object.entries(val).map(([id, b]) => ({ id, ...b }));
+  return Object.entries(snap.val() || {}).map(([id, b]) => ({ id, ...b }));
 }
-
-export async function addBankAccount(data) {
-  const newRef = push(familyRef('bank_accounts'));
-  await set(newRef, {
-    name: String(data.name || '').trim(),
-    type: data.type || 'family',
-    initialBalance: roundInt(data.initialBalance),
-    initialYear: String(data.initialYear || new Date().getFullYear()),
-    initialMonth: String(data.initialMonth || '01').padStart(2, '0'),
-    order: Number(data.order) || 0,
+export async function addBankAccount(d) {
+  const r = push(familyRef('bank_accounts'));
+  await set(r, {
+    name: String(d.name || '').trim(),
+    type: d.type || 'family',
+    ownerType: d.ownerType || 'family',
+    ownerId: d.ownerId || 'family',
+    isSystemCreated: !!d.isSystemCreated,
+    initialBalance: roundInt(d.initialBalance),
+    initialYear: String(d.initialYear || new Date().getFullYear()),
+    initialMonth: String(d.initialMonth || '01').padStart(2, '0'),
+    order: Number(d.order) || 0,
     createdAt: Date.now(),
   });
-  return newRef.key;
+  return r.key;
 }
-
-export async function updateBankAccount(id, patch) {
-  const clean = {};
-  if (patch.name !== undefined) clean.name = String(patch.name).trim();
-  if (patch.type !== undefined) clean.type = patch.type;
-  if (patch.initialBalance !== undefined) clean.initialBalance = roundInt(patch.initialBalance);
-  if (patch.initialYear !== undefined) clean.initialYear = String(patch.initialYear);
-  if (patch.initialMonth !== undefined) clean.initialMonth = String(patch.initialMonth).padStart(2, '0');
-  if (patch.order !== undefined) clean.order = Number(patch.order) || 0;
-  if (Object.keys(clean).length === 0) return;
-  await update(familyRef(`bank_accounts/${id}`), clean);
+export async function updateBankAccount(id, p) {
+  const c = {};
+  ['name', 'type', 'ownerType', 'ownerId'].forEach((k) => { if (p[k] !== undefined) c[k] = p[k]; });
+  if (p.name !== undefined) c.name = String(p.name).trim();
+  if (p.isSystemCreated !== undefined) c.isSystemCreated = !!p.isSystemCreated;
+  if (p.initialBalance !== undefined) c.initialBalance = roundInt(p.initialBalance);
+  if (p.initialYear !== undefined) c.initialYear = String(p.initialYear);
+  if (p.initialMonth !== undefined) c.initialMonth = String(p.initialMonth).padStart(2, '0');
+  if (p.order !== undefined) c.order = Number(p.order) || 0;
+  if (!Object.keys(c).length) return;
+  await update(familyRef(`bank_accounts/${id}`), c);
 }
+export async function removeBankAccount(id) { await remove(familyRef(`bank_accounts/${id}`)); }
 
-export async function removeBankAccount(id) {
-  await remove(familyRef(`bank_accounts/${id}`));
+/* ============ 銀行交易 ============ */
+export function listenBankTransactions(bid, cb, err) {
+  if (!bid) return () => {};
+  return listenList(`bank_accounts/${bid}/transactions`, byCreatedAt, cb, err);
 }
-
-/* ============================================
-   銀行交易（v102.0.0+）
-   ============================================ */
-
-export function listenBankTransactions(bankId, cb, err) {
-  if (!bankId) {
-    console.warn('[db] listenBankTransactions: 缺少 bankId');
-    return () => {};
-  }
-  return listenList(
-    `bank_accounts/${bankId}/transactions`,
-    byCreatedAt,
-    cb,
-    err
-  );
-}
-
 export function listenAllBankTransactions(cb, err) {
   return listen('bank_accounts', (snap) => {
     const val = snap.val() || {};
     const flat = [];
-    Object.entries(val).forEach(([bankId, bankData]) => {
-      const txns = bankData.transactions || {};
-      Object.entries(txns).forEach(([txnId, txn]) => {
-        flat.push({ id: txnId, bankId, bankName: bankData.name || '', ...txn });
+    Object.entries(val).forEach(([bid, bd]) => {
+      Object.entries(bd.transactions || {}).forEach(([tid, txn]) => {
+        flat.push({ id: tid, bankId: bid, bankName: bd.name || '', ...txn });
       });
     });
     flat.sort(byCreatedAt);
     cb(flat);
   }, err);
 }
-
-export async function getBankTransactionsOnce(bankId) {
-  if (!bankId) return [];
-  const snap = await get(familyRef(`bank_accounts/${bankId}/transactions`));
-  const val = snap.val() || {};
-  return Object.entries(val).map(([id, t]) => ({ id, ...t })).sort(byCreatedAt);
+export async function getBankTransactionsOnce(bid) {
+  if (!bid) return [];
+  const snap = await get(familyRef(`bank_accounts/${bid}/transactions`));
+  return Object.entries(snap.val() || {}).map(([id, t]) => ({ id, ...t })).sort(byCreatedAt);
 }
-
-export async function addBankTransaction(bankId, data) {
-  if (!bankId) throw new Error('缺少 bankId');
-  const newRef = push(familyRef(`bank_accounts/${bankId}/transactions`));
-  await set(newRef, {
-    type: data.type || 'manual',
-    category: data.category || 'manual',
-    amount: roundInt(data.amount),
-    date: data.date || new Date().toISOString().slice(0, 10),
-    memberId: data.memberId || '',
-    refId: data.refId || '',
-    note: data.note || '',
+export async function addBankTransaction(bid, d) {
+  if (!bid) throw new Error('缺少 bankId');
+  const r = push(familyRef(`bank_accounts/${bid}/transactions`));
+  await set(r, {
+    type: d.type || 'manual', category: d.category || 'manual',
+    amount: roundInt(d.amount),
+    date: d.date || new Date().toISOString().slice(0, 10),
+    memberId: d.memberId || '', refId: d.refId || '', note: d.note || '',
     createdAt: Date.now(),
   });
-  return newRef.key;
+  return r.key;
+}
+export async function updateBankTransaction(bid, tid, p) {
+  if (!bid || !tid) throw new Error('缺少參數');
+  const c = {};
+  ['type', 'category', 'amount', 'date', 'memberId', 'refId', 'note'].forEach((k) => { if (p[k] !== undefined) c[k] = p[k]; });
+  if (c.amount != null) c.amount = roundInt(c.amount);
+  if (!Object.keys(c).length) return;
+  c.updatedAt = Date.now();
+  await update(familyRef(`bank_accounts/${bid}/transactions/${tid}`), c);
+}
+export async function removeBankTransaction(bid, tid) {
+  if (!bid || !tid) throw new Error('缺少參數');
+  await remove(familyRef(`bank_accounts/${bid}/transactions/${tid}`));
 }
 
-export async function updateBankTransaction(bankId, txnId, patch) {
-  if (!bankId || !txnId) throw new Error('缺少 bankId 或 txnId');
-  const clean = {};
-  const allowed = ['type', 'category', 'amount', 'date', 'memberId', 'refId', 'note'];
-  allowed.forEach((k) => {
-    if (patch[k] !== undefined) clean[k] = patch[k];
-  });
-  if (clean.amount != null) clean.amount = roundInt(clean.amount);
-  if (Object.keys(clean).length === 0) return;
-  clean.updatedAt = Date.now();
-  await update(familyRef(`bank_accounts/${bankId}/transactions/${txnId}`), clean);
+/* ============ 個人收入 ============ */
+export function listenPersonalIncome(mid, cb, err) {
+  if (!mid) return () => {};
+  return listen(`personal_income/${mid}`, (snap) => cb(snap.val() || {}), err);
 }
-
-export async function removeBankTransaction(bankId, txnId) {
-  if (!bankId || !txnId) throw new Error('缺少 bankId 或 txnId');
-  await remove(familyRef(`bank_accounts/${bankId}/transactions/${txnId}`));
-}
-
-/* ============================================
-   個人收入
-   ============================================ */
-
-export function listenPersonalIncome(memberId, cb, err) {
-  if (!memberId) {
-    console.warn('[db] listenPersonalIncome: 缺少 memberId');
-    return () => {};
-  }
-  return listen(`personal_income/${memberId}`, (snap) => cb(snap.val() || {}), err);
-}
-
-export function listenAllPersonalIncome(cb, err) {
-  return listen('personal_income', (snap) => cb(snap.val() || {}), err);
-}
-
-export async function getPersonalIncomeOnce(memberId) {
-  if (!memberId) return {};
-  const snap = await get(familyRef(`personal_income/${memberId}`));
+export function listenAllPersonalIncome(cb, err) { return listen('personal_income', (s) => cb(s.val() || {}), err); }
+export async function getPersonalIncomeOnce(mid) {
+  if (!mid) return {};
+  const snap = await get(familyRef(`personal_income/${mid}`));
   return snap.val() || {};
 }
-
-export async function savePersonalIncome(memberId, year, month, amount) {
-  if (!memberId || !year || !month) throw new Error('缺少參數');
-  const num = roundInt(amount);
-  const path = `personal_income/${memberId}/${year}`;
-  if (num > 0) {
-    await update(familyRef(path), { [String(month).padStart(2, '0')]: num });
-  } else {
-    await remove(familyRef(`${path}/${String(month).padStart(2, '0')}`));
-  }
+export async function savePersonalIncome(mid, y, m, amt) {
+  if (!mid || !y || !m) throw new Error('缺少參數');
+  const n = roundInt(amt);
+  const path = `personal_income/${mid}/${y}`;
+  if (n > 0) await update(familyRef(path), { [String(m).padStart(2, '0')]: n });
+  else await remove(familyRef(`${path}/${String(m).padStart(2, '0')}`));
+}
+export async function removePersonalIncomeEntry(mid, y, m) {
+  if (!mid || !y || !m) throw new Error('缺少參數');
+  await remove(familyRef(`personal_income/${mid}/${y}/${String(m).padStart(2, '0')}`));
 }
 
-export async function removePersonalIncomeEntry(memberId, year, month) {
-  if (!memberId || !year || !month) throw new Error('缺少參數');
-  await remove(familyRef(`personal_income/${memberId}/${year}/${String(month).padStart(2, '0')}`));
+/* ============ 成員代墊 ============ */
+export function listenMemberAdvances(mid, cb, err) {
+  if (!mid) return () => {};
+  return listenList(`member_advances/${mid}`, byCreatedAt, cb, err);
 }
-
-/* ============================================
-   成員代墊
-   ============================================ */
-
-export function listenMemberAdvances(memberId, cb, err) {
-  if (!memberId) {
-    console.warn('[db] listenMemberAdvances: 缺少 memberId');
-    return () => {};
-  }
-  return listenList(`member_advances/${memberId}`, byCreatedAt, cb, err);
-}
-
 export function listenAllMemberAdvances(cb, err) {
   return listen('member_advances', (snap) => {
     const val = snap.val() || {};
     const flat = [];
-    Object.entries(val).forEach(([memberId, advances]) => {
-      Object.entries(advances || {}).forEach(([advanceId, adv]) => {
-        flat.push({ id: advanceId, memberId, ...adv });
-      });
+    Object.entries(val).forEach(([mid, ad]) => {
+      Object.entries(ad || {}).forEach(([aid, adv]) => flat.push({ id: aid, memberId: mid, ...adv }));
     });
     flat.sort(byCreatedAt);
     cb(flat);
   }, err);
 }
-
-export async function getMemberAdvancesOnce(memberId) {
-  if (!memberId) return [];
-  const snap = await get(familyRef(`member_advances/${memberId}`));
-  const val = snap.val() || {};
-  return Object.entries(val).map(([id, a]) => ({ id, ...a })).sort(byCreatedAt);
+export async function getMemberAdvancesOnce(mid) {
+  if (!mid) return [];
+  const snap = await get(familyRef(`member_advances/${mid}`));
+  return Object.entries(snap.val() || {}).map(([id, a]) => ({ id, ...a })).sort(byCreatedAt);
 }
-
-export async function addMemberAdvance(memberId, data) {
-  if (!memberId) throw new Error('缺少 memberId');
-  const newRef = push(familyRef(`member_advances/${memberId}`));
-  await set(newRef, {
-    policyId: data.policyId || '',
-    totalAmount: roundInt(data.totalAmount),
-    remainingAmount: roundInt(data.totalAmount),
-    startYear: String(data.startYear || ''),
-    startMonth: String(data.startMonth || '').padStart(2, '0'),
-    note: data.note || '',
+export async function addMemberAdvance(mid, d) {
+  if (!mid) throw new Error('缺少 memberId');
+  const r = push(familyRef(`member_advances/${mid}`));
+  await set(r, {
+    policyId: d.policyId || '',
+    totalAmount: roundInt(d.totalAmount),
+    remainingAmount: roundInt(d.totalAmount),
+    startYear: String(d.startYear || ''),
+    startMonth: String(d.startMonth || '').padStart(2, '0'),
+    note: d.note || '',
     createdAt: Date.now(),
   });
-  return newRef.key;
+  return r.key;
+}
+export async function updateMemberAdvance(mid, aid, p) {
+  if (!mid || !aid) throw new Error('缺少參數');
+  const c = {};
+  ['policyId', 'totalAmount', 'remainingAmount', 'startYear', 'startMonth', 'note'].forEach((k) => { if (p[k] !== undefined) c[k] = p[k]; });
+  if (c.totalAmount != null) c.totalAmount = roundInt(c.totalAmount);
+  if (c.remainingAmount != null) c.remainingAmount = roundInt(c.remainingAmount);
+  if (!Object.keys(c).length) return;
+  c.updatedAt = Date.now();
+  await update(familyRef(`member_advances/${mid}/${aid}`), c);
+}
+export async function removeMemberAdvance(mid, aid) {
+  if (!mid || !aid) throw new Error('缺少參數');
+  await remove(familyRef(`member_advances/${mid}/${aid}`));
 }
 
-export async function updateMemberAdvance(memberId, advanceId, patch) {
-  if (!memberId || !advanceId) throw new Error('缺少參數');
-  const clean = {};
-  const allowed = ['policyId', 'totalAmount', 'remainingAmount', 'startYear', 'startMonth', 'note'];
-  allowed.forEach((k) => {
-    if (patch[k] !== undefined) clean[k] = patch[k];
-  });
-  if (clean.totalAmount != null) clean.totalAmount = roundInt(clean.totalAmount);
-  if (clean.remainingAmount != null) clean.remainingAmount = roundInt(clean.remainingAmount);
-  if (Object.keys(clean).length === 0) return;
-  clean.updatedAt = Date.now();
-  await update(familyRef(`member_advances/${memberId}/${advanceId}`), clean);
+/* ============ 銀行結餘（舊） ============ */
+export function listenBankBalances(y, m, cb, err) {
+  if (!y || !m) { const ym = AppState.getYearMonth(); y = ym.year; m = ym.month; }
+  return listen(`bank_balances/${y}/${m}`, (s) => cb(s.val() || {}), err);
 }
-
-export async function removeMemberAdvance(memberId, advanceId) {
-  if (!memberId || !advanceId) throw new Error('缺少參數');
-  await remove(familyRef(`member_advances/${memberId}/${advanceId}`));
-}
-
-/* ============================================
-   銀行結餘（舊，保留向後相容）
-   ============================================ */
-
-export function listenBankBalances(year, month, cb, err) {
-  if (!year || !month) {
-    const ym = AppState.getYearMonth();
-    year = ym.year; month = ym.month;
-  }
-  return listen(`bank_balances/${year}/${month}`, (snap) => cb(snap.val() || {}), err);
-}
-
-export async function getBankBalancesOnce(year, month) {
-  const snap = await get(familyRef(`bank_balances/${year}/${month}`));
+export async function getBankBalancesOnce(y, m) {
+  const snap = await get(familyRef(`bank_balances/${y}/${m}`));
   return snap.val() || {};
 }
-
-export async function saveBankBalance(year, month, bankId, amount) {
-  if (!year || !month) {
-    const ym = AppState.getYearMonth();
-    year = ym.year; month = ym.month;
-  }
-  await update(familyRef(`bank_balances/${year}/${month}`), {
-    [bankId]: { amount: roundInt(amount), updatedAt: Date.now() },
-  });
+export async function saveBankBalance(y, m, bid, amt) {
+  if (!y || !m) { const ym = AppState.getYearMonth(); y = ym.year; m = ym.month; }
+  await update(familyRef(`bank_balances/${y}/${m}`), { [bid]: { amount: roundInt(amt), updatedAt: Date.now() } });
 }
-
-export async function getPrevMonthBankTotal(year, month) {
-  const y = Number(year);
-  const m = Number(month);
-  let prevY = y;
-  let prevM = m - 1;
-  if (prevM < 1) { prevY = y - 1; prevM = 12; }
-  const prevMonthStr = String(prevM).padStart(2, '0');
-  const snap = await get(familyRef(`bank_balances/${prevY}/${prevMonthStr}`));
-  const val = snap.val() || {};
-  return Object.values(val).reduce((s, b) => s + roundInt(b.amount), 0);
+export async function getPrevMonthBankTotal(y, m) {
+  const yy = Number(y), mm = Number(m);
+  let py = yy, pm = mm - 1;
+  if (pm < 1) { py = yy - 1; pm = 12; }
+  const snap = await get(familyRef(`bank_balances/${py}/${String(pm).padStart(2, '0')}`));
+  return Object.values(snap.val() || {}).reduce((s, b) => s + roundInt(b.amount), 0);
 }
-
 export async function clearAllBankBalances() {
-  const familyId = AppState.getFamilyId();
-  if (!familyId) throw new Error('尚未選擇家庭');
-  await remove(ref(db, `families/${familyId}/bank_balances`));
+  const fid = AppState.getFamilyId(); if (!fid) throw new Error('尚未選擇家庭');
+  await remove(ref(db, `families/${fid}/bank_balances`));
 }
 
-/* ============================================
-   保險公司
-   ============================================ */
-
-export function listenInsuranceCompanies(cb, err) {
-  return listenList('insurance_companies', byCreatedAt, cb, err);
-}
-
+/* ============ 保險公司 ============ */
+export function listenInsuranceCompanies(cb, err) { return listenList('insurance_companies', byCreatedAt, cb, err); }
 export async function addInsuranceCompany(name) {
-  const newRef = push(familyRef('insurance_companies'));
-  await set(newRef, { name: name || '', createdAt: Date.now() });
-  return newRef.key;
+  const r = push(familyRef('insurance_companies'));
+  await set(r, { name: name || '', createdAt: Date.now() });
+  return r.key;
+}
+export async function updateInsuranceCompany(id, nn) { await update(familyRef(`insurance_companies/${id}`), { name: nn }); }
+export async function removeInsuranceCompany(id) { await remove(familyRef(`insurance_companies/${id}`)); }
+export async function updatePolicyCompanyName(on, nn) {
+  const fid = AppState.getFamilyId(); if (!fid) throw new Error('尚未選擇家庭');
+  const snap = await get(ref(db, `families/${fid}/insurance_policies`));
+  const ps = snap.val() || {}; const up = {};
+  Object.entries(ps).forEach(([id, p]) => { if (p.company === on) up[`families/${fid}/insurance_policies/${id}/company`] = nn; });
+  if (Object.keys(up).length) await update(ref(db), up);
+  return Object.keys(up).length;
 }
 
-export async function updateInsuranceCompany(id, newName) {
-  await update(familyRef(`insurance_companies/${id}`), { name: newName });
-}
-
-export async function removeInsuranceCompany(id) {
-  await remove(familyRef(`insurance_companies/${id}`));
-}
-
-export async function updatePolicyCompanyName(oldName, newName) {
-  const familyId = AppState.getFamilyId();
-  if (!familyId) throw new Error('尚未選擇家庭');
-  const snap = await get(ref(db, `families/${familyId}/insurance_policies`));
-  const policies = snap.val() || {};
-  const updates = {};
-  Object.entries(policies).forEach(([id, p]) => {
-    if (p.company === oldName) {
-      updates[`families/${familyId}/insurance_policies/${id}/company`] = newName;
-    }
-  });
-  if (Object.keys(updates).length > 0) await update(ref(db), updates);
-  return Object.keys(updates).length;
-}
-
-/* ============================================
-   支付方式
-   ============================================ */
-
-export function listenPaymentMethods(cb, err) {
-  return listenList('payment_methods', byOrder, cb, err);
-}
-
+/* ============ 支付方式 ============ */
+export function listenPaymentMethods(cb, err) { return listenList('payment_methods', byOrder, cb, err); }
 export async function addPaymentMethod(pm) {
-  const newRef = push(familyRef('payment_methods'));
-  await set(newRef, {
-    name: pm.name || '',
-    order: Number(pm.order) || 0,
-    createdAt: Date.now(),
-  });
-  return newRef.key;
+  const r = push(familyRef('payment_methods'));
+  await set(r, { name: pm.name || '', order: Number(pm.order) || 0, createdAt: Date.now() });
+  return r.key;
 }
-
-export async function updatePaymentMethod(id, patch) {
-  const clean = {};
-  if (patch.name !== undefined) clean.name = String(patch.name).trim();
-  if (patch.order !== undefined) clean.order = Number(patch.order) || 0;
-  if (Object.keys(clean).length === 0) return;
-  await update(familyRef(`payment_methods/${id}`), clean);
+export async function updatePaymentMethod(id, p) {
+  const c = {};
+  if (p.name !== undefined) c.name = String(p.name).trim();
+  if (p.order !== undefined) c.order = Number(p.order) || 0;
+  if (!Object.keys(c).length) return;
+  await update(familyRef(`payment_methods/${id}`), c);
 }
-
-export async function removePaymentMethod(id) {
-  await remove(familyRef(`payment_methods/${id}`));
-}
-
+export async function removePaymentMethod(id) { await remove(familyRef(`payment_methods/${id}`)); }
 export async function getPaymentMethodsOnce() {
   const snap = await get(familyRef('payment_methods'));
-  const val = snap.val() || {};
-  const list = Object.entries(val).map(([id, p]) => ({ id, ...p }));
+  const list = Object.entries(snap.val() || {}).map(([id, p]) => ({ id, ...p }));
   list.sort(byOrder);
   return list;
 }
 
-/* ============================================
-   支出類別 / 項目
-   ============================================ */
-
-export function listenCategories(cb, err) {
-  return listenList('expense_categories', byOrder, cb, err);
-}
-
+/* ============ 支出類別 / 項目 ============ */
+export function listenCategories(cb, err) { return listenList('expense_categories', byOrder, cb, err); }
 export async function getCategoriesOnce() {
   const snap = await get(familyRef('expense_categories'));
-  const val = snap.val() || {};
-  const list = Object.entries(val).map(([id, c]) => ({ id, ...c }));
+  const list = Object.entries(snap.val() || {}).map(([id, c]) => ({ id, ...c }));
   list.sort(byOrder);
   return list;
 }
-
-export async function addCategory(cat) {
-  const newRef = push(familyRef('expense_categories'));
-  await set(newRef, {
-    name: cat.name || '',
-    order: Number(cat.order) || 0,
-    createdAt: Date.now(),
-  });
-  return newRef.key;
+export async function addCategory(c) {
+  const r = push(familyRef('expense_categories'));
+  await set(r, { name: c.name || '', order: Number(c.order) || 0, createdAt: Date.now() });
+  return r.key;
 }
-
-export async function updateCategory(id, patch) {
-  const clean = {};
-  if (patch.name !== undefined) clean.name = String(patch.name).trim();
-  if (patch.order !== undefined) clean.order = Number(patch.order) || 0;
-  if (Object.keys(clean).length === 0) return;
-  await update(familyRef(`expense_categories/${id}`), clean);
+export async function updateCategory(id, p) {
+  const cl = {};
+  if (p.name !== undefined) cl.name = String(p.name).trim();
+  if (p.order !== undefined) cl.order = Number(p.order) || 0;
+  if (!Object.keys(cl).length) return;
+  await update(familyRef(`expense_categories/${id}`), cl);
 }
+export async function removeCategory(id) { await remove(familyRef(`expense_categories/${id}`)); }
 
-export async function removeCategory(id) {
-  await remove(familyRef(`expense_categories/${id}`));
-}
-
-export function listenItems(cb, err) {
-  return listenList('expense_items', byCreatedAt, cb, err);
-}
-
+export function listenItems(cb, err) { return listenList('expense_items', byCreatedAt, cb, err); }
 export async function getItemsOnce() {
   const snap = await get(familyRef('expense_items'));
-  const val = snap.val() || {};
-  return Object.entries(val).map(([id, i]) => ({ id, ...i }));
+  return Object.entries(snap.val() || {}).map(([id, i]) => ({ id, ...i }));
 }
-
-export async function addItem(item) {
-  const newRef = push(familyRef('expense_items'));
-  await set(newRef, {
-    name: item.name || '',
-    categoryId: item.categoryId || '',
-    createdAt: Date.now(),
-  });
-  return newRef.key;
+export async function addItem(it) {
+  const r = push(familyRef('expense_items'));
+  await set(r, { name: it.name || '', categoryId: it.categoryId || '', createdAt: Date.now() });
+  return r.key;
 }
-
-export async function updateItem(id, patch) {
-  const clean = {};
-  if (patch.name !== undefined) clean.name = String(patch.name).trim();
-  if (patch.categoryId !== undefined) clean.categoryId = patch.categoryId;
-  if (Object.keys(clean).length === 0) return;
-  await update(familyRef(`expense_items/${id}`), clean);
+export async function updateItem(id, p) {
+  const c = {};
+  if (p.name !== undefined) c.name = String(p.name).trim();
+  if (p.categoryId !== undefined) c.categoryId = p.categoryId;
+  if (!Object.keys(c).length) return;
+  await update(familyRef(`expense_items/${id}`), c);
 }
+export async function removeItem(id) { await remove(familyRef(`expense_items/${id}`)); }
 
-export async function removeItem(id) {
-  await remove(familyRef(`expense_items/${id}`));
-}
-
-/* ============================================
-   狀態清單
-   ============================================ */
-
-export function listenStatuses(cb, err) {
-  return listenList('statuses', byOrder, cb, err);
-}
-
+/* ============ 狀態 ============ */
+export function listenStatuses(cb, err) { return listenList('statuses', byOrder, cb, err); }
 export async function getStatusesOnce() {
   const snap = await get(familyRef('statuses'));
-  const val = snap.val() || {};
-  const list = Object.entries(val).map(([id, s]) => ({ id, ...s }));
+  const list = Object.entries(snap.val() || {}).map(([id, s]) => ({ id, ...s }));
   list.sort(byOrder);
   return list;
 }
-
-export async function addStatus(data) {
-  const newRef = push(familyRef('statuses'));
-  await set(newRef, {
-    name: data.name || '',
-    category: data.category || 'personal',
-    isDone: !!data.isDone,
-    order: Number(data.order) || 0,
-    createdAt: Date.now(),
-  });
-  return newRef.key;
+export async function addStatus(d) {
+  const r = push(familyRef('statuses'));
+  await set(r, { name: d.name || '', category: d.category || 'personal', isDone: !!d.isDone, order: Number(d.order) || 0, createdAt: Date.now() });
+  return r.key;
 }
-
-export async function updateStatus(id, patch) {
-  const clean = {};
-  if (patch.name !== undefined) clean.name = String(patch.name).trim();
-  if (patch.category !== undefined) clean.category = patch.category;
-  if (patch.isDone !== undefined) clean.isDone = !!patch.isDone;
-  if (patch.order !== undefined) clean.order = Number(patch.order) || 0;
-  if (Object.keys(clean).length === 0) return;
-  await update(familyRef(`statuses/${id}`), clean);
+export async function updateStatus(id, p) {
+  const c = {};
+  if (p.name !== undefined) c.name = String(p.name).trim();
+  if (p.category !== undefined) c.category = p.category;
+  if (p.isDone !== undefined) c.isDone = !!p.isDone;
+  if (p.order !== undefined) c.order = Number(p.order) || 0;
+  if (!Object.keys(c).length) return;
+  await update(familyRef(`statuses/${id}`), c);
 }
+export async function removeStatus(id) { await remove(familyRef(`statuses/${id}`)); }
 
-export async function removeStatus(id) {
-  await remove(familyRef(`statuses/${id}`));
-}
-
-/* ============================================
-   家庭設定
-   ============================================ */
-
-export function listenFamilyOptions(cb, err) {
-  return listen('settings/options', (snap) => cb(snap.val() || {}), err);
-}
-
-export async function saveFamilyOptions(options) {
-  await set(familyRef('settings/options'), options || {});
-}
-
-export function listenYearRange(cb, err) {
-  return listen('settings/year_range', (snap) => cb(snap.val() || {}), err);
-}
-
-export async function saveYearRange(data) {
+/* ============ 家庭設定 ============ */
+export function listenFamilyOptions(cb, err) { return listen('settings/options', (s) => cb(s.val() || {}), err); }
+export async function saveFamilyOptions(o) { await set(familyRef('settings/options'), o || {}); }
+export function listenYearRange(cb, err) { return listen('settings/year_range', (s) => cb(s.val() || {}), err); }
+export async function saveYearRange(d) {
   await set(familyRef('settings/year_range'), {
-    startYear: data.startYear != null ? Number(data.startYear) : null,
-    futureYears: Number(data.futureYears) || 5,
+    startYear: d.startYear != null ? Number(d.startYear) : null,
+    futureYears: Number(d.futureYears) || 5,
   });
 }
+export function listenUIConstants(cb, err) { return listen('settings/ui_constants', (s) => cb(s.val() || {}), err); }
+export async function saveUIConstants(d) { await set(familyRef('settings/ui_constants'), d || {}); }
 
-export function listenUIConstants(cb, err) {
-  return listen('settings/ui_constants', (snap) => cb(snap.val() || {}), err);
-}
-
-export async function saveUIConstants(data) {
-  await set(familyRef('settings/ui_constants'), data || {});
-}
-
-/* ============================================
-   平台預設資料庫
-   ============================================ */
-
+/* ============ 平台預設 ============ */
 function platformPath(resource) {
-  const config = PLATFORM_RESOURCES[resource];
-  if (!config) throw new Error(`未知的平台資源：${resource}`);
-  return `platform/defaults/${config.path}`;
+  const c = PLATFORM_RESOURCES[resource];
+  if (!c) throw new Error(`未知的平台資源：${resource}`);
+  return `platform/defaults/${c.path}`;
 }
-
 export function listenPlatformResource(resource, cb, err) {
-  const config = PLATFORM_RESOURCES[resource];
-  if (!config) {
-    console.warn(`[db] 未知的平台資源：${resource}`);
-    return () => {};
-  }
-
-  return onValue(
-    ref(db, platformPath(resource)),
-    (snap) => {
-      const val = snap.val();
-
-      if (config.type === 'list' && val && typeof val === 'object' && !Array.isArray(val)) {
-        const list = Object.entries(val).map(([id, x]) => ({ id, ...x }));
-        list.sort(byOrderThenCreated);
-        cb(list);
-      } else {
-        cb(val || null);
-      }
-    },
-    (e) => {
-      console.error(`❌ 平台資源讀取失敗 [${resource}]：`, e);
-      if (err) err(e);
-    }
-  );
+  const c = PLATFORM_RESOURCES[resource];
+  if (!c) { console.warn(`[db] 未知平台資源：${resource}`); return () => {}; }
+  return onValue(ref(db, platformPath(resource)), (snap) => {
+    const val = snap.val();
+    if (c.type === 'list' && val && typeof val === 'object' && !Array.isArray(val)) {
+      const list = Object.entries(val).map(([id, x]) => ({ id, ...x }));
+      list.sort(byOrderThenCreated);
+      cb(list);
+    } else cb(val || null);
+  }, (e) => { console.error(`❌ 平台資源失敗 [${resource}]：`, e); if (err) err(e); });
 }
-
-export async function getPlatformResourceOnce(resource) {
-  const snap = await get(ref(db, platformPath(resource)));
-  return snap.val();
+export async function getPlatformResourceOnce(r) { const s = await get(ref(db, platformPath(r))); return s.val(); }
+export async function putPlatformResource(r, id, d) {
+  if (id) { await set(ref(db, `${platformPath(r)}/${id}`), d); return id; }
+  const nr = push(ref(db, platformPath(r)));
+  await set(nr, d); return nr.key;
 }
+export async function removePlatformResource(r, id) { await remove(ref(db, `${platformPath(r)}/${id}`)); }
+export async function setPlatformResource(r, d) { await set(ref(db, platformPath(r)), d || {}); }
 
-export async function putPlatformResource(resource, id, data) {
-  if (id) {
-    await set(ref(db, `${platformPath(resource)}/${id}`), data);
-    return id;
-  }
-  const newRef = push(ref(db, platformPath(resource)));
-  await set(newRef, data);
-  return newRef.key;
-}
-
-export async function removePlatformResource(resource, id) {
-  await remove(ref(db, `${platformPath(resource)}/${id}`));
-}
-
-export async function setPlatformResource(resource, data) {
-  await set(ref(db, platformPath(resource)), data || {});
-}
-
-/* ============================================
-   成員支出
-   ============================================ */
-
-function expensePath(year, month, memberId) {
-  return `expenses/${year}/${month}/member_expenses/${memberId}`;
-}
-
-export function listenExpenses(year, month, memberId, cb, err) {
-  if (!year || !month) {
-    const ym = AppState.getYearMonth();
-    year = ym.year; month = ym.month;
-  }
-  return listen(expensePath(year, month, memberId), (snap) => {
-    const val = snap.val() || {};
-    const list = Object.entries(val).map(([id, e]) => ({ id, ...e }));
+/* ============ 成員支出 ============ */
+function expensePath(y, m, mid) { return `expenses/${y}/${m}/member_expenses/${mid}`; }
+export function listenExpenses(y, m, mid, cb, err) {
+  if (!y || !m) { const ym = AppState.getYearMonth(); y = ym.year; m = ym.month; }
+  return listen(expensePath(y, m, mid), (snap) => {
+    const list = Object.entries(snap.val() || {}).map(([id, e]) => ({ id, ...e }));
     list.sort(byCreatedAt);
     cb(list);
   }, err);
 }
-
 export function listenAllExpenses(cb, err) {
   return listen('expenses', (snap) => {
-    const val = snap.val() || {};
     const flat = [];
-    Object.entries(val).forEach(([year, months]) => {
-      Object.entries(months || {}).forEach(([month, monthData]) => {
-        Object.entries(monthData.member_expenses || {}).forEach(([memberId, items]) => {
-          Object.entries(items || {}).forEach(([id, exp]) => {
-            flat.push({ id, memberId, year, month, ...exp });
-          });
+    Object.entries(snap.val() || {}).forEach(([y, ms]) => {
+      Object.entries(ms || {}).forEach(([m, md]) => {
+        Object.entries(md.member_expenses || {}).forEach(([mid, items]) => {
+          Object.entries(items || {}).forEach(([id, exp]) => flat.push({ id, memberId: mid, year: y, month: m, ...exp }));
         });
       });
     });
     cb(flat);
   }, err);
 }
-
-export function listenAllMemberExpenses(year, month, cb, err) {
-  if (!year || !month) {
-    const ym = AppState.getYearMonth();
-    year = ym.year; month = ym.month;
-  }
-  return listen(`expenses/${year}/${month}/member_expenses`, (snap) => {
-    const val = snap.val() || {};
+export function listenAllMemberExpenses(y, m, cb, err) {
+  if (!y || !m) { const ym = AppState.getYearMonth(); y = ym.year; m = ym.month; }
+  return listen(`expenses/${y}/${m}/member_expenses`, (snap) => {
     const flat = [];
-    Object.entries(val).forEach(([memberId, items]) => {
-      Object.entries(items || {}).forEach(([id, exp]) => {
-        flat.push({ id, memberId, ...exp });
-      });
+    Object.entries(snap.val() || {}).forEach(([mid, items]) => {
+      Object.entries(items || {}).forEach(([id, exp]) => flat.push({ id, memberId: mid, ...exp }));
     });
     flat.sort(byCreatedAt);
     cb(flat);
   }, err);
 }
-
-export async function getAllMemberExpensesOnce(year, month) {
-  const snap = await get(familyRef(`expenses/${year}/${month}/member_expenses`));
-  const val = snap.val() || {};
+export async function getAllMemberExpensesOnce(y, m) {
+  const snap = await get(familyRef(`expenses/${y}/${m}/member_expenses`));
   const flat = [];
-  Object.entries(val).forEach(([memberId, items]) => {
-    Object.entries(items || {}).forEach(([id, exp]) => {
-      flat.push({ id, memberId, ...exp });
-    });
+  Object.entries(snap.val() || {}).forEach(([mid, items]) => {
+    Object.entries(items || {}).forEach(([id, exp]) => flat.push({ id, memberId: mid, ...exp }));
   });
   flat.sort(byCreatedAt);
   return flat;
 }
-
-export async function getMemberExpensesForYear(year, memberId) {
-  const familyId = AppState.getFamilyId();
-  if (!familyId) throw new Error('尚未選擇家庭');
-  if (!year || !memberId) return {};
-
+export async function getMemberExpensesForYear(y, mid) {
+  const fid = AppState.getFamilyId(); if (!fid) throw new Error('尚未選擇家庭');
+  if (!y || !mid) return {};
   try {
-    const snap = await get(ref(db, `families/${familyId}/expenses/${year}`));
-    const yearData = snap.val() || {};
-
-    const result = {};
+    const snap = await get(ref(db, `families/${fid}/expenses/${y}`));
+    const yd = snap.val() || {}; const out = {};
     for (let m = 1; m <= 12; m++) {
       const mm = String(m).padStart(2, '0');
-      const memberExpenses = yearData[mm]?.member_expenses?.[memberId] || {};
-      const items = Object.entries(memberExpenses).map(([id, e]) => ({ id, ...e }));
+      const me = yd[mm]?.member_expenses?.[mid] || {};
+      const items = Object.entries(me).map(([id, e]) => ({ id, ...e }));
       items.sort(byCreatedAt);
-      result[mm] = items;
+      out[mm] = items;
     }
-    return result;
-  } catch (e) {
-    console.warn(`[db] getMemberExpensesForYear 讀取失敗：`, e);
-    return {};
-  }
+    return out;
+  } catch (e) { return {}; }
 }
-
-export async function addExpense(year, month, memberId, expense) {
-  if (!year || !month) {
-    const ym = AppState.getYearMonth();
-    year = ym.year; month = ym.month;
-  }
-  const newRef = push(familyRef(expensePath(year, month, memberId)));
-  await set(newRef, {
-    name: expense.name || '',
-    amount: roundInt(expense.amount),
-    status: normalizeStatus(expense.status || '未處理'),
-    date: expense.date || '',
-    categoryId: expense.categoryId || '',
-    itemId: expense.itemId || '',
-    paymentMethodId: expense.paymentMethodId || '',
-    bankId: expense.bankId || '',
-    txnId: expense.txnId || '',
-    isAutoLinked: expense.isAutoLinked || false,
-    policyId: expense.policyId || '',
+export async function addExpense(y, m, mid, exp) {
+  if (!y || !m) { const ym = AppState.getYearMonth(); y = ym.year; m = ym.month; }
+  const r = push(familyRef(expensePath(y, m, mid)));
+  await set(r, {
+    name: exp.name || '', amount: roundInt(exp.amount),
+    status: normalizeStatus(exp.status || '未處理'),
+    date: exp.date || '',
+    categoryId: exp.categoryId || '', itemId: exp.itemId || '',
+    paymentMethodId: exp.paymentMethodId || '',
+    bankId: exp.bankId || '', txnId: exp.txnId || '',
+    isAutoLinked: exp.isAutoLinked || false, policyId: exp.policyId || '',
     createdAt: Date.now(),
   });
-  return newRef.key;
+  return r.key;
 }
-
-export async function updateExpense(year, month, memberId, expId, patch) {
-  if (!year || !month) {
-    const ym = AppState.getYearMonth();
-    year = ym.year; month = ym.month;
-  }
-  const clean = { ...patch };
-  if (clean.amount != null) clean.amount = roundInt(clean.amount);
-  if (clean.status !== undefined) clean.status = normalizeStatus(clean.status);
-  await update(familyRef(`${expensePath(year, month, memberId)}/${expId}`), clean);
+export async function updateExpense(y, m, mid, eid, p) {
+  if (!y || !m) { const ym = AppState.getYearMonth(); y = ym.year; m = ym.month; }
+  const c = { ...p };
+  if (c.amount != null) c.amount = roundInt(c.amount);
+  if (c.status !== undefined) c.status = normalizeStatus(c.status);
+  await update(familyRef(`${expensePath(y, m, mid)}/${eid}`), c);
 }
-
-export async function removeExpense(year, month, memberId, expId) {
-  if (!year || !month) {
-    const ym = AppState.getYearMonth();
-    year = ym.year; month = ym.month;
-  }
-  await remove(familyRef(`${expensePath(year, month, memberId)}/${expId}`));
+export async function removeExpense(y, m, mid, eid) {
+  if (!y || !m) { const ym = AppState.getYearMonth(); y = ym.year; m = ym.month; }
+  await remove(familyRef(`${expensePath(y, m, mid)}/${eid}`));
 }
-
-export async function markMemberExpenseRepaid(year, month, memberId, expId, statusName) {
-  await update(familyRef(`${expensePath(year, month, memberId)}/${expId}`), {
-    status: normalizeStatus(statusName),
-    repaidDate: statusName && statusName.startsWith('已')
-      ? new Date().toISOString().slice(0, 10)
-      : '',
+export async function markMemberExpenseRepaid(y, m, mid, eid, sn) {
+  await update(familyRef(`${expensePath(y, m, mid)}/${eid}`), {
+    status: normalizeStatus(sn),
+    repaidDate: sn && sn.startsWith('已') ? new Date().toISOString().slice(0, 10) : '',
   });
 }
-
 export async function batchUpdateExpenses(updates) {
-  const familyId = AppState.getFamilyId();
-  if (!familyId) throw new Error('尚未選擇家庭');
-
-  const finalUpdates = {};
-
+  const fid = AppState.getFamilyId(); if (!fid) throw new Error('尚未選擇家庭');
+  const fu = {};
   for (const item of updates) {
     const { oldYear, oldMonth, oldMemberId, expenseId, data } = item;
-    const newYear = data.year || oldYear;
-    const newMonth = data.month || oldMonth;
-    const newMemberId = data.memberId || oldMemberId;
-
-    const normalizedStatus = normalizeStatus(data.status || '未處理');
-
-    const pathChanged =
-      newYear !== oldYear || newMonth !== oldMonth || newMemberId !== oldMemberId;
-
-    if (pathChanged) {
-      finalUpdates[
-        `families/${familyId}/expenses/${oldYear}/${oldMonth}/member_expenses/${oldMemberId}/${expenseId}`
-      ] = null;
-      const newRef = push(
-        ref(db, `families/${familyId}/expenses/${newYear}/${newMonth}/member_expenses/${newMemberId}`)
-      );
-      finalUpdates[
-        `families/${familyId}/expenses/${newYear}/${newMonth}/member_expenses/${newMemberId}/${newRef.key}`
-      ] = {
-        name: data.name || '',
-        amount: roundInt(data.amount),
-        status: normalizedStatus,
-        date: data.date || '',
-        categoryId: data.categoryId || '',
-        itemId: data.itemId || '',
-        paymentMethodId: data.paymentMethodId || '',
-        bankId: data.bankId || '',
-        txnId: data.txnId || '',
-        isAutoLinked: false,
-        createdAt: Date.now(),
+    const ny = data.year || oldYear, nm = data.month || oldMonth, nmid = data.memberId || oldMemberId;
+    const ns = normalizeStatus(data.status || '未處理');
+    const pc = ny !== oldYear || nm !== oldMonth || nmid !== oldMemberId;
+    if (pc) {
+      fu[`families/${fid}/expenses/${oldYear}/${oldMonth}/member_expenses/${oldMemberId}/${expenseId}`] = null;
+      const nr = push(ref(db, `families/${fid}/expenses/${ny}/${nm}/member_expenses/${nmid}`));
+      fu[`families/${fid}/expenses/${ny}/${nm}/member_expenses/${nmid}/${nr.key}`] = {
+        name: data.name || '', amount: roundInt(data.amount), status: ns,
+        date: data.date || '', categoryId: data.categoryId || '', itemId: data.itemId || '',
+        paymentMethodId: data.paymentMethodId || '', bankId: data.bankId || '', txnId: data.txnId || '',
+        isAutoLinked: false, createdAt: Date.now(),
       };
     } else {
-      finalUpdates[
-        `families/${familyId}/expenses/${oldYear}/${oldMonth}/member_expenses/${oldMemberId}/${expenseId}`
-      ] = {
-        name: data.name || '',
-        amount: roundInt(data.amount),
-        status: normalizedStatus,
-        date: data.date || '',
-        categoryId: data.categoryId || '',
-        itemId: data.itemId || '',
-        paymentMethodId: data.paymentMethodId || '',
-        bankId: data.bankId || '',
-        txnId: data.txnId || '',
+      fu[`families/${fid}/expenses/${oldYear}/${oldMonth}/member_expenses/${oldMemberId}/${expenseId}`] = {
+        name: data.name || '', amount: roundInt(data.amount), status: ns,
+        date: data.date || '', categoryId: data.categoryId || '', itemId: data.itemId || '',
+        paymentMethodId: data.paymentMethodId || '', bankId: data.bankId || '', txnId: data.txnId || '',
       };
     }
   }
-
-  await update(ref(db), finalUpdates);
+  await update(ref(db), fu);
 }
 
-/* ============================================
-   保險
-   ============================================ */
-
-export function listenInsurancePolicies(cb, err) {
-  return listenList('insurance_policies', byCreatedAt, cb, err);
-}
-
+/* ============ 保險 ============ */
+export function listenInsurancePolicies(cb, err) { return listenList('insurance_policies', byCreatedAt, cb, err); }
 export async function getInsurancePoliciesOnce() {
   const snap = await get(familyRef('insurance_policies'));
-  const val = snap.val() || {};
-  const list = Object.entries(val).map(([id, p]) => ({ id, ...p }));
+  const list = Object.entries(snap.val() || {}).map(([id, p]) => ({ id, ...p }));
   list.sort(byCreatedAt);
   return list;
 }
-
-export async function addInsurancePolicy(policy) {
-  const newRef = push(familyRef('insurance_policies'));
-  await set(newRef, {
-    type: policy.type || 'normal',
-    memberId: policy.memberId || '',
-    policyHolderId: policy.policyHolderId || '',
-    name: policy.name || '',
-    company: policy.company || '',
-    paymentType: policy.paymentType || '年繳',
-    paymentMode: policy.paymentMode || 'direct',
-    advanceHolderId: policy.advanceHolderId || '',
-    advanceId: policy.advanceId || '',
-    firstStartYear: Number(policy.firstStartYear) || 0,
-    firstStartMonth: String(policy.firstStartMonth || '01').padStart(2, '0'),
-    totalPolicyYears: Number(policy.totalPolicyYears) || 0,
-    totalPolicyPeriods: Number(policy.totalPolicyPeriods) || 0,
-    totalPremium: roundInt(policy.totalPremium),
-    currentPeriodIndex: Number(policy.currentPeriodIndex) || 1,
-    monthlyPremium: roundInt(policy.monthlyPremium),
-    annualPremium: roundInt(policy.annualPremium),
-    account: policy.account || '',
-    periods: policy.periods || {},
+export async function addInsurancePolicy(p) {
+  const r = push(familyRef('insurance_policies'));
+  await set(r, {
+    type: p.type || 'normal',
+    memberId: p.memberId || '', policyHolderId: p.policyHolderId || '',
+    name: p.name || '', company: p.company || '',
+    paymentType: p.paymentType || '年繳',
+    paymentMode: p.paymentMode || 'direct',
+    advanceHolderId: p.advanceHolderId || '', advanceId: p.advanceId || '',
+    firstStartYear: Number(p.firstStartYear) || 0,
+    firstStartMonth: String(p.firstStartMonth || '01').padStart(2, '0'),
+    totalPolicyYears: Number(p.totalPolicyYears) || 0,
+    totalPolicyPeriods: Number(p.totalPolicyPeriods) || 0,
+    totalPremium: roundInt(p.totalPremium),
+    currentPeriodIndex: Number(p.currentPeriodIndex) || 1,
+    monthlyPremium: roundInt(p.monthlyPremium),
+    annualPremium: roundInt(p.annualPremium),
+    account: p.account || '',
+    fundsAllocation: Array.isArray(p.fundsAllocation) ? p.fundsAllocation : [],
+    periods: p.periods || {},
     createdAt: Date.now(),
   });
-  return newRef.key;
+  return r.key;
 }
-
-export async function updateInsurancePolicy(id, patch) {
-  const clean = {};
-  const fields = [
-    'type', 'memberId', 'policyHolderId', 'name', 'company', 'paymentType',
-    'paymentMode', 'advanceHolderId', 'advanceId',
-    'firstStartYear', 'firstStartMonth', 'totalPolicyYears', 'totalPolicyPeriods',
-    'totalPremium', 'currentPeriodIndex', 'monthlyPremium', 'annualPremium',
-    'account', 'periods', 'isCompleted',
-  ];
-  fields.forEach((f) => {
-    if (patch[f] !== undefined) clean[f] = patch[f];
-  });
-  if (clean.totalPremium != null) clean.totalPremium = roundInt(clean.totalPremium);
-  if (clean.monthlyPremium != null) clean.monthlyPremium = roundInt(clean.monthlyPremium);
-  if (clean.annualPremium != null) clean.annualPremium = roundInt(clean.annualPremium);
-  if (Object.keys(clean).length === 0) return;
-  await update(familyRef(`insurance_policies/${id}`), clean);
+export async function updateInsurancePolicy(id, p) {
+  const c = {};
+  const f = ['type', 'memberId', 'policyHolderId', 'name', 'company', 'paymentType', 'paymentMode', 'advanceHolderId', 'advanceId', 'firstStartYear', 'firstStartMonth', 'totalPolicyYears', 'totalPolicyPeriods', 'totalPremium', 'currentPeriodIndex', 'monthlyPremium', 'annualPremium', 'account', 'periods', 'isCompleted', 'fundsAllocation'];
+  f.forEach((k) => { if (p[k] !== undefined) c[k] = p[k]; });
+  if (c.totalPremium != null) c.totalPremium = roundInt(c.totalPremium);
+  if (c.monthlyPremium != null) c.monthlyPremium = roundInt(c.monthlyPremium);
+  if (c.annualPremium != null) c.annualPremium = roundInt(c.annualPremium);
+  if (!Object.keys(c).length) return;
+  await update(familyRef(`insurance_policies/${id}`), c);
 }
-
-export async function removeInsurancePolicy(id) {
-  await remove(familyRef(`insurance_policies/${id}`));
-}
-
-export async function deleteInsurancePolicyAndData(policyId, memberId) {
-  const familyId = AppState.getFamilyId();
-  if (!familyId) throw new Error('尚未選擇家庭');
-
-  let effectiveMemberId = memberId;
-  if (!effectiveMemberId) {
+export async function removeInsurancePolicy(id) { await remove(familyRef(`insurance_policies/${id}`)); }
+export async function deleteInsurancePolicyAndData(pid, mid) {
+  const fid = AppState.getFamilyId(); if (!fid) throw new Error('尚未選擇家庭');
+  let em = mid;
+  if (!em) {
     try {
-      const policySnap = await get(ref(db, `families/${familyId}/insurance_policies/${policyId}`));
-      const policy = policySnap.val();
-      if (policy) {
-        effectiveMemberId = policy.policyHolderId || policy.memberId || '';
-      }
-    } catch (e) {
-      console.warn(`[db] deleteInsurancePolicyAndData: 讀取 policy 失敗`, e);
-    }
+      const ps = await get(ref(db, `families/${fid}/insurance_policies/${pid}`));
+      const p = ps.val();
+      if (p) em = p.policyHolderId || p.memberId || '';
+    } catch (e) {}
   }
-
-  const paymentsSnap = await get(ref(db, `families/${familyId}/insurance_payments/${policyId}`));
-  const payments = paymentsSnap.val() || {};
-  const updates = {};
-
-  const linkedKey = buildLinkedKey(policyId);
-
-  if (effectiveMemberId) {
-    for (const [year, months] of Object.entries(payments)) {
-      for (const [month] of Object.entries(months)) {
-        updates[
-          `families/${familyId}/expenses/${year}/${month}/member_expenses/${effectiveMemberId}/${linkedKey}`
-        ] = null;
+  const psnap = await get(ref(db, `families/${fid}/insurance_payments/${pid}`));
+  const pms = psnap.val() || {}; const up = {};
+  const lk = buildLinkedKey(pid);
+  if (em) {
+    for (const [y, ms] of Object.entries(pms)) {
+      for (const [m] of Object.entries(ms)) {
+        up[`families/${fid}/expenses/${y}/${m}/member_expenses/${em}/${lk}`] = null;
       }
     }
   }
-
-  updates[`families/${familyId}/insurance_payments/${policyId}`] = null;
-  updates[`families/${familyId}/insurance_policies/${policyId}`] = null;
-  await update(ref(db), updates);
+  up[`families/${fid}/insurance_payments/${pid}`] = null;
+  up[`families/${fid}/insurance_policies/${pid}`] = null;
+  await update(ref(db), up);
 }
-
-export async function addInsurancePeriod(policyId, periodIndex, periodData) {
-  await set(familyRef(`insurance_policies/${policyId}/periods/${periodIndex}`), {
-    periodIndex: Number(periodIndex),
-    startYear: Number(periodData.startYear),
-    startMonth: String(periodData.startMonth).padStart(2, '0'),
-    annualPremium: roundInt(periodData.annualPremium),
-    monthlyAverage: roundInt(periodData.monthlyAverage),
+export async function addInsurancePeriod(pid, pi, pd) {
+  await set(familyRef(`insurance_policies/${pid}/periods/${pi}`), {
+    periodIndex: Number(pi),
+    startYear: Number(pd.startYear),
+    startMonth: String(pd.startMonth).padStart(2, '0'),
+    annualPremium: roundInt(pd.annualPremium),
+    monthlyAverage: roundInt(pd.monthlyAverage),
   });
 }
-
-export function listenInsurancePayment(policyId, year, month, cb, err) {
-  return listen(`insurance_payments/${policyId}/${year}/${month}`, (snap) => cb(snap.val() || {}), err);
+export function listenInsurancePayment(pid, y, m, cb, err) {
+  return listen(`insurance_payments/${pid}/${y}/${m}`, (s) => cb(s.val() || {}), err);
 }
-
-export async function getInsurancePaymentsOnce(policyId) {
-  const snap = await get(familyRef(`insurance_payments/${policyId}`));
+export async function getInsurancePaymentsOnce(pid) {
+  const snap = await get(familyRef(`insurance_payments/${pid}`));
   return snap.val() || {};
 }
-
-export async function saveInsurancePaymentBatch(policyId, year, month, data) {
-  await set(familyRef(`insurance_payments/${policyId}/${year}/${month}`), {
-    status: normalizeStatus(data.status || '已扣款'),
-    amount: roundInt(data.amount),
-    date: data.date || new Date().toISOString().slice(0, 10),
-    bankId: data.bankId || '',
-    txnId: data.txnId || '',
+export async function saveInsurancePaymentBatch(pid, y, m, d) {
+  await set(familyRef(`insurance_payments/${pid}/${y}/${m}`), {
+    status: normalizeStatus(d.status || '已扣款'),
+    amount: roundInt(d.amount),
+    date: d.date || new Date().toISOString().slice(0, 10),
+    bankId: d.bankId || '', txnId: d.txnId || '',
   });
 }
-
-export async function removeInsurancePaymentBatch(policyId, year, month) {
-  await remove(familyRef(`insurance_payments/${policyId}/${year}/${month}`));
+export async function removeInsurancePaymentBatch(pid, y, m) {
+  await remove(familyRef(`insurance_payments/${pid}/${y}/${m}`));
 }
 
-/* ============================================
-   收入（家用轉入）
-   -------------------------------------------------
-   🆕 v103.0.12 [M06]：saveIncome 改用 update()
-     - 0 或負數值以 null 傳入 → 實際刪除該鍵
-     - 避免兩次寫入互蓋
-   ============================================ */
-
-export function listenIncome(year, month, cb, err) {
-  if (!year || !month) {
-    const ym = AppState.getYearMonth();
-    year = ym.year; month = ym.month;
-  }
-  return listen(`income/${year}/${month}`, (snap) => cb(snap.val() || {}), err);
+/* ============ 收入（家用轉入） ============ */
+export function listenIncome(y, m, cb, err) {
+  if (!y || !m) { const ym = AppState.getYearMonth(); y = ym.year; m = ym.month; }
+  return listen(`income/${y}/${m}`, (s) => cb(s.val() || {}), err);
 }
-
-export async function getIncomeOnce(year, month) {
-  const snap = await get(familyRef(`income/${year}/${month}`));
+export async function getIncomeOnce(y, m) {
+  const snap = await get(familyRef(`income/${y}/${m}`));
   return snap.val() || {};
 }
-
-/**
- * 🆕 v103.0.12 [M06]：改用 update()
- * - 只更新傳入的 key（其他成員的資料不受影響）
- * - 值為 0 或負數 → 傳 null 給 update（Firebase 會刪除該鍵）
- */
-export async function saveIncome(year, month, data) {
-  if (!year || !month) {
-    const ym = AppState.getYearMonth();
-    year = ym.year; month = ym.month;
-  }
-  const updates = {};
-  Object.entries(data || {}).forEach(([key, val]) => {
-    const num = roundInt(val);
-    updates[key] = num > 0 ? num : null;
+export async function saveIncome(y, m, data) {
+  if (!y || !m) { const ym = AppState.getYearMonth(); y = ym.year; m = ym.month; }
+  const up = {};
+  Object.entries(data || {}).forEach(([k, v]) => {
+    const n = roundInt(v);
+    up[k] = n > 0 ? n : null;
   });
-  if (Object.keys(updates).length === 0) return;
-  await update(familyRef(`income/${year}/${month}`), updates);
+  if (!Object.keys(up).length) return;
+  await update(familyRef(`income/${y}/${m}`), up);
 }
-
 export function listenAllIncome(cb, err) {
   return listen('income', (snap) => {
-    const val = snap.val() || {};
     const flat = [];
-    Object.entries(val).forEach(([year, months]) => {
-      Object.entries(months || {}).forEach(([month, data]) => {
-        Object.entries(data || {}).forEach(([memberId, amount]) => {
-          flat.push({ year, month, memberId, amount: roundInt(amount) });
-        });
+    Object.entries(snap.val() || {}).forEach(([y, ms]) => {
+      Object.entries(ms || {}).forEach(([m, data]) => {
+        Object.entries(data || {}).forEach(([mid, amt]) => flat.push({ year: y, month: m, memberId: mid, amount: roundInt(amt) }));
       });
     });
     cb(flat);
   }, err);
 }
-
-export async function updateIncomeEntry(year, month, memberId, amount) {
-  const num = roundInt(amount);
-  if (num > 0) {
-    await update(familyRef(`income/${year}/${month}`), { [memberId]: num });
-  } else {
-    await remove(familyRef(`income/${year}/${month}/${memberId}`));
-  }
+export async function updateIncomeEntry(y, m, mid, amt) {
+  const n = roundInt(amt);
+  if (n > 0) await update(familyRef(`income/${y}/${m}`), { [mid]: n });
+  else await remove(familyRef(`income/${y}/${m}/${mid}`));
 }
+export async function removeIncomeEntry(y, m, mid) { await remove(familyRef(`income/${y}/${m}/${mid}`)); }
 
-export async function removeIncomeEntry(year, month, memberId) {
-  await remove(familyRef(`income/${year}/${month}/${memberId}`));
-}
-
-/* ============================================
-   基金
-   ============================================ */
-
-export function listenFunds(cb, err) {
-  return listenList('funds', byCreatedAt, cb, err);
-}
-
+/* ============ 基金 ============ */
+export function listenFunds(cb, err) { return listenList('funds', byCreatedAt, cb, err); }
 export async function getFundsOnce() {
   const snap = await get(familyRef('funds'));
-  const val = snap.val() || {};
-  return Object.entries(val).map(([id, f]) => ({ id, ...f }));
+  return Object.entries(snap.val() || {}).map(([id, f]) => ({ id, ...f }));
 }
-
-export async function addFund(fund) {
-  const newRef = push(familyRef('funds'));
-  await set(newRef, {
-    name: fund.name || '',
-    cost: roundInt(fund.cost),
-    currentValue: roundInt(fund.currentValue),
-    units: Number(fund.units) || 0,
-    note: fund.note || '',
+export async function addFund(f) {
+  const r = push(familyRef('funds'));
+  await set(r, {
+    name: f.name || '',
+    type: f.type || 'standalone',
+    policyId: f.policyId || '',
+    cost: roundInt(f.cost),
+    currentValue: roundInt(f.currentValue),
+    units: Number(f.units) || 0,
+    initialYear: f.initialYear ? String(f.initialYear) : '',
+    initialMonth: f.initialMonth ? String(f.initialMonth).padStart(2, '0') : '',
+    note: f.note || '',
     createdAt: Date.now(),
   });
-  return newRef.key;
+  return r.key;
+}
+export async function updateFund(id, p) {
+  const c = {};
+  if (p.name !== undefined) c.name = String(p.name).trim();
+  if (p.type !== undefined) c.type = p.type;
+  if (p.policyId !== undefined) c.policyId = p.policyId;
+  if (p.cost !== undefined) c.cost = roundInt(p.cost);
+  if (p.currentValue !== undefined) c.currentValue = roundInt(p.currentValue);
+  if (p.units !== undefined) c.units = Number(p.units) || 0;
+  if (p.initialYear !== undefined) c.initialYear = String(p.initialYear);
+  if (p.initialMonth !== undefined) c.initialMonth = String(p.initialMonth).padStart(2, '0');
+  if (p.note !== undefined) c.note = String(p.note || '').trim();
+  if (!Object.keys(c).length) return;
+  await update(familyRef(`funds/${id}`), c);
+}
+export async function removeFund(id) { await remove(familyRef(`funds/${id}`)); }
+
+/* 🆕 基金快照 */
+export function listenFundSnapshots(fundId, cb, err) {
+  return listen(`funds/${fundId}/snapshots`, (snap) => cb(snap.val() || {}), err);
+}
+export async function getFundSnapshotsOnce(fundId) {
+  const snap = await get(familyRef(`funds/${fundId}/snapshots`));
+  return snap.val() || {};
+}
+export async function saveFundSnapshot(fundId, y, m, data) {
+  const path = `funds/${fundId}/snapshots/${y}/${String(m).padStart(2, '0')}`;
+  const existing = await get(familyRef(path));
+  const ex = existing.val() || {};
+  await set(familyRef(path), {
+    shares: Number(data.shares) || 0,
+    nav: Number(data.nav) || 0,
+    value: roundInt(Number(data.shares || 0) * Number(data.nav || 0)),
+    contribution: roundInt(data.contribution || ex.contribution || 0),
+    cumulativeCost: roundInt(data.cumulativeCost != null ? data.cumulativeCost : ex.cumulativeCost || 0),
+    createdAt: ex.createdAt || Date.now(),
+    updatedAt: Date.now(),
+  });
+}
+export async function removeFundSnapshot(fundId, y, m) {
+  await remove(familyRef(`funds/${fundId}/snapshots/${y}/${String(m).padStart(2, '0')}`));
 }
 
-export async function updateFund(id, patch) {
-  const clean = {};
-  if (patch.name !== undefined) clean.name = String(patch.name).trim();
-  if (patch.cost !== undefined) clean.cost = roundInt(patch.cost);
-  if (patch.currentValue !== undefined) clean.currentValue = roundInt(patch.currentValue);
-  if (patch.units !== undefined) clean.units = Number(patch.units) || 0;
-  if (patch.note !== undefined) clean.note = String(patch.note || '').trim();
-  if (Object.keys(clean).length === 0) return;
-  await update(familyRef(`funds/${id}`), clean);
-}
-
-export async function removeFund(id) {
-  await remove(familyRef(`funds/${id}`));
-}
-
-/* ============================================
-   跨來源改狀態（供 settlements 使用）
-   ============================================ */
-
-export async function updateEntityStatus(source, row, newStatus, isDone) {
+/* ============ 跨來源改狀態 ============ */
+export async function updateEntityStatus(source, row, ns, isDone) {
   const today = new Date().toISOString().slice(0, 10);
-
   switch (source) {
     case 'personal': {
       const { memberId, expenseId } = row._ref;
-      await updateExpense(row.year, row.month, memberId, expenseId, {
-        status: newStatus,
-        repaidDate: isDone ? today : '',
-      });
+      await updateExpense(row.year, row.month, memberId, expenseId, { status: ns, repaidDate: isDone ? today : '' });
       return;
     }
-    case 'insurance': {
-      throw new Error(
-        '保險狀態請呼叫 functions/api/insurance-sync（透過 api.insuranceSync()），' +
-        '或使用 insurance-payment 相關的寫入函式。'
-      );
-    }
-    case 'fixed': {
-      throw new Error(
-        'fixed_expenses 節點已於 v102.0.0 廢除，不再支援狀態寫入。' +
-        '請改用個人支出或保險扣款。'
-      );
-    }
-    default:
-      throw new Error('未知的來源：' + source);
+    case 'insurance': throw new Error('保險狀態請呼叫 api.insuranceSync()');
+    case 'fixed': throw new Error('fixed_expenses 已廢除');
+    default: throw new Error('未知的來源：' + source);
   }
 }
 
-/* ============================================
-   側邊欄排序（已廢除，僅向後相容）
-   ============================================ */
-
+/* ============ 側邊欄（已廢除） ============ */
 export function listenSidebarOrder(cb, err) {
   return listen('settings/sidebar_order', (snap) => {
-    const val = snap.val();
-    if (!val) { cb(null); return; }
-    const arr = Array.isArray(val) ? val : Object.values(val);
+    const v = snap.val();
+    if (!v) { cb(null); return; }
+    const arr = Array.isArray(v) ? v : Object.values(v);
     cb(arr.filter((x) => typeof x === 'string'));
   }, err);
 }
-
 export async function saveSidebarOrder(order) {
   if (!Array.isArray(order)) throw new Error('order 必須是陣列');
   await set(familyRef('settings/sidebar_order'), order);
 }
+
+/* ═══════════════════════════════════════════
+   END OF FILE
+   File: js/core/db.js
+   Version: v103.0.21
+   Batch: B23
+   ═══════════════════════════════════════════ */
